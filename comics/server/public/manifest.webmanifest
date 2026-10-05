@@ -1,0 +1,33 @@
+{
+  "name": "COMIXOLOFREE ",
+  "short_name": "ComixCloud",
+  "description": "Personal Comic Reader and Cloud Server with Google Drive and GetComics integration.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0D0F16",
+  "theme_color": "#0D0F16",
+  "lang": "en",
+  "categories": ["books", "entertainment", "productivity"],
+  "icons": [
+    {
+      "src": "/192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

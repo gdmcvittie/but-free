@@ -1,0 +1,340 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="MainScene" extends="Scene">
+  <interface>
+  </interface>
+  <children>
+    <!-- Background & Fullscreen Video Component -->
+    <Video
+      id="video"
+      translation="[0, 0]"
+      width="1280"
+      height="720"
+      visible="false"
+    />
+
+    <!-- Main Grid Screen -->
+    <Group id="gridScreen" layoutMode="none" visible="true">
+      <!-- Background Image & Dark Overlay -->
+      <Poster
+        id="homeBg"
+        translation="[0, 0]"
+        width="1280"
+        height="720"
+        uri="pkg:/images/bg.jpg"
+        loadDisplayMode="zoomToFill"
+      />
+      <Rectangle
+        id="homeOverlay"
+        translation="[0, 0]"
+        width="1280"
+        height="720"
+        color="#07080D"
+        opacity="0.65"
+      />
+
+      <!-- Content Area (shifted right of the sidebar) -->
+      <Group id="contentArea" translation="[96, 0]">
+        <!-- Top Header: breadcrumb + server IP chip -->
+        <Label
+          id="folderBreadcrumb"
+          translation="[20, 18]"
+          width="800"
+          height="28"
+          text="Home"
+          font="font:SmallSystemFont"
+          color="#A3A8B8"
+          vertAlign="center"
+        />
+        <Rectangle
+          id="ipFrame"
+          translation="[884, 9]"
+          width="262"
+          height="42"
+          color="#FFFFFF"
+          visible="false"
+        />
+        <Rectangle
+          id="ipContainer"
+          translation="[885, 10]"
+          width="260"
+          height="40"
+          color="#14161F"
+        />
+        <Label
+          id="ipLabel"
+          translation="[885, 10]"
+          width="260"
+          height="40"
+          text=""
+          font="font:SmallSystemFont"
+          color="#A3A8B8"
+          horizAlign="center"
+          vertAlign="center"
+        />
+        <Rectangle
+          id="headerDivider"
+          translation="[20, 60]"
+          width="1140"
+          height="1"
+          color="#161926"
+        />
+
+        <!-- Hero Spotlight Billboard (home screen only) -->
+        <Group id="heroGroup" translation="[20, 72]" visible="true">
+          <Label
+            id="heroTitle"
+            translation="[24, 30]"
+            width="720"
+            height="40"
+            text="FREEVEE"
+            font="font:LargeBoldSystemFont"
+            color="#FFFFFF"
+          />
+          <Label
+            id="heroDesc"
+            translation="[24, 80]"
+            width="660"
+            height="50"
+            text="Select any movie or TV show below to start streaming immediately."
+            font="font:SmallSystemFont"
+            color="#A3A8B8"
+            wrap="true"
+          />
+          <Rectangle
+            id="heroPlayBtn"
+            translation="[24, 260]"
+            width="120"
+            height="32"
+            color="#FFFFFF"
+          />
+          <Label
+            id="heroPlayLabel"
+            translation="[24, 260]"
+            width="120"
+            height="32"
+            text="Play Now"
+            font="font:SmallSystemFont"
+            color="#000000"
+            horizAlign="center"
+            vertAlign="center"
+          />
+        </Group>
+
+        <!-- Home Section Buttons (icon+text tiles, built at runtime) -->
+        <Group id="homeSectionGroup" translation="[20, 300]" visible="true" />
+
+        <!-- Poster Grid (used for sub-screens only) -->
+        <PosterGrid
+          id="posterGrid"
+          translation="[20, 300]"
+          basePosterSize="[150, 160]"
+          itemSpacing="[20, 14]"
+          numColumns="5"
+          numRows="1"
+          captionHeight="22"
+          posterDisplayMode="zoomToFill"
+          drawFocusFeedback="true"
+          drawFocusFeedbackOnTop="true"
+          focusBitmapUri="pkg:/images/focus-ring.png"
+          focusFootprintBlendColor="0xFFFFFF00"
+        />
+        <!-- Fresh label + rail (home screen only) -->
+        <Label
+          id="cwLabel"
+          translation="[20, 250]"
+          width="600"
+          height="20"
+          text="What's On"
+          font="font:MediumBoldSystemFont"
+          color="#FFFFFF"
+          visible="false"
+        />
+        <PosterGrid
+          id="cwGrid"
+          translation="[20, 274]"
+          basePosterSize="[150, 150]"
+          itemSpacing="[16, 12]"
+          numColumns="7"
+          numRows="2"
+          captionHeight="0"
+          posterDisplayMode="zoomToFill"
+          drawFocusFeedback="true"
+          drawFocusFeedbackOnTop="true"
+          focusBitmapUri="pkg:/images/focus-ring.png"
+          focusFootprintBlendColor="0xFFFFFF00"
+          visible="false"
+        />
+        <!-- Info bar at the very bottom, shows focused item title on all screens -->
+        <Rectangle
+          id="cwInfoBar"
+          translation="[20, 670]"
+          width="1140"
+          height="50"
+          color="#08090F"
+          opacity="0.92"
+          visible="false"
+        />
+        <Label
+          id="cwInfoTitle"
+          translation="[30, 674]"
+          width="1100"
+          height="24"
+          text=""
+          font="font:MediumBoldSystemFont"
+          color="#FFFFFF"
+          vertAlign="center"
+          visible="false"
+        />
+        <Label
+          id="cwInfoDesc"
+          translation="[30, 698]"
+          width="1100"
+          height="20"
+          text=""
+          font="font:SmallSystemFont"
+          color="#A3A8B8"
+          vertAlign="center"
+          visible="false"
+        />
+        <Group id="cwRailGroup" translation="[20, 388]" visible="false" />
+
+        <!-- Pairing / Sign In Screen -->
+        <Group id="pairingGroup" translation="[0, 0]" visible="false">
+          <Label
+            id="pairingTitle"
+            translation="[390, 60]"
+            width="500"
+            height="40"
+            text="Sign In to FREEVEE"
+            font="font:LargeBoldSystemFont"
+            color="#FFFFFF"
+            horizAlign="center"
+            vertAlign="center"
+          />
+          <Label
+            id="pairingSubtitle"
+            translation="[390, 108]"
+            width="500"
+            height="28"
+            text="Scan the QR code with your phone"
+            font="font:SmallSystemFont"
+            color="#A3A8B8"
+            horizAlign="center"
+            vertAlign="center"
+          />
+          <Poster
+            id="pairingQr"
+            translation="[490, 150]"
+            width="300"
+            height="300"
+            uri="pkg:/images/device-qr.png"
+            loadDisplayMode="scaleToFit"
+          />
+          <Label
+            id="pairingCodeLabel"
+            translation="[390, 470]"
+            width="500"
+            height="90"
+            text=""
+            font="font:ExtraLargeBoldSystemFont"
+            color="#FFFFFF"
+            horizAlign="center"
+            vertAlign="center"
+          />
+          <Label
+            id="pairingHint"
+            translation="[390, 570]"
+            width="500"
+            height="28"
+            text=""
+            font="font:SmallSystemFont"
+            color="#A3A8B8"
+            horizAlign="center"
+            vertAlign="center"
+          />
+        </Group>
+      </Group>
+
+      <!-- Left Navigation Sidebar (drawn last so the expanded sidebar overlays content) -->
+      <Group id="sidebar" translation="[0, 0]" clippingRect="[0, 0, 76, 720]">
+        <Rectangle
+          id="sidebarBg"
+          translation="[0, 0]"
+          width="76"
+          height="720"
+          color="#08090F"
+          opacity="0.97"
+        />
+        <Rectangle
+          id="sidebarEdge"
+          translation="[75, 0]"
+          width="1"
+          height="720"
+          color="#1A1E2C"
+        />
+        <Poster
+          id="sidebarLogo"
+          translation="[17, 16]"
+          width="42"
+          height="42"
+          uri="pkg:/images/192.png"
+          loadDisplayMode="scaleToFit"
+        />
+        <Label
+          id="sidebarLogoText"
+          translation="[68, 22]"
+          width="140"
+          height="30"
+          text="FREEVEE"
+          font="font:MediumBoldSystemFont"
+          color="#E50914"
+          vertAlign="center"
+          visible="false"
+        />
+        <Group id="navItems" translation="[0, 84]" />
+      </Group>
+    </Group>
+
+    <!-- Player Screen (compat placeholder) -->
+    <Group id="playerScreen" layoutMode="none" visible="false" />
+
+    <!-- Notification Banner -->
+    <Group id="notifGroup" translation="[330, 20]" visible="false">
+      <Rectangle
+        id="notifBorder"
+        width="620"
+        height="64"
+        color="#8A0E15"
+        opacity="0.9"
+      />
+      <Rectangle
+        id="notifBg"
+        translation="[1, 1]"
+        width="618"
+        height="62"
+        color="#11141F"
+        opacity="0.96"
+      />
+      <Label
+        id="notifTitle"
+        translation="[18, 8]"
+        width="584"
+        height="24"
+        text=""
+        font="font:MediumBoldSystemFont"
+        color="#E50914"
+      />
+      <Label
+        id="notifMsg"
+        translation="[18, 34]"
+        width="584"
+        height="22"
+        text=""
+        font="font:SmallSystemFont"
+        color="#A3A8B8"
+      />
+      <Timer id="notifTimer" duration="5" />
+    </Group>
+  </children>
+  <script type="brightscript" uri="pkg:/components/MainScene.brs" />
+</component>

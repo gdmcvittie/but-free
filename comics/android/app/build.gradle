@@ -1,0 +1,53 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Auto-configure launcher icons from user-added 512.png / 192.png
+def resDir = file("src/main/res/drawable")
+def file512 = new File(resDir, "512.png")
+def file192 = new File(resDir, "192.png")
+def icLauncher = new File(resDir, "ic_launcher.png")
+def icon512 = new File(resDir, "icon_512.png")
+def icon192 = new File(resDir, "icon_192.png")
+
+if (file512.exists()) {
+    java.nio.file.Files.copy(file512.toPath(), icLauncher.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+    java.nio.file.Files.copy(file512.toPath(), icon512.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+    file512.delete()
+}
+if (file192.exists()) {
+    if (!file512.exists() && !icon512.exists()) {
+        java.nio.file.Files.copy(file192.toPath(), icLauncher.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+    }
+    java.nio.file.Files.copy(file192.toPath(), icon192.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+    file192.delete()
+}
+
+android {
+    namespace 'com.comixolofree.android'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.comixolofree.android"
+        minSdk 21
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+}

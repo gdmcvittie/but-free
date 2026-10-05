@@ -1,0 +1,49 @@
+{
+  "timestamp": "2026-10-05T13:37:53.941Z",
+  "__dirname": "C:\\_code\\but-free\\tv\\server",
+  "process": {
+    "platform": "win32",
+    "arch": "x64",
+    "version": "v24.15.0"
+  },
+  "resolved": "C:\\_code\\but-free\\node_modules\\@ffmpeg-installer\\win32-x64\\ffmpeg.exe",
+  "candidates": [
+    {
+      "source": "ffmpeg-static",
+      "candidate": "C:\\_code\\but-free\\tv\\server\\node_modules\\ffmpeg-static\\ffmpeg.exe",
+      "exists": false
+    },
+    {
+      "source": "@ffmpeg-installer",
+      "candidate": "C:\\_code\\but-free\\node_modules\\@ffmpeg-installer\\win32-x64\\ffmpeg.exe",
+      "exists": true,
+      "mode": "0o666",
+      "size": 64458752,
+      "works": true,
+      "version": "ffmpeg version N-92722-gf22fcd4483 Copyright (c) 2000-2018 the FFmpeg developers"
+    },
+    {
+      "source": "root bin (../bin)",
+      "candidate": "C:\\_code\\but-free\\tv\\bin\\ffmpeg.exe",
+      "exists": false
+    },
+    {
+      "source": "local bin (./bin)",
+      "candidate": "C:\\_code\\but-free\\tv\\server\\bin\\ffmpeg.exe",
+      "exists": true,
+      "mode": "0o666",
+      "size": 79826272,
+      "works": false,
+      "error": "Command failed: \"C:\\_code\\but-free\\tv\\server\\bin\\ffmpeg.exe\" -version\nThis version of C:\\_code\\but-free\\tv\\server\\bin\\ffmpeg.exe is not compatible with the version of Windows you're running. Check your computer's system information and then contact the software publisher.\r\n",
+      "stderr": "This version of C:\\_code\\but-free\\tv\\server\\bin\\ffmpeg.exe is not compatible with the version of Windows you're running. Check your computer's system information and then contact the software publisher."
+    },
+    {
+      "source": "PATH",
+      "candidate": "ffmpeg",
+      "exists": true,
+      "works": false,
+      "error": "Command failed: \"ffmpeg\" -version\n'\"ffmpeg\"' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n",
+      "stderr": "'\"ffmpeg\"' is not recognized as an internal or external command,\r\noperable program or batch file."
+    }
+  ]
+}

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy Policy - FREEVEE</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #09090b;
+      --card-bg: rgba(24, 24, 30, 0.7);
+      --border: rgba(255, 255, 255, 0.08);
+      --primary: #a78bfa;
+      --secondary: #22d3ee;
+      --text: #f3f4f6;
+      --text-muted: #9ca3af;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 40px 20px;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 40px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+    }
+    h1 {
+      font-family: 'Outfit', sans-serif;
+      font-size: 32px;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--primary);
+      background: rgba(167, 139, 250, 0.12);
+      border: 1px solid rgba(167, 139, 250, 0.25);
+      padding: 4px 10px;
+      border-radius: 6px;
+      margin-bottom: 24px;
+    }
+    h2 {
+      font-family: 'Outfit', sans-serif;
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--primary);
+      margin: 28px 0 12px;
+    }
+    p, ul {
+      color: var(--text-muted);
+      font-size: 15px;
+      margin-bottom: 16px;
+    }
+    ul { padding-left: 24px; }
+    li { margin-bottom: 8px; }
+    strong { color: var(--text); }
+    .footer {
+      margin-top: 36px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      font-size: 13px;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    a { color: var(--secondary); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Privacy Policy</h1>
+    <div class="badge">Last Updated: September 1, 2026</div>
+
+    <p>
+      This Privacy Policy explains how <strong>FREEVEE</strong> ("we", "us", or "our") collects, uses, and safeguards your information when you use our web application and media streaming services.
+    </p>
+
+    <h2>1. Information We Collect</h2>
+    <p>When you authenticate with FREEVEE using your Google Account, we receive access to specific basic profile and authorization data:</p>
+    <ul>
+      <li><strong>Google Profile Data:</strong> Your name, email address, and profile picture provided via Google OAuth 2.0.</li>
+      <li><strong>Google Drive Read-Only Access:</strong> Metadata (file names, IDs, sizes, and folder hierarchy) for videos in folders you explicitly select.</li>
+      <li><strong>Application State:</strong> Your Continue Watching playback timestamps, favorites, and folder preferences stored locally on your instance.</li>
+    </ul>
+
+    <h2>2. How We Use Your Information</h2>
+    <p>We use the collected information solely to provide core media streaming functionality:</p>
+    <ul>
+      <li>To authenticate your session and isolate your personal library from other users.</li>
+      <li>To scan and index media files contained inside your chosen Google Drive folders.</li>
+      <li>To stream requested video files directly from Google Drive to your authenticated browser or device.</li>
+      <li>To maintain your personal playback progress and favorites list.</li>
+    </ul>
+
+    <h2>3. Google API Services User Data Policy Compliance</h2>
+    <p>
+      FREEVEE’s use and transfer of information received from Google APIs to any other app will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">Google API Services User Data Policy</a>, including the <strong>Limited Use</strong> requirements:
+    </p>
+    <ul>
+      <li>We <strong>do not</strong> sell your Google user data or Google Drive contents to third parties.</li>
+      <li>We <strong>do not</strong> use your Google Drive files or personal data for advertising or marketing.</li>
+      <li>We <strong>do not</strong> use your data to train generalized artificial intelligence or machine learning models.</li>
+      <li>Human access to your private Google Drive files is strictly prohibited.</li>
+    </ul>
+
+    <h2>4. Data Storage and Security</h2>
+    <p>
+      Your OAuth tokens and preferences are stored securely on the private server hosting your FREEVEE instance. We do not store copies of your video files on our server hard drives; all video playback is streamed directly on-demand via secure HTTPS byte-range requests.
+    </p>
+
+    <h2>5. Data Retention & Deletion</h2>
+    <p>
+      You can disconnect your Google Account at any time by signing out or revoking FREEVEE's access in your <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer">Google Account Security Settings</a>. Upon revocation, all cached tokens and session access are immediately terminated.
+    </p>
+
+    <h2>6. Contact Us</h2>
+    <p>
+      If you have questions about this Privacy Policy or your data, please reach out to the administrator of this FREEVEE instance.
+    </p>
+
+    <div class="footer">
+      <div>&copy; 2026 FREEVEE. All rights reserved.</div>
+      <div><a href="/terms.html">Terms of Service</a> &bull; <a href="/">Return to App</a></div>
+    </div>
+  </div>
+</body>
+</html>

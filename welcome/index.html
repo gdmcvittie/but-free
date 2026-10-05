@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>butfree | Your Personal Media Universe Powered by Google Drive</title>
+  <meta name="description" content="Take total control over your comics, TV shows, movies, music, audiobooks, and video games. Connect your Google Drive to stream and read seamlessly with dedicated web, mobile, and TV apps.">
+  <meta name="keywords" content="Google Drive media server, comic reader, personal streaming, cloud emulator, audiobook player, butfree, butfree.online">
+  <link rel="canonical" href="https://butfree.online/">
+
+  <!-- Open Graph / Meta -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://butfree.online/">
+  <meta property="og:title" content="butfree - Unified Personal Media Cloud">
+  <meta property="og:description" content="Connect your Google Drive and take total control over your comics, movies, music, and games with dedicated apps.">
+  <meta property="og:image" content="https://butfree.online/assets/preview.png">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Ambient Background Gradients -->
+  <div class="bg-mesh" aria-hidden="true">
+    <div class="mesh-orb mesh-orb-1"></div>
+    <div class="mesh-orb mesh-orb-2"></div>
+    <div class="mesh-orb mesh-orb-3"></div>
+  </div>
+  <div class="bg-grid" aria-hidden="true"></div>
+
+  <!-- Main Navigation -->
+  <header class="navbar" id="navbar">
+    <div class="container nav-container">
+      <a href="index.html" class="brand-logo" aria-label="butfree homepage">
+        <div class="logo-badge">
+          <!-- Logo Icon: Infinity Play Sphere -->
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/>
+          </svg>
+        </div>
+        <span>but<span class="text-gradient">FREE</span></span>
+        <span class="brand-domain">.online</span>
+      </a>
+
+      <nav>
+        <ul class="nav-links" id="nav-links">
+          <li><a href="#features" class="nav-link">Features</a></li>
+          <li><a href="#ecosystem" class="nav-link">Media Pillars</a></li>
+          <li><a href="#google-drive" class="nav-link">Google Drive Sync</a></li>
+          <li><a href="#apps" class="nav-link">Apps & Devices</a></li>
+          <li><a href="#faq" class="nav-link">FAQ</a></li>
+          <li><a href="privacy.html" class="nav-link">Privacy</a></li>
+          <li><a href="terms.html" class="nav-link">Terms</a></li>
+        </ul>
+      </nav>
+
+      <div class="nav-actions">
+        <button class="btn btn-secondary btn-sm open-oauth-modal" id="nav-signin-btn">Sign In</button>
+        <button class="btn btn-primary btn-sm open-oauth-modal" id="nav-connect-btn">
+          Connect Drive
+        </button>
+        <button class="mobile-toggle" id="mobile-toggle" aria-label="Toggle navigation menu" aria-expanded="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <main>
+    <section class="hero-section" id="hero">
+      <div class="container">
+
+        <h1 class="hero-title">
+          Your Personal Media Universe.<br>
+          <span class="text-gradient">Powered by Your Google Drive.</span>
+        </h1>
+
+        <p class="hero-subtitle">
+          Turn your personal Google Drive into an all-in-one entertainment powerhouse. Stream movies & TV shows, read comics & manga, listen to music & audiobooks, and play retro video games—with dedicated apps on Web, Mobile, and Smart TVs.
+        </p>
+
+        <div class="hero-cta-group">
+          <button class="btn btn-google btn-lg open-oauth-modal" id="hero-google-connect">
+            <!-- Google "G" icon -->
+            <svg viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+            </svg>
+            Connect with Google Drive
+          </button>
+          <a href="#ecosystem" class="btn btn-secondary btn-lg">Explore Media Apps</a>
+        </div>
+
+        <div class="hero-trust-bar">
+          <div class="trust-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>Direct Client-to-Drive Streaming</span>
+          </div>
+          <div class="trust-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>Zero Third-Party Storage</span>
+          </div>
+          <div class="trust-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>Google API Limited Use Compliant</span>
+          </div>
+        </div>
+
+        <!-- Interactive Hero Showcase Window -->
+        <div class="hero-showcase">
+          <div class="showcase-window">
+            <div class="window-header">
+              <div class="window-dots">
+                <span class="window-dot red"></span>
+                <span class="window-dot yellow"></span>
+                <span class="window-dot green"></span>
+              </div>
+              <div class="window-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                app.butfree.online &bull; Connected to Google Drive
+              </div>
+              <div class="window-badge">Real-Time Sync Active</div>
+            </div>
+
+            <div class="window-body">
+              <div class="dashboard-preview">
+                <!-- Sidebar Simulation -->
+                <aside class="preview-sidebar">
+                  <div class="storage-status-card">
+                    <div class="storage-header">
+                      <span>Google Drive Storage</span>
+                      <strong class="text-cyan">1.2 TB / 2 TB</strong>
+                    </div>
+                    <div class="storage-bar">
+                      <div class="storage-fill"></div>
+                    </div>
+                    <div style="font-size: 0.72rem; color: var(--text-muted); display: flex; justify-content: space-between;">
+                      <span>Personal Cloud Vault</span>
+                      <span>60% Used</span>
+                    </div>
+                  </div>
+
+                  <ul class="preview-menu">
+                    <li class="preview-menu-item active" data-pillar="comics">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+                      <span>Comics & Manga</span>
+                    </li>
+                    <li class="preview-menu-item" data-pillar="tv">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="15" rx="2" ry="2"></rect><polyline points="17 2 12 7 7 2"></polyline></svg>
+                      <span>TV Shows & Movies</span>
+                    </li>
+                    <li class="preview-menu-item" data-pillar="music">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+                      <span>Music & Audiobooks</span>
+                    </li>
+                    <li class="preview-menu-item" data-pillar="games">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"></rect><line x1="6" y1="12" x2="10" y2="12"></line><line x1="8" y1="10" x2="8" y2="14"></line><circle cx="15" cy="13" r="1"></circle><circle cx="18" cy="11" r="1"></circle></svg>
+                      <span>Video Games (ROMs)</span>
+                    </li>
+                  </ul>
+                </aside>
+
+                <!-- Media Content Preview -->
+                <div class="preview-content">
+                  <div class="preview-quick-stats">
+                    <div class="stat-chip">
+                      <div class="stat-icon comics">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+                      </div>
+                      <div class="stat-data">
+                        <h4>1,420</h4>
+                        <p>Issues & Volumes</p>
+                      </div>
+                    </div>
+                    <div class="stat-chip">
+                      <div class="stat-icon video">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                      </div>
+                      <div class="stat-data">
+                        <h4>840</h4>
+                        <p>Movies & Episodes</p>
+                      </div>
+                    </div>
+                    <div class="stat-chip">
+                      <div class="stat-icon music">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+                      </div>
+                      <div class="stat-data">
+                        <h4>5,600</h4>
+                        <p>Tracks & Chapters</p>
+                      </div>
+                    </div>
+                    <div class="stat-chip">
+                      <div class="stat-icon games">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="6 2 18 2 18 6 6 6 6 2"></polygon><rect x="3" y="6" width="18" height="16" rx="2"></rect></svg>
+                      </div>
+                      <div class="stat-data">
+                        <h4>320</h4>
+                        <p>Cloud ROMs & Saves</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Visual Grid of Connected Media Cards -->
+                  <div class="preview-media-grid">
+                    <div class="media-mock-card">
+                      <div class="media-mock-cover" style="background: linear-gradient(180deg, rgba(0,0,0,0.1), rgba(15,23,42,0.9)), #ec4899;">
+                        <span class="media-mock-badge">CBZ</span>
+                      </div>
+                      <div class="media-mock-title">Saga - Vol 10</div>
+                      <div class="media-mock-meta">Read p. 45/160</div>
+                    </div>
+                    <div class="media-mock-card">
+                      <div class="media-mock-cover" style="background: linear-gradient(180deg, rgba(0,0,0,0.1), rgba(15,23,42,0.9)), #6366f1;">
+                        <span class="media-mock-badge">4K HDR</span>
+                      </div>
+                      <div class="media-mock-title">Interstellar</div>
+                      <div class="media-mock-meta">Resume 1h 22m</div>
+                    </div>
+                    <div class="media-mock-card">
+                      <div class="media-mock-cover" style="background: linear-gradient(180deg, rgba(0,0,0,0.1), rgba(15,23,42,0.9)), #10b981;">
+                        <span class="media-mock-badge">FLAC</span>
+                      </div>
+                      <div class="media-mock-title">Random Access Memories</div>
+                      <div class="media-mock-meta">Daft Punk</div>
+                    </div>
+                    <div class="media-mock-card">
+                      <div class="media-mock-cover" style="background: linear-gradient(180deg, rgba(0,0,0,0.1), rgba(15,23,42,0.9)), #06b6d4;">
+                        <span class="media-mock-badge">GBA</span>
+                      </div>
+                      <div class="media-mock-title">Pokemon Emerald</div>
+                      <div class="media-mock-meta">Cloud Save Sync</div>
+                    </div>
+                    <div class="media-mock-card">
+                      <div class="media-mock-cover" style="background: linear-gradient(180deg, rgba(0,0,0,0.1), rgba(15,23,42,0.9)), #f59e0b;">
+                        <span class="media-mock-badge">M4B</span>
+                      </div>
+                      <div class="media-mock-title">Dune (Audiobook)</div>
+                      <div class="media-mock-meta">Ch. 14 &bull; 42%</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- The 'butfree' Umbrella Pillars -->
+    <section class="section" id="ecosystem">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">One Unified Envelope</span>
+          <h2 class="section-title">Four Pillars. Endless Entertainment.</h2>
+          <p class="section-desc">
+            Instead of juggling fragmented apps, <strong>butfree</strong> consolidates your entire digital library under one roof with tailored, high-performance experiences for every media type.
+          </p>
+        </div>
+
+        <!-- Pillar Switcher Tabs -->
+        <div class="pillars-nav">
+          <button class="pillar-tab-btn active" data-pillar="comics">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+            Comics & Manga
+          </button>
+          <button class="pillar-tab-btn" data-pillar="tv">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="15" rx="2" ry="2"></rect><polyline points="17 2 12 7 7 2"></polyline></svg>
+            TV Shows & Movies
+          </button>
+          <button class="pillar-tab-btn" data-pillar="music">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+            Music & Audiobooks
+          </button>
+          <button class="pillar-tab-btn" data-pillar="games">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"></rect><line x1="6" y1="12" x2="10" y2="12"></line><line x1="8" y1="10" x2="8" y2="14"></line><circle cx="15" cy="13" r="1"></circle><circle cx="18" cy="11" r="1"></circle></svg>
+            Video Games
+          </button>
+        </div>
+
+        <!-- Pillar 1: Comics -->
+        <div class="pillar-tab-pane active" id="pane-comics">
+          <div class="pillar-card-detailed">
+            <div class="pillar-content">
+              <h3>Next-Gen Comic & Manga Reader</h3>
+              <p>
+                Experience your graphic novels, comic runs, and manga exactly as intended. Read directly from your Google Drive without waiting for massive gigabyte archives to download.
+              </p>
+              <ul class="feature-checklist">
+                <li class="feature-check-item">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <span><strong>Comprehensive Formats:</strong> Native parsing for CBZ, CBR, PDF, and EPUB files.</span>
+                </li>
+                <li class="feature-check-item">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <span><strong>Reader Modes:</strong> Continuous webtoon vertical scroll, double-page spreads, and right-to-left manga modes.</span>
+                </li>
+                <li class="feature-check-item">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <span><strong>Progress Sync:</strong> Read on your Android tablet or web browser; your page position is automatically synced.</span>
+                </li>
+              </ul>
+              <div class="app-platform-badges">
+                <span class="platform-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg> Web App</span>
+                <span class="platform-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"></rect></svg> Android App</span>
+                <span class="platform-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path></svg> Offline Download Support</span>
+              </div>
+            </div>
+            <div class="pillar-visual">
+              <div style="background: rgba(236, 72, 153, 0.08); border: 1px dashed rgba(236, 72, 153, 0.3); border-radius: 12px; padding: 24px; text-align: center;">
+                <span style="font-size: 3rem;">📖</span>
+                <h4 style="margin-top: 12px; font-size: 1.2rem;">Ultra-Smooth Streaming Engine</h4>
+                <p style="font-size: 0.88rem; color: var(--text-muted); margin-top: 8px;">
+                  Unpacks and streams individual pages on demand via Google Drive chunked requests. No lag, no local storage bloating.
+                </p>
+                <div style="margin-top: 16px; display: inline-flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--accent-pink);">
+                  <span>Smart metadata indexing via ComicVine API</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pillar 2: TV & Movies -->
+        <div class="pillar-tab-pane" id="pane-tv">
+          <div class="pillar-card-detailed">
+            <div class="pillar-content">
+              <h3>Cinema Streaming Across All Screens</h3>
+              <p>
+                Your own private Netflix. Stream movies and full television seasons stored on your Google Drive directly to your living room and mobile devices with zero quality degradation.
+              </p>
+              <ul class="feature-checklist">
+                <li class="feature-check-item">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <span><strong>Living Room First:</strong> Native client support for FireTV, Roku, Android TV, and modern web browsers.</span>
+                </li>
+                <li class="feature-check-item">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <span><strong>Format Agnostic:</strong> Direct playback for MKV, MP4, WebM with automatic subtitle track selection.</span>
+                </li>
+                <li class="feature-check-item">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <span><strong>Smart Watchlist & Resume:</strong> Pick up exactly where you left off on any TV or phone.</span>
+                </li>
+              </ul>
+              <div class="app-platform-badges">
+                <span class="platform-badge">Web</span>
+                <span class="platform-badge">Android</span>
+                <span class="platform-badge">Amazon FireTV</span>
+                <span class="platform-badge">Roku TV</span>
+              </div>
+            </div>
+            <div class="pillar-visual">
+              <div style="background: rgba(99, 102, 241, 0.08); border: 1px dashed rgba(99, 102, 241, 0.3); border-radius: 12px; padding: 24px; text-align: center;">
+                <span style="font-size: 3rem;">🎬</span>
+                <h4 style="margin-top: 12px; font-size: 1.2rem;">Direct Drive Stream Pipeline</h4>
+                <p style="font-size: 0.88rem; color: var(--text-muted); margin-top: 8px;">
+                  Bypasses intermediary servers. Your media is streamed straight from Google’s low-latency edge storage to your screen.
+                </p>
+                <div style="margin-top: 16px; display: inline-flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--accent-indigo);">
+                  <span>Automatic poster, episode title & season art scraper</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pillar 3: Music & Audiobooks -->
+        <div class="pillar-tab-pane" id="pane-music">
+          <div class="pillar-card-detailed">
+            <div class="pillar-content">
+              <h3>Lossless Audio & Smart Audiobooks</h3>
+              <p>
+                Rediscover your music collection and listen to your favorite audiobooks with intelligent chapter bookmarking, variable playback speeds, and continuous background audio.
+              </p>
+              <ul class="feature-checklist">
+                <li class="feature-check-item">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <span><strong>Audiophile Ready:</strong> Bit-perfect playback for FLAC, ALAC, MP3, AAC, and OGG formats.</span>
+                </li>
+                <li class="feature-check-item">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <span><strong>Audiobook Engine:</strong> Native M4B chapter support, sleep timers, bookmark notes, and pitch-corrected speed adjustment (0.5x - 3.0x).</span>
+                </li>
+                <li class="feature-check-item">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <span><strong>Offline Cache:</strong> Save albums or book chapters to your device for airplane and road-trip listening.</span>
+                </li>
+              </ul>
+              <div class="app-platform-badges">
+                <span class="platform-badge">Web Player</span>
+                <span class="platform-badge">Android Audio</span>
+                <span class="platform-badge">Background Service</span>
+              </div>
+            </div>
+            <div class="pillar-visual">
+              <div style="background: rgba(16, 185, 129, 0.08); border: 1px dashed rgba(16, 185, 129, 0.3); border-radius: 12px; padding: 24px; text-align: center;">
+                <span style="font-size: 3rem;">🎧</span>
+                <h4 style="margin-top: 12px; font-size: 1.2rem;">Intelligent Audio Indexer</h4>
+                <p style="font-size: 0.88rem; color: var(--text-muted); margin-top: 8px;">
+                  Reads ID3 tags, embedded cover artwork, and folder structures on Google Drive to create instantly searchable artists, albums, and series.
+                </p>
+                <div style="margin-top: 16px; display: inline-flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--accent-emerald);">
+                  <span>Lock-screen controls & Android Auto compatible</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pillar 4: Video Games -->
+        <div class="pillar-tab-pane" id="pane-games">
+          <div class="pillar-card-detailed">
+            <div class="pillar-content">
+              <h3>Cloud ROM Manager & Emulation</h3>
+              <p>
+                Transform your retro gaming collection into a seamless cloud arcade. Organize ROMs across systems, sync save states to Google Drive, and launch games directly in your browser.
+              </p>
+              <ul class="feature-checklist">
+                <li class="feature-check-item">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <span><strong>Multi-System Support:</strong> Organize libraries for NES, SNES, GBA, NDS, Genesis, PS1, and arcade romsets.</span>
+                </li>
+                <li class="feature-check-item">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <span><strong>Cloud Save Sync:</strong> Save files and save states are automatically synced back to your Drive folder.</span>
+                </li>
+                <li class="feature-check-item">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <span><strong>Web & Controller Ready:</strong> Full gamepad support (Xbox, PlayStation, 8BitDo) directly via the Web Gamepad API.</span>
+                </li>
+              </ul>
+              <div class="app-platform-badges">
+                <span class="platform-badge">Web Emulator</span>
+                <span class="platform-badge">Android Launcher</span>
+                <span class="platform-badge">Gamepad API</span>
+              </div>
+            </div>
+            <div class="pillar-visual">
+              <div style="background: rgba(6, 182, 212, 0.08); border: 1px dashed rgba(6, 182, 212, 0.3); border-radius: 12px; padding: 24px; text-align: center;">
+                <span style="font-size: 3rem;">🕹️</span>
+                <h4 style="margin-top: 12px; font-size: 1.2rem;">Seamless ROM Management</h4>
+                <p style="font-size: 0.88rem; color: var(--text-muted); margin-top: 8px;">
+                  Automatic game box-art fetching, CRC checksum matching, and isolated sandboxed emulation right in the browser or via companion launcher.
+                </p>
+                <div style="margin-top: 16px; display: inline-flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--accent-cyan);">
+                  <span>Zero-install web play with cross-device save states</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Google Drive Integration & Safety (Essential for OAuth Verification) -->
+    <section class="section drive-section" id="google-drive">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Privacy & Architecture</span>
+          <h2 class="section-title">How butfree Works with Google Drive</h2>
+          <p class="section-desc">
+            We believe your data belongs to you. butfree operates on a pure BYOS (Bring Your Own Storage) model where your Google Drive remains the sole owner and host of your files.
+          </p>
+        </div>
+
+        <div class="drive-features-grid">
+          <div class="drive-card">
+            <div class="drive-icon-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+            </div>
+            <h3>Direct Client Streaming</h3>
+            <p>
+              Media files stream directly from Google's servers to your web browser or client device. butfree servers never proxy, store, or hold copies of your files.
+            </p>
+          </div>
+
+          <div class="drive-card">
+            <div class="drive-icon-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            </div>
+            <h3>Scoped & Transparent Scopes</h3>
+            <p>
+              We request only the Google Drive permissions required to read and index the media directories you select. You retain complete control to revoke access anytime.
+            </p>
+          </div>
+
+          <div class="drive-card">
+            <div class="drive-icon-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg>
+            </div>
+            <h3>Zero Data Selling or Ads</h3>
+            <p>
+              Your library metadata and personal files are never sold, rented, or utilized for advertising or training artificial intelligence models.
+            </p>
+          </div>
+        </div>
+
+        <!-- Google OAuth Verification Compliance Banner -->
+        <div class="oauth-compliance-card">
+          <div class="compliance-info">
+            <div class="compliance-badge-icon">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/>
+              </svg>
+            </div>
+            <div class="compliance-text">
+              <h4>Google API Services User Data Policy Compliance</h4>
+              <p>
+                <strong>butfree</strong>'s use and transfer to any other app of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener" style="text-decoration: underline; color: var(--text-primary);">Google API Services User Data Policy</a>, including the Limited Use requirements.
+              </p>
+            </div>
+          </div>
+          <div style="flex-shrink: 0;">
+            <a href="privacy.html#google-api" class="btn btn-secondary btn-sm">Read Policy Details</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Built-in Tools Section -->
+    <section class="section" id="features">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Power Tools</span>
+          <h2 class="section-title">Built-in Management & Downloader</h2>
+          <p class="section-desc">
+            Organizing a massive media library should not be a chore. butfree comes packed with smart server and client utilities to keep your cloud tidy.
+          </p>
+        </div>
+
+        <div class="drive-features-grid">
+          <div class="drive-card">
+            <div class="drive-icon-box" style="background: rgba(245, 158, 11, 0.12); color: var(--accent-amber);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            </div>
+            <h3>Integrated Downloader</h3>
+            <p>
+              Download items directly to your mobile devices or tablets for travel, commutes, or remote access when offline.
+            </p>
+          </div>
+
+          <div class="drive-card">
+            <div class="drive-icon-box" style="background: rgba(6, 182, 212, 0.12); color: var(--accent-cyan);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            </div>
+            <h3>Automatic Metadata Scraper</h3>
+            <p>
+              Scrapes high-res cover art, episode summaries, comic book arcs, and audio ID3 tags to automatically format your library cleanly.
+            </p>
+          </div>
+
+          <div class="drive-card">
+            <div class="drive-icon-box" style="background: rgba(16, 185, 129, 0.12); color: var(--accent-emerald);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+            </div>
+            <h3>Drive Quota & Storage Analytics</h3>
+            <p>
+              Inspect which formats take the most space, find duplicate uploads, and optimize your Google Drive allocation without leaving butfree.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Multi-App Ecosystem Grid -->
+    <section class="section" id="apps" style="background: rgba(13, 16, 26, 0.4);">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Ecosystem Status</span>
+          <h2 class="section-title">The butfree Envelope</h2>
+          <p class="section-desc">
+            We are actively bringing together dedicated projects under the <strong>butfree</strong> umbrella. Here is what is active and what is currently being ported:
+          </p>
+        </div>
+
+        <div class="ecosystem-grid">
+          <div class="eco-card">
+            <div class="eco-icon" style="background: rgba(236, 72, 153, 0.12); color: var(--accent-pink);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+            </div>
+            <span class="eco-badge ready">Ready / Porting</span>
+            <h3>Comics</h3>
+            <p>Web reader + Native Android app with offline reading support and CBZ caching.</p>
+          </div>
+
+          <div class="eco-card">
+            <div class="eco-icon" style="background: rgba(99, 102, 241, 0.12); color: var(--accent-indigo);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="15" rx="2" ry="2"></rect><polyline points="17 2 12 7 7 2"></polyline></svg>
+            </div>
+            <span class="eco-badge ready">Ready / Porting</span>
+            <h3>TV & Movies</h3>
+            <p>Android, FireTV, Roku and Web streaming apps with subtitle and progress sync.</p>
+          </div>
+
+          <div class="eco-card">
+            <div class="eco-icon" style="background: rgba(16, 185, 129, 0.12); color: var(--accent-emerald);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+            </div>
+            <span class="eco-badge porting">In Progress</span>
+            <h3>Music & Audio</h3>
+            <p>FLAC lossless player, chaptered audiobook bookmarking, and background services.</p>
+          </div>
+
+          <div class="eco-card">
+            <div class="eco-icon" style="background: rgba(6, 182, 212, 0.12); color: var(--accent-cyan);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"></rect><line x1="6" y1="12" x2="10" y2="12"></line><line x1="8" y1="10" x2="8" y2="14"></line><circle cx="15" cy="13" r="1"></circle><circle cx="18" cy="11" r="1"></circle></svg>
+            </div>
+            <span class="eco-badge porting">In Progress</span>
+            <h3>Games & ROMs</h3>
+            <p>Web emulation framework, Google Drive cloud save sync, and gamepad controller support.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section class="section" id="faq">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Frequently Asked Questions</span>
+          <h2 class="section-title">Everything You Need to Know</h2>
+          <p class="section-desc">
+            Clear answers on how butfree interacts with your Google account, security, and supported devices.
+          </p>
+        </div>
+
+        <div class="faq-list">
+          <div class="faq-item">
+            <button class="faq-question" aria-expanded="false">
+              <span>Why does butfree connect to my Google Drive?</span>
+              <svg class="faq-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="faq-answer">
+              <p>
+                butfree operates on a "Bring Your Own Storage" model. By connecting your Google Drive, butfree can index your comic files, movies, TV episodes, music albums, and game ROMs directly from the cloud. This saves you from maintaining expensive home servers while giving you streaming access anywhere on the planet.
+              </p>
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" aria-expanded="false">
+              <span>Does butfree store or read my personal documents or photos?</span>
+              <svg class="faq-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="faq-answer">
+              <p>
+                No. butfree only scans for media file extensions (e.g. .cbz, .cbr, .mkv, .mp4, .flac, .mp3, .m4b, .nes, .gba) within the folders you specify or within the dedicated app folder. We never read, inspect, or modify personal documents, spreadsheets, photos, or unrelated files.
+              </p>
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" aria-expanded="false">
+              <span>Is my data shared or sold to third parties?</span>
+              <svg class="faq-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="faq-answer">
+              <p>
+                Never. We do not sell your personal data, nor do we use your Google Drive contents for advertising or machine learning training. Our usage complies strictly with the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener" style="text-decoration: underline; color: var(--accent-indigo);">Google API Services User Data Policy</a>, including the Limited Use requirements.
+              </p>
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" aria-expanded="false">
+              <span>How do I revoke access or disconnect my Google Drive?</span>
+              <svg class="faq-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="faq-answer">
+              <p>
+                You can disconnect your Google Drive at any moment from within your butfree user settings by clicking "Disconnect Drive". You can also revoke access immediately through your <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener" style="text-decoration: underline; color: var(--accent-indigo);">Google Account Security & Third-Party Permissions page</a>.
+              </p>
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <button class="faq-question" aria-expanded="false">
+              <span>What devices and platforms are supported?</span>
+              <svg class="faq-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="faq-answer">
+              <p>
+                butfree offers web applications accessible from any modern browser (Chrome, Safari, Firefox, Edge) and dedicated applications for Android devices (phones and tablets), Amazon FireTV, and Roku TV. Additional desktop and iOS releases are on our porting roadmap.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Bottom Call to Action -->
+    <section class="section">
+      <div class="container">
+        <div class="cta-box">
+          <h2>Ready to Take Control of Your Media?</h2>
+          <p>
+            Connect your personal Google Drive today and unlock high-definition streaming, smooth comic reading, lossless music, and retro cloud gaming.
+          </p>
+          <div class="hero-cta-group">
+            <button class="btn btn-primary btn-lg open-oauth-modal">Connect Google Drive Now</button>
+            <a href="privacy.html" class="btn btn-secondary btn-lg">Review Privacy & Terms</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a href="index.html" class="brand-logo">
+            <div class="logo-badge">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/>
+              </svg>
+            </div>
+            <span>but<span class="text-gradient">free</span></span>
+            <span class="brand-domain">.online</span>
+          </a>
+          <p>
+            An open umbrella media hub connecting your personal Google Drive to dedicated streaming, reading, listening, and gaming clients.
+          </p>
+        </div>
+
+        <div class="footer-col">
+          <h4>Media Pillars</h4>
+          <ul class="footer-links">
+            <li><a href="#ecosystem">Comics & Manga</a></li>
+            <li><a href="#ecosystem">TV & Movies</a></li>
+            <li><a href="#ecosystem">Music & Audiobooks</a></li>
+            <li><a href="#ecosystem">Video Games & ROMs</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h4>Apps & Platforms</h4>
+          <ul class="footer-links">
+            <li><a href="#apps">Web Application</a></li>
+            <li><a href="#apps">Android App</a></li>
+            <li><a href="#apps">Amazon FireTV</a></li>
+            <li><a href="#apps">Roku Channel</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h4>Legal & Support</h4>
+          <ul class="footer-links">
+            <li><a href="privacy.html">Privacy Policy</a></li>
+            <li><a href="terms.html">Terms of Service</a></li>
+            <li><a href="privacy.html#google-api">Google API Disclosure</a></li>
+            <li><a href="mailto:support@butfree.online">support@butfree.online</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <div>
+          &copy; 2026 butfree.online. All rights reserved.
+        </div>
+        <div class="footer-bottom-links">
+          <a href="privacy.html">Privacy Policy</a>
+          <span>&bull;</span>
+          <a href="terms.html">Terms of Service</a>
+          <span>&bull;</span>
+          <a href="mailto:support@butfree.online">Contact Support</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Interactive Google OAuth Demo Modal -->
+  <div class="modal-backdrop" id="oauth-modal" aria-hidden="true" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <button class="modal-close-btn" id="modal-close-btn" aria-label="Close dialog">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+
+      <!-- Step 1: Pre-authorization Overview -->
+      <div id="oauth-step-1">
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px;">
+          <div class="logo-badge" style="width: 36px; height: 36px;">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
+          </div>
+          <div>
+            <h3 style="font-size: 1.25rem;">Connect to butfree</h3>
+            <p style="font-size: 0.8rem; color: var(--text-muted);">Domain: https://butfree.online</p>
+          </div>
+        </div>
+
+        <p style="font-size: 0.92rem; color: var(--text-secondary); margin-bottom: 20px; line-height: 1.6;">
+          Connecting your Google Drive enables <strong>butfree</strong> to index your media library, stream video & audio directly to your device, and sync bookmarks across screens.
+        </p>
+
+        <div style="background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-subtle); border-radius: 12px; padding: 16px; margin-bottom: 24px;">
+          <div style="font-size: 0.82rem; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;">Permissions Requested:</div>
+          <div style="display: flex; align-items: flex-start; gap: 10px; font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 8px;">
+            <span style="color: var(--accent-emerald);">✔</span>
+            <span>View and stream media files (video, audio, comics, ROMs) stored in your Google Drive</span>
+          </div>
+          <div style="display: flex; align-items: flex-start; gap: 10px; font-size: 0.85rem; color: var(--text-secondary);">
+            <span style="color: var(--accent-emerald);">✔</span>
+            <span>Store reading bookmarks and game save states in your personal app data folder</span>
+          </div>
+        </div>
+
+        <button class="btn btn-google" id="simulate-connect-btn" style="width: 100%; margin-bottom: 14px;">
+          <svg viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+          </svg>
+          Connect Google Drive
+        </button>
+
+        <p style="font-size: 0.75rem; text-align: center; color: var(--text-muted);">
+          By proceeding, you agree to our <a href="terms.html" style="text-decoration: underline;">Terms of Service</a> and <a href="privacy.html" style="text-decoration: underline;">Privacy Policy</a>.
+        </p>
+      </div>
+
+      <!-- Step 2: Post-authorization Connected State -->
+      <div id="oauth-step-2" style="display: none; text-align: center;">
+        <div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(16, 185, 129, 0.15); color: var(--accent-emerald); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        </div>
+        <h3 style="font-size: 1.35rem; margin-bottom: 8px;">Google Drive Connected!</h3>
+        <p style="font-size: 0.92rem; color: var(--text-secondary); margin-bottom: 24px;">
+          Your account is verified and ready. Media folders are being scanned for comics, video, music, and games.
+        </p>
+        <button class="btn btn-primary" id="reset-demo-btn" style="width: 100%;">
+          Launch butfree Media Suite
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

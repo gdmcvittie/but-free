@@ -1,0 +1,13 @@
+title=FREEVEE
+major_version=2
+minor_version=7
+build_version=91782
+ui_resolutions=fhd,hd
+
+# Channel Icons
+mm_icon_focus_fhd=pkg:/images/512.png
+mm_icon_focus_hd=pkg:/images/192.png
+
+# Splash Screen
+splash_screen_fhd=pkg:/images/bg.jpg
+splash_screen_hd=pkg:/images/bg.jpg

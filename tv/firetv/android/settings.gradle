@@ -1,0 +1,2 @@
+rootProject.name = 'freevee-firetv'
+include ':app'

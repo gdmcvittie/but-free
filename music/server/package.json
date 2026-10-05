@@ -1,0 +1,76 @@
+{
+  "name": "fraudio",
+  "productName": "FRAUDIO",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "electron-main.js",
+  "description": "FRAUDIO - audio library for Google Drive. Audiobooks and music, with progress, playlists, favourites and offline playback.",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:client": "vite --force",
+    "dev:server": "node server.js",
+    "start": "node server.js",
+    "build": "node scripts/build-all.mjs",
+    "build:web": "vite build",
+    "build:apk": "cmd /c \"cd mobile-client && build.bat\"",
+    "preview": "vite preview",
+    "lint": "oxlint",
+    "electron:dev": "npm run build && electron .",
+    "electron:build": "npm run build && electron-builder --win",
+    "tools:setup": "node scripts/setup-tools.mjs",
+    "tools:check": "node scripts/check-tools.mjs",
+    "test": "node tests/library.test.mjs"
+  },
+  "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "adm-zip": "^0.5.16",
+    "concurrently": "^9.2.1",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "lucide-react": "^0.549.0",
+    "music-metadata": "^11.13.0",
+    "node-unrar-js": "^2.0.2",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "electron": "^43.1.1",
+    "electron-builder": "^26.15.3",
+    "oxlint": "^1.71.0",
+    "vite": "^8.1.1"
+  },
+  "build": {
+    "appId": "com.fraudio.app",
+    "productName": "FRAUDIO",
+    "npmRebuild": false,
+    "directories": {
+      "output": "dist_electron"
+    },
+    "files": [
+      "dist/**/*",
+      "server/**/*",
+      "server.js",
+      "package.json",
+      "electron-main.js",
+      "preload.cjs",
+      "node_modules/@ffmpeg-installer/**/*",
+      "node_modules/node-unrar-js/**/*"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "dist/**/*",
+      "**/node_modules/@ffmpeg-installer/**/*"
+    ],
+    "win": {
+      "target": "portable",
+      "requestedExecutionLevel": "asInvoker"
+    }
+  },
+  "license": "ISC"
+}

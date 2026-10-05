@@ -1,0 +1,10 @@
+node_modules/
+downloads/
+logs/
+download_history.json
+.env
+bin/
+cookies.txt
+*.exe
+tmp/
+*.log

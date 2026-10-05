@@ -1,0 +1,26 @@
+{
+    "name": "FREEVEE",
+    "short_name": "FREEVEE",
+    "description": "Your personal streaming hub. Watch live TV, on-demand content from Google Drive, and more.",
+    "start_url": "/",
+    "display": "standalone",
+    "display_override": ["standalone", "fullscreen", "minimal-ui"],
+    "background_color": "#08080a",
+    "theme_color": "#a78bfa",
+    "orientation": "any",
+    "categories": ["entertainment", "video"],
+    "icons": [
+        {
+            "src": "/icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ]
+}

@@ -1,0 +1,28 @@
+{
+  "name": "butfree",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "butfree.online - Unified Personal Media Cloud Umbrella (Comics, Music, TV, Games, Downloader)",
+  "workspaces": [
+    "comics/server",
+    "music/server",
+    "tv/server",
+    "tv/firetv",
+    "downloader"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/install-all.mjs",
+    "copy": "node scripts/copy-projects.mjs",
+    "build": "node scripts/build-all.mjs",
+    "build:comics": "node scripts/build-all.mjs --only=comics",
+    "build:music": "node scripts/build-all.mjs --only=music",
+    "build:tv": "node scripts/build-all.mjs --only=tv",
+    "install:all": "node scripts/install-all.mjs",
+    "fix:git": "node scripts/fix-git.mjs"
+  },
+  "devDependencies": {
+    "adm-zip": "^0.5.16",
+    "dotenv": "^16.4.7"
+  }
+}

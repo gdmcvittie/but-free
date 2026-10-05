@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="PairingPollTask" extends="Task">
+  <interface>
+    <field id="serverUrl" type="string" />
+    <field id="code" type="string" />
+    <field id="result" type="string" alwaysNotify="true" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/PairingPollTask.brs" />
+</component>

@@ -1,0 +1,24 @@
+# Logs
+*.log
+npm-debug.log*
+
+node_modules
+dist
+dist_electron
+*.local
+
+# Runtime data (library db, downloads, covers, session cookies)
+data
+
+# Secrets
+.env
+
+# Bundled ffmpeg (downloaded on demand by server/binManager.js)
+bin/
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.sw?

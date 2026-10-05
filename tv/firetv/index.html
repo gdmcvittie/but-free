@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <script>
+      (function() {
+        function renderError(title, message, source) {
+          console.error("ErrorBoundary: " + title + " - " + message + " (Source: " + source + ")");
+
+          if (document.getElementById('critical-error-overlay')) return;
+
+          var div = document.createElement('div');
+          div.id = 'critical-error-overlay';
+          div.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:#050b18;color:#ef4444;font-family:sans-serif;padding:40px;box-sizing:border-box;z-index:99999;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;';
+
+          div.innerHTML = '<h2 style="font-size:28px;margin-bottom:16px;font-weight:bold;">' + title + '</h2>' +
+            '<p style="color:#93c5fd;font-size:18px;max-width:800px;line-height:1.6;margin-bottom:24px;word-break:break-all;">' + message + '</p>' +
+            '<p style="color:#64748b;font-size:14px;word-break:break-all;">Source: ' + source + '</p>';
+
+          if (document.body) {
+            document.body.appendChild(div);
+          } else {
+            document.write(div.outerHTML);
+          }
+        }
+
+        window.addEventListener('error', function(e) {
+          var target = e.target;
+          if (target && target !== window) {
+            var tagName = (target.tagName || '').toUpperCase();
+            if (tagName !== 'SCRIPT' && tagName !== 'LINK') {
+              return; // Ignore non-critical resource load failures
+            }
+          }
+          var msg = e.message || 'Script resource failed to load (check network/CORS)';
+          var src = e.filename || (target && (target.src || target.href)) || 'unknown';
+          var line = e.lineno ? ' (Line ' + e.lineno + ')' : '';
+          renderError('Application Error', msg, src + line);
+        }, true);
+
+        window.addEventListener('unhandledrejection', function(e) {
+          var msg = (e.reason && (e.reason.message || e.reason)) || 'Unhandled Promise Rejection';
+          renderError('Promise Rejection', msg, 'async / network');
+        });
+      })();
+    </script>
+    <link rel="icon" type="image/png" href="/192.png" />
+    <title>FREEVEE</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

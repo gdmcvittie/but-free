@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FREEVEE - Install on Fire TV</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #09090b;
+      --card-bg: rgba(24, 24, 30, 0.7);
+      --border: rgba(255, 255, 255, 0.08);
+      --primary: #a78bfa;
+      --accent: #f87171;
+      --text: #f3f4f6;
+      --text-muted: #9ca3af;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .container {
+      max-width: 640px;
+      width: 100%;
+      text-align: center;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 48px 40px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+    }
+    .logo {
+      width: 72px;
+      height: 72px;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #a78bfa 0%, #6366f1 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 34px;
+      margin: 0 auto 24px;
+    }
+    h1 {
+      font-family: 'Outfit', sans-serif;
+      font-size: 30px;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 15px;
+      margin-bottom: 36px;
+    }
+    .dl-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+    .dl-card h2 {
+      font-family: 'Outfit', sans-serif;
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 4px;
+    }
+    .dl-card .file {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 18px;
+    }
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      padding: 18px 24px;
+      border: none;
+      border-radius: 12px;
+      font-size: 17px;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: #e50914;
+      color: #fff;
+    }
+    .btn-primary:hover, .btn-primary:focus {
+      background: #ff1a25;
+      outline: none;
+    }
+    .btn-secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+      font-size: 15px;
+      padding: 14px 24px;
+    }
+    .btn-secondary:hover, .btn-secondary:focus {
+      border-color: var(--text-muted);
+      outline: none;
+    }
+    .steps {
+      margin-top: 28px;
+      text-align: left;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 22px;
+    }
+    .steps .title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--primary);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 12px;
+    }
+    .steps ol {
+      padding-left: 20px;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+    .steps li {
+      margin-bottom: 8px;
+    }
+    .steps strong { color: var(--text); }
+    code {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 12.5px;
+      color: var(--text);
+    }
+    .footer {
+      margin-top: 28px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .footer a { color: var(--primary); text-decoration: none; }
+    .footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">&#128250;</div>
+    <h1>FREEVEE</h1>
+    <p class="subtitle">Download the app for your Fire TV</p>
+
+    <div class="dl-card">
+      <h2>Fire TV App</h2>
+      <div class="file">firetv.apk &bull; 2.8 MB</div>
+      <a class="btn btn-primary" href="downloads/firetv.apk" download>
+        &#11015; Download Fire TV APK
+      </a>
+    </div>
+
+    <div class="dl-card">
+      <h2>Roku Channel</h2>
+      <div class="file">roku.zip &bull; 2.3 MB</div>
+      <a class="btn btn-secondary" href="downloads/roku.zip" download>
+        &#11015; Download Roku Channel
+      </a>
+    </div>
+
+    <div class="steps">
+      <div class="title">How to install on Fire TV</div>
+      <ol>
+        <li>Download the APK above on your Fire TV's browser.</li>
+        <li>Enable <strong>Apps from Unknown Sources</strong>: <em>Settings &rarr; My Fire TV &rarr; Developer options</em>.</li>
+        <li>Install it with the <strong>Downloader</strong> app, or run <code>adb install firetv.apk</code>.</li>
+        <li>Open the app and pair it with your FREEVEE account using the on-screen code.</li>
+      </ol>
+    </div>
+
+    <div class="footer">
+      &copy; 2026 FREEVEE &bull; <a href="/">Open FREEVEE</a>
+    </div>
+  </div>
+</body>
+</html>

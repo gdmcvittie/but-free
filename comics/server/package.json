@@ -1,0 +1,44 @@
+{
+  "name": "comixolofree-cloud-server",
+  "productName": "COMIXOLOFREE",
+  "private": true,
+  "version": "1.0.0",
+  "description": "COMIXOLOFREE",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "server": "node app.js",
+    "dev:server": "node app.js",
+    "dev:client": "vite",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "build:client": "vite build",
+    "build": "node scripts/build-apk.cjs",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jpeg-js": "^0.4.4",
+    "node-unrar-js": "^2.0.2",
+    "pngjs": "^7.0.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tesseract.js": "^5.1.1"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.8",
+    "@types/cors": "^2.8.17",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^9.2.1",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0"
+  },
+  "optionalDependencies": {
+    "sharp": "^0.33.5"
+  }
+}

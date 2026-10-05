@@ -1,0 +1,21 @@
+{
+  "name": "but-free-downloader",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "torrent-node.js",
+  "scripts": {
+    "start": "node torrent-node.js",
+    "dev": "node --watch torrent-node.js",
+    "postinstall": "node setup-bin.js",
+    "setup-bin": "node setup-bin.js"
+  },
+  "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "@ffprobe-installer/ffprobe": "^2.1.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "webtorrent": "^3.0.21"
+  }
+}

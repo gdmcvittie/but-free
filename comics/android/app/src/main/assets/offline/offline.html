@@ -1,0 +1,1461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Offline Comics</title>
+<style>
+  :root {
+    --bg-color: #0f172a;
+    --panel-bg: #1e293b;
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --accent-color: #3b82f6;
+    --border-color: #334155;
+    --green: #34d399;
+    --red: #f87171;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg-color);
+    color: var(--text-primary);
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .screen { position: fixed; inset: 0; display: flex; flex-direction: column; }
+
+  /* ---------- Library ---------- */
+  #library { overflow: hidden; }
+  .lib-header {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: max(0.6rem, env(safe-area-inset-top, 0.6rem)) 1rem 0.6rem 1rem;
+    background: rgba(30, 41, 59, 0.85);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border-color);
+    z-index: 10;
+  }
+  .lib-title { font-size: 1.15rem; font-weight: 800; letter-spacing: 0.3px; color: var(--accent-color); }
+  .lib-count {
+    font-size: 0.75rem; font-weight: 700; color: var(--green);
+    background: rgba(16, 185, 129, 0.15);
+    border: 1px solid rgba(16, 185, 129, 0.35);
+    padding: 0.2rem 0.6rem; border-radius: 12px; white-space: nowrap;
+  }
+  .lib-exit {
+    margin-left: auto;
+    font-size: 0.78rem; font-weight: 700; color: var(--text-primary);
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18);
+    padding: 0.35rem 0.7rem; border-radius: 8px; cursor: pointer; white-space: nowrap;
+  }
+  .lib-exit:active { background: rgba(255,255,255,0.18); }
+  .lib-sub {
+    flex-shrink: 0; padding: 0.45rem 1rem 0; font-size: 0.82rem; color: var(--text-secondary);
+  }
+  .lib-scroll { flex: 1; overflow-y: auto; padding: 1rem 1rem 2rem; -webkit-overflow-scrolling: touch; }
+  .lib-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(125px, 1fr));
+    gap: 1rem;
+  }
+  .comic-card {
+    background: var(--panel-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    overflow: hidden;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+  }
+  .comic-card:active { transform: scale(0.97); border-color: var(--accent-color); }
+  .cover-wrap { position: relative; width: 100%; aspect-ratio: 2/3; background: #0b1120; overflow: hidden; }
+  .cover-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cover-fallback {
+    width: 100%; height: 100%; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 0.4rem; padding: 0.75rem; text-align: center;
+  }
+  .cover-fallback .em { font-size: 1.8rem; }
+  .cover-fallback .t { font-size: 0.72rem; font-weight: 700; line-height: 1.3; color: var(--text-primary); }
+  .card-badge {
+    position: absolute; bottom: 6px; left: 6px;
+    font-size: 0.62rem; font-weight: 700; padding: 2px 6px; border-radius: 6px;
+    background: rgba(15,23,42,0.85); border: 1px solid rgba(255,255,255,0.18); color: var(--text-primary);
+  }
+  .card-badge.partial { color: #fbbf24; border-color: rgba(251,191,36,0.4); }
+  .card-badge.complete { color: var(--green); border-color: rgba(16,185,129,0.4); }
+  .card-info { padding: 0.6rem 0.7rem; }
+  .card-title {
+    font-size: 0.8rem; font-weight: 600; line-height: 1.25;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .card-meta { margin-top: 0.3rem; font-size: 0.68rem; color: var(--text-secondary); display:flex; justify-content: space-between; }
+  .card-progress { height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px; margin-top: 0.4rem; overflow: hidden; }
+  .card-progress > div { height: 100%; background: linear-gradient(90deg, #06b6d4, var(--accent-color)); }
+  .empty-state {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 2rem; gap: 0.6rem;
+  }
+  .empty-state .em { font-size: 2.6rem; }
+  .empty-state h2 { font-size: 1.15rem; }
+  .empty-state p { font-size: 0.85rem; color: var(--text-secondary); max-width: 300px; line-height: 1.5; }
+  .unreachable { flex-shrink: 0; padding: 0.6rem 1rem 0; text-align: center; font-size: 0.8rem; color: var(--red); display: none; }
+
+  /* ---------- Reader ---------- */
+  #reader { display: none; background: #000; z-index: 50; }
+  #reader.open {
+    display: grid;
+    grid-template-rows: auto 180px 1fr auto;
+    grid-template-columns: 100%;
+    width: 100vw;
+    width: 100dvw;
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+  }
+  .rd-header {
+    grid-row: 1 / 2;
+    display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
+    padding: max(0.5rem, env(safe-area-inset-top, 0.5rem)) 0.7rem 0.5rem 0.7rem;
+    background: rgba(15, 23, 42, 0.96);
+    border-bottom: 1px solid rgba(255,255,255,0.12);
+    z-index: 20;
+    box-sizing: border-box;
+    flex-shrink: 0;
+  }
+  .rd-back {
+    font-size: 0.85rem; font-weight: 700; color: var(--text-primary);
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+    padding: 0.4rem 0.75rem; border-radius: 8px; cursor: pointer; white-space: nowrap;
+  }
+  .rd-back:active { background: rgba(255,255,255,0.22); }
+  .rd-title { flex: 1; min-width: 0; text-align: center; font-size: 0.82rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rd-zoom-panel {
+    grid-row: 2 / 3;
+    width: 100%;
+    height: 180px;
+    min-height: 180px;
+    max-height: 180px;
+    background: #050811;
+    border-bottom: 3px solid #38bdf8;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.8);
+    overflow: hidden;
+    position: relative;
+    z-index: 25;
+    box-sizing: border-box;
+    flex-shrink: 0;
+  }
+  .rd-zoom-viewport {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #050811;
+    pointer-events: none;
+  }
+  .rd-zoom-viewport img.rd-zoom-img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    max-width: none;
+    max-height: none;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-user-drag: none;
+    -webkit-touch-callout: none;
+    display: block;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+  }
+  .rd-stage {
+    grid-row: 3 / 4;
+    position: relative;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    max-height: 100%;
+    overflow: hidden;
+    background: #000;
+    z-index: 10;
+    box-sizing: border-box;
+    touch-action: none;
+  }
+  .rd-stage img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: fill;
+    display: block;
+    margin: 0;
+    padding: 0;
+    border-radius: 0;
+    pointer-events: none;
+  }
+  .rd-zoom-highlight {
+    position: absolute;
+    pointer-events: none;
+    background: rgba(56, 189, 248, 0.28);
+    border: 2px solid #38bdf8;
+    box-shadow: 0 0 14px rgba(56, 189, 248, 0.65), inset 0 0 10px rgba(56, 189, 248, 0.25);
+    border-radius: 4px;
+    z-index: 15;
+    display: none;
+    box-sizing: border-box;
+    will-change: left, top, width, height;
+  }
+  .rd-stage.rd-split .rd-split-frame {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    overflow: hidden; z-index: 2; pointer-events: none;
+  }
+  .rd-stage.rd-split img#rdImg {
+    position: absolute; top: 0; left: 0;
+    width: 200%; min-width: 200%; max-width: none; max-height: none;
+    height: 100%; object-fit: fill; pointer-events: none;
+  }
+  .rd-loading {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 0.85rem; color: var(--text-secondary); background: #000; z-index: 5;
+  }
+  .rd-controls {
+    grid-row: 4 / 5;
+    display: flex; flex-direction: column;
+    padding: 6px 12px calc(6px + env(safe-area-inset-bottom, 0px)) 12px;
+    background: rgba(15, 23, 42, 0.98);
+    border-top: 1px solid rgba(255,255,255,0.15);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 -6px 20px rgba(0,0,0,0.8);
+    z-index: 20;
+    touch-action: manipulation;
+  }
+  .rd-ctrl-inner {
+    display: flex; flex-direction: column; gap: 0.55rem;
+    width: 100%; max-width: 720px; margin: 0 auto;
+  }
+  .rd-scrubber-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; width: 100%;
+  }
+  .rd-actions-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 0.45rem; width: 100%;
+  }
+  .rd-edge-btn {
+    background: none; border: none;
+    color: #94a3b8; font-size: 0.85rem; padding: 0 4px; font-weight: 700;
+    min-width: 36px; min-height: 36px;
+    display: inline-flex; align-items: center; justify-content: center;
+    touch-action: manipulation;
+  }
+  .rd-edge-btn:disabled { color: #475569; cursor: not-allowed; }
+  .rd-edge-btn:not(:disabled) { cursor: pointer; }
+  .rd-slider {
+    flex: 1; accent-color: var(--accent-color); cursor: pointer; border-radius: 4px;
+    height: 12px; touch-action: pan-x;
+  }
+  .rd-pg {
+    color: #fff; font-size: 0.84rem; font-weight: 700; white-space: nowrap;
+    min-width: 64px; text-align: right; font-variant-numeric: tabular-nums;
+  }
+  .rd-btn {
+    font-size: 0.82rem; font-weight: 600; color: #fff;
+    background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12);
+    padding: 0.45rem 0.75rem; border-radius: 8px; cursor: pointer;
+    min-height: 38px; flex: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+    touch-action: manipulation;
+  }
+  .rd-btn:hover { background: rgba(255,255,255,0.18); }
+  .rd-btn:active:not(:disabled) { transform: scale(0.96); }
+  .rd-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .rd-btn.split-active { background: rgba(59,130,246,0.25); border-color: #3b82f6; color: #60a5fa; }
+  .offline-toast {
+    position: fixed;
+    bottom: 5.2rem;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(15, 23, 42, 0.95);
+    border: 1px solid var(--green);
+    color: var(--text-primary);
+    padding: 0.6rem 1.1rem;
+    border-radius: 20px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5), 0 0 12px rgba(52, 211, 153, 0.25);
+    z-index: 100;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    white-space: nowrap;
+  }
+  .offline-toast.visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ LIBRARY ============ -->
+<div id="library" class="screen">
+  <div class="lib-header">
+    <div class="lib-title">COMIXOLOFREE</div>
+    <span class="lib-count" id="libCount">0 offline</span>
+    <button class="lib-exit" id="libExit">Exit Offline</button>
+  </div>
+  <div class="lib-sub" id="libSub">Downloaded comics available without a connection.</div>
+  <div class="unreachable" id="unreachable">Server not reachable — still in offline mode.</div>
+  <div id="libBody" class="lib-scroll">
+    <div class="lib-grid" id="libGrid"></div>
+  </div>
+</div>
+
+<!-- ============ READER ============ -->
+<div id="reader" class="screen">
+  <div class="rd-header">
+    <button class="rd-back" id="rdBack">← Library</button>
+    <div class="rd-title" id="rdTitle"></div>
+  </div>
+  <div class="rd-zoom-panel" id="rdZoomPanel">
+    <div class="rd-zoom-viewport">
+      <img id="rdZoomImg" class="rd-zoom-img" alt="" draggable="false">
+    </div>
+  </div>
+  <div class="rd-stage" id="rdStage">
+    <div class="rd-loading" id="rdLoading">Loading page…</div>
+    <div class="rd-zoom-highlight" id="rdZoomHighlight"></div>
+    <img id="rdImg" alt="" draggable="false">
+  </div>
+  <div class="rd-controls">
+    <div class="rd-ctrl-inner">
+      <div class="rd-scrubber-row">
+        <button class="rd-edge-btn" id="rdFirst" title="First Page">⇤</button>
+        <input class="rd-slider" id="rdSlider" type="range" min="1" max="1" value="1" aria-label="Comic page scrubber">
+        <button class="rd-edge-btn" id="rdLast" title="Last Page">⇥</button>
+        <span class="rd-pg" id="rdPg"></span>
+      </div>
+      <div class="rd-actions-row">
+        <button class="rd-btn" id="rdPrev">← Prev</button>
+        <button class="rd-btn" id="rdSplit" style="display:none">◫ Full Spread</button>
+        <button class="rd-btn" id="rdNext">Next →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="offlineToast" class="offline-toast">✓ Completed • Removed from offline storage</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var DB_NAME = 'comixolo_offline';
+  var PROG_PREFIX = 'comix_prog_1_';
+
+  var offlineToast = document.getElementById('offlineToast');
+  var toastTimer = null;
+  function showToast(msg) {
+    if (!offlineToast) return;
+    offlineToast.textContent = msg;
+    offlineToast.classList.add('visible');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () {
+      offlineToast.classList.remove('visible');
+    }, 3200);
+  }
+
+  var library = document.getElementById('library');
+  var libCount = document.getElementById('libCount');
+  var libSub = document.getElementById('libSub');
+  var libBody = document.getElementById('libBody');
+  var libGrid = document.getElementById('libGrid');
+  var libExit = document.getElementById('libExit');
+  var unreachable = document.getElementById('unreachable');
+
+  var reader = document.getElementById('reader');
+  var rdBack = document.getElementById('rdBack');
+  var rdTitle = document.getElementById('rdTitle');
+  var rdZoomPanel = document.getElementById('rdZoomPanel');
+  var rdZoomImg = document.getElementById('rdZoomImg');
+  var rdStage = document.getElementById('rdStage');
+  var rdZoomHighlight = document.getElementById('rdZoomHighlight');
+  var rdLoading = document.getElementById('rdLoading');
+  var rdImg = document.getElementById('rdImg');
+  var rdPrev = document.getElementById('rdPrev');
+  var rdNext = document.getElementById('rdNext');
+  var rdFirst = document.getElementById('rdFirst');
+  var rdLast = document.getElementById('rdLast');
+  var rdSplit = document.getElementById('rdSplit');
+  var rdSlider = document.getElementById('rdSlider');
+  var rdPg = document.getElementById('rdPg');
+
+  var splitSpreads = true;
+  try {
+    var savedSplit = localStorage.getItem('comic_splitSpreads');
+    if (savedSplit !== null) splitSpreads = savedSplit === 'true';
+  } catch (e) {}
+  var wideCache = Object.create(null);
+  var splitFrame = null;
+
+  var db = null;
+  var dbReady = false;
+
+  var coverUrls = Object.create(null);
+  var pageUrls = Object.create(null);
+
+  function createOfflineStores(database) {
+    if (!database.objectStoreNames.contains('comics')) {
+      var comicStore = database.createObjectStore('comics', { keyPath: 'id' });
+      comicStore.createIndex('savedAt', 'savedAt', { unique: false });
+      comicStore.createIndex('isComplete', 'isComplete', { unique: false });
+    }
+    if (!database.objectStoreNames.contains('pages')) {
+      var pageStore = database.createObjectStore('pages', { keyPath: 'key' });
+      pageStore.createIndex('comicId', 'comicId', { unique: false });
+    }
+    if (!database.objectStoreNames.contains('meta')) {
+      database.createObjectStore('meta', { keyPath: 'key' });
+    }
+  }
+
+  function openDB() {
+    return new Promise(function (resolve, reject) {
+      function openVersion(ver) {
+        var req = ver ? indexedDB.open(DB_NAME, ver) : indexedDB.open(DB_NAME);
+        req.onupgradeneeded = function (e) {
+          createOfflineStores(e.target.result);
+        };
+        req.onsuccess = function () {
+          var database = req.result;
+          // Check if required object stores exist (handles DB previously opened without upgradeneeded)
+          if (!database.objectStoreNames.contains('comics') || !database.objectStoreNames.contains('pages')) {
+            var currVer = database.version || 1;
+            database.close();
+            try {
+              var delReq = indexedDB.deleteDatabase(DB_NAME);
+              delReq.onsuccess = function () {
+                var freshReq = indexedDB.open(DB_NAME, 1);
+                freshReq.onupgradeneeded = function (ev) {
+                  createOfflineStores(ev.target.result);
+                };
+                freshReq.onsuccess = function () {
+                  resolve(freshReq.result);
+                };
+                freshReq.onerror = function () {
+                  openVersion(currVer + 1);
+                };
+              };
+              delReq.onerror = function () {
+                openVersion(currVer + 1);
+              };
+              delReq.onblocked = function () {
+                openVersion(currVer + 1);
+              };
+            } catch (err) {
+              openVersion(currVer + 1);
+            }
+            return;
+          }
+          resolve(database);
+        };
+        req.onerror = function () {
+          reject(req.error || new Error('Failed to open offline database'));
+        };
+      }
+
+      openVersion(1);
+    });
+  }
+
+  function getAllComics(database) {
+    return new Promise(function (resolve, reject) {
+      if (!database || !database.objectStoreNames || !database.objectStoreNames.contains('comics')) {
+        resolve([]);
+        return;
+      }
+      try {
+        var store = database.transaction('comics', 'readonly').objectStore('comics');
+        var req = store.getAll();
+        req.onsuccess = function () { resolve(req.result || []); };
+        req.onerror = function () { reject(req.error); };
+      } catch (err) {
+        resolve([]);
+      }
+    });
+  }
+
+  function getAvailablePages(database, comicId) {
+    return new Promise(function (resolve, reject) {
+      if (!database || !database.objectStoreNames || !database.objectStoreNames.contains('pages')) {
+        resolve([]);
+        return;
+      }
+      try {
+        var store = database.transaction('pages', 'readonly').objectStore('pages');
+        var index = store.index('comicId');
+        var pages = [];
+        var set = Object.create(null);
+
+        var idVariants = [comicId];
+        var num = Number(comicId);
+        if (!isNaN(num) && typeof comicId === 'string') {
+          idVariants.push(num);
+        } else if (typeof comicId === 'number') {
+          idVariants.push(String(comicId));
+        }
+
+        var remaining = idVariants.length;
+        idVariants.forEach(function (idVar) {
+          try {
+            var req = index.openCursor(IDBKeyRange.only(idVar));
+            req.onsuccess = function (e) {
+              var cursor = e.target.result;
+              if (cursor) {
+                var p = cursor.value && cursor.value.pageNum;
+                if (p && !set[p]) {
+                  set[p] = true;
+                  pages.push(p);
+                }
+                cursor.continue();
+              } else {
+                remaining--;
+                if (remaining <= 0) {
+                  if (pages.length === 0) {
+                    scanByKeyPrefix();
+                  } else {
+                    resolve(pages.sort(function (a, b) { return a - b; }));
+                  }
+                }
+              }
+            };
+            req.onerror = function () {
+              remaining--;
+              if (remaining <= 0) {
+                if (pages.length === 0) scanByKeyPrefix();
+                else resolve(pages.sort(function (a, b) { return a - b; }));
+              }
+            };
+          } catch (e) {
+            remaining--;
+            if (remaining <= 0) {
+              if (pages.length === 0) scanByKeyPrefix();
+              else resolve(pages.sort(function (a, b) { return a - b; }));
+            }
+          }
+        });
+
+        function scanByKeyPrefix() {
+          try {
+            var prefix = String(comicId) + '_';
+            var scanReq = store.openCursor();
+            scanReq.onsuccess = function (e) {
+              var cursor = e.target.result;
+              if (cursor) {
+                var keyStr = String(cursor.key || '');
+                if (keyStr.indexOf(prefix) === 0) {
+                  var p = cursor.value && cursor.value.pageNum;
+                  if (!p) {
+                    var parts = keyStr.split('_');
+                    p = parseInt(parts[1], 10);
+                  }
+                  if (p && !set[p]) {
+                    set[p] = true;
+                    pages.push(p);
+                  }
+                }
+                cursor.continue();
+              } else {
+                resolve(pages.sort(function (a, b) { return a - b; }));
+              }
+            };
+            scanReq.onerror = function () { resolve(pages); };
+          } catch (e) { resolve(pages); }
+        }
+      } catch (err) {
+        resolve([]);
+      }
+    });
+  }
+
+  function getPageBlob(database, comicId, pageNum) {
+    return new Promise(function (resolve, reject) {
+      if (!database || !database.objectStoreNames || !database.objectStoreNames.contains('pages')) {
+        resolve(null);
+        return;
+      }
+      try {
+        var store = database.transaction('pages', 'readonly').objectStore('pages');
+        var req = store.get(comicId + '_' + pageNum);
+        req.onsuccess = function () {
+          if (req.result && req.result.blob) {
+            resolve(req.result.blob);
+          } else {
+            var altKey = String(comicId) + '_' + pageNum;
+            if (altKey !== (comicId + '_' + pageNum)) {
+              var altReq = store.get(altKey);
+              altReq.onsuccess = function () {
+                resolve(altReq.result && altReq.result.blob ? altReq.result.blob : null);
+              };
+              altReq.onerror = function () { resolve(null); };
+            } else {
+              resolve(null);
+            }
+          }
+        };
+        req.onerror = function () { resolve(null); };
+      } catch (err) {
+        resolve(null);
+      }
+    });
+  }
+
+  function deleteComicFromOffline(database, comicId) {
+    return new Promise(function (resolve) {
+      if (!database || !database.objectStoreNames) { resolve(); return; }
+      var idVariants = [comicId];
+      var num = Number(comicId);
+      if (typeof comicId === 'string' && !isNaN(num)) {
+        idVariants.push(num);
+      } else if (typeof comicId === 'number') {
+        idVariants.push(String(comicId));
+      }
+
+      var promises = [];
+
+      if (database.objectStoreNames.contains('pages')) {
+        idVariants.forEach(function (idVar) {
+          promises.push(new Promise(function (res) {
+            try {
+              var tx = database.transaction('pages', 'readwrite');
+              var store = tx.objectStore('pages');
+              var index = store.index('comicId');
+              var req = index.openCursor(IDBKeyRange.only(idVar));
+              req.onsuccess = function (e) {
+                var cursor = e.target.result;
+                if (cursor) {
+                  cursor.delete();
+                  cursor.continue();
+                } else {
+                  res();
+                }
+              };
+              req.onerror = function () { res(); };
+            } catch (e) { res(); }
+          }));
+        });
+      }
+
+      if (database.objectStoreNames.contains('comics')) {
+        promises.push(new Promise(function (res) {
+          try {
+            var tx = database.transaction('comics', 'readwrite');
+            var store = tx.objectStore('comics');
+            idVariants.forEach(function (idVar) {
+              try { store.delete(idVar); } catch (e) {}
+            });
+            tx.oncomplete = function () { res(); };
+            tx.onerror = function () { res(); };
+          } catch (e) { res(); }
+        }));
+      }
+
+      Promise.all(promises).then(function () {
+        var prefix = comicId + '_';
+        Object.keys(pageUrls).forEach(function (key) {
+          if (key.indexOf(prefix) === 0) {
+            try { URL.revokeObjectURL(pageUrls[key]); } catch (e) {}
+            delete pageUrls[key];
+          }
+        });
+
+        if (coverUrls[comicId]) {
+          try { URL.revokeObjectURL(coverUrls[comicId]); } catch (e) {}
+          delete coverUrls[comicId];
+        }
+        idVariants.forEach(function (idVar) {
+          if (coverUrls[idVar]) {
+            try { URL.revokeObjectURL(coverUrls[idVar]); } catch (e) {}
+            delete coverUrls[idVar];
+          }
+        });
+
+        delete state.pageMap[comicId];
+        idVariants.forEach(function (idVar) {
+          delete state.pageMap[idVar];
+        });
+        state.comics = state.comics.filter(function (c) {
+          return String(c.id) !== String(comicId);
+        });
+
+        renderLibrary(state.comics);
+        resolve();
+      });
+    });
+  }
+
+  function getSavedProgress(comicId) {
+    try {
+      var v = localStorage.getItem(PROG_PREFIX + comicId);
+      if (!v) return { page: 1, zoomNormX: null, zoomNormY: null };
+      if (v.trim().startsWith('{')) {
+        var obj = JSON.parse(v);
+        var p = parseInt(obj.page || obj.currentPage, 10);
+        return {
+          page: p > 0 ? p : 1,
+          zoomNormX: typeof obj.zoomNormX === 'number' ? obj.zoomNormX : null,
+          zoomNormY: typeof obj.zoomNormY === 'number' ? obj.zoomNormY : null
+        };
+      }
+      var n = parseInt(v, 10);
+      return { page: n > 0 ? n : 1, zoomNormX: null, zoomNormY: null };
+    } catch (e) {
+      return { page: 1, zoomNormX: null, zoomNormY: null };
+    }
+  }
+
+  var saveProgTimer = null;
+  function saveProgress(comicId, page, zoomNormX, zoomNormY) {
+    try {
+      var data = {
+        page: page,
+        currentPage: page,
+        zoomNormX: typeof zoomNormX === 'number' ? zoomNormX : null,
+        zoomNormY: typeof zoomNormY === 'number' ? zoomNormY : null,
+        timestamp: Date.now()
+      };
+      localStorage.setItem(PROG_PREFIX + comicId, JSON.stringify(data));
+    } catch (e) {}
+  }
+
+  function blobUrl(comicId, pageNum, blob) {
+    var key = comicId + '_' + pageNum;
+    if (pageUrls[key]) return pageUrls[key];
+    var url = URL.createObjectURL(blob);
+    pageUrls[key] = url;
+    return url;
+  }
+
+  function coverUrlFor(comic, availablePages, dbRef) {
+    if (coverUrls[comic.id]) return Promise.resolve(coverUrls[comic.id]);
+    if (comic.coverBlob) {
+      var u = URL.createObjectURL(comic.coverBlob);
+      coverUrls[comic.id] = u;
+      return Promise.resolve(u);
+    }
+    if (availablePages.length > 0) {
+      var first = Math.min.apply(null, availablePages);
+      return getPageBlob(dbRef, comic.id, first).then(function (blob) {
+        if (blob) {
+          var u = blobUrl(comic.id, first, blob);
+          coverUrls[comic.id] = u;
+          return u;
+        }
+        return null;
+      });
+    }
+    return Promise.resolve(null);
+  }
+
+  function formatProgress(downloaded, total) {
+    if (!total) return '';
+    return Math.round((downloaded / total) * 100) + '%';
+  }
+
+  var state = { comics: [], pageMap: Object.create(null) };
+
+  function renderLibrary(items) {
+    state.comics = items;
+    libGrid.innerHTML = '';
+
+    items.sort(function (a, b) { return b.savedAt - a.savedAt; });
+
+    libCount.textContent = items.length + (items.length === 1 ? ' offline' : ' offline');
+    libSub.textContent = items.length === 0
+      ? 'No comics downloaded yet.'
+      : 'Downloaded comics available without a connection.';
+
+    if (items.length === 0) {
+      var curOrigin = window.location.origin || (window.location.protocol + '//' + window.location.host);
+      var isCloudOrigin = curOrigin.indexOf('liftedpixel.ca') !== -1;
+      var otherOriginBtn = '';
+      if (isCloudOrigin) {
+        otherOriginBtn = '<button id="btnSwitchOrigin" style="margin-top:16px;padding:10px 18px;background:#374151;color:#fff;border:none;border-radius:8px;font-weight:600;font-size:14px;cursor:pointer;">Check Local Server Storage</button>';
+      } else {
+        otherOriginBtn = '<button id="btnSwitchOrigin" style="margin-top:16px;padding:10px 18px;background:#4f46e5;color:#fff;border:none;border-radius:8px;font-weight:600;font-size:14px;cursor:pointer;">Check Cloud Storage</button>';
+      }
+
+      libBody.innerHTML = [
+        '<div class="empty-state">',
+        '  <div class="em">⚡</div>',
+        '  <h2>No Offline Comics</h2>',
+        '  <p>No offline comics found for: <code>' + curOrigin + '</code></p>',
+        '  <p style="font-size:13px;color:#94a3b8;margin-top:8px;">If you downloaded comics while connected to a different server or cloud, you can switch storage origins:</p>',
+        '  ' + otherOriginBtn,
+        '</div>'
+      ].join('');
+
+      var switchBtn = document.getElementById('btnSwitchOrigin');
+      if (switchBtn) {
+        switchBtn.addEventListener('click', function () {
+          if (isCloudOrigin) {
+            var savedIp = localStorage.getItem('comix_saved_ip') || '';
+            var target = (savedIp ? 'http://' + savedIp + ':42069' : 'http://127.0.0.1:42069') + '/offline.html';
+            window.location.href = target;
+          } else {
+            window.location.href = 'https://comix.liftedpixel.ca/offline.html';
+          }
+        });
+      }
+      return;
+    }
+
+    items.forEach(function (comic) {
+      var available = (state.pageMap[comic.id] || []).sort(function (a, b) { return a - b; });
+      var complete = comic.isComplete && available.length >= comic.totalPages;
+      var card = document.createElement('div');
+      card.className = 'comic-card';
+      card.setAttribute('role', 'button');
+      card.addEventListener('click', function () { openReader(comic); });
+
+      var coverWrap = document.createElement('div');
+      coverWrap.className = 'cover-wrap';
+
+      var countBadge = document.createElement('span');
+      countBadge.className = 'card-badge ' + (complete ? 'complete' : 'partial');
+      countBadge.textContent = complete
+        ? '✓ Complete'
+        : (comic.totalPages ? available.length + '/' + comic.totalPages + ' pgs' : available.length + ' pgs');
+
+      coverUrlFor(comic, available, db).then(function (url) {
+        if (url) {
+          var img = document.createElement('img');
+          img.src = url;
+          img.alt = '';
+          img.draggable = false;
+          coverWrap.appendChild(img);
+        } else {
+          coverFallback(coverWrap).forEach(function (el) { coverWrap.appendChild(el); });
+        }
+      });
+      coverWrap.appendChild(countBadge);
+
+      var info = document.createElement('div');
+      info.className = 'card-info';
+
+      var title = document.createElement('div');
+      title.className = 'card-title';
+      title.textContent = comic.title || ('Comic #' + comic.id);
+      info.appendChild(title);
+
+      var meta = document.createElement('div');
+      meta.className = 'card-meta';
+      var savedProg = getSavedProgress(comic.id);
+      var savedPage = typeof savedProg === 'object' ? savedProg.page : savedProg;
+      var savedIdx = available.indexOf(savedPage);
+      var left = document.createElement('span');
+      left.textContent = (comic.type || 'CBZ') + ' · ' + (comic.totalPages || available.length) + ' pgs';
+      var right = document.createElement('span');
+      right.textContent = savedIdx >= 0 ? 'Resume' : 'Read';
+      right.style.color = '#60a5fa';
+      right.style.fontWeight = '700';
+      meta.appendChild(left);
+      meta.appendChild(right);
+      info.appendChild(meta);
+
+      if (comic.totalPages && available.length > 0) {
+        var pb = document.createElement('div');
+        pb.className = 'card-progress';
+        var fill = document.createElement('div');
+        fill.style.width = formatProgress(available.length, comic.totalPages);
+        pb.appendChild(fill);
+        info.appendChild(pb);
+      }
+
+      card.appendChild(coverWrap);
+      card.appendChild(info);
+      libGrid.appendChild(card);
+    });
+  }
+
+  function coverFallback(coverWrap) {
+    var fb = document.createElement('div');
+    fb.className = 'cover-fallback';
+    fb.style.background = 'linear-gradient(145deg, #1e293b, #0f172a)';
+    var em = document.createElement('div');
+    em.className = 'em';
+    em.textContent = '📖';
+    var t = document.createElement('div');
+    t.className = 't';
+    t.textContent = coverWrap ? 'Comic' : 'Comic';
+    fb.appendChild(em);
+    fb.appendChild(t);
+    return [fb];
+  }
+
+  function showUnreachable(show) {
+    unreachable.style.display = show ? 'block' : 'none';
+  }
+
+  function exitOfflineMode() {
+    showUnreachable(false);
+    var base = location.origin || ('http://' + location.host);
+    fetch(base + '/api/status', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d && (d.ok === true || d.status === 'running')) {
+          window.location.href = base + '/';
+        } else {
+          showUnreachable(true);
+        }
+      })
+      .catch(function () {
+        showUnreachable(true);
+      });
+  }
+
+  // ---------- Reader ----------
+  var readerState = null;
+
+  function openReader(comic) {
+    var available = (state.pageMap[comic.id] || []).slice().sort(function (a, b) { return a - b; });
+    if (available.length === 0) return;
+
+    var prog = getSavedProgress(comic.id);
+    var saved = typeof prog === 'object' ? prog.page : prog;
+    var idx = available.indexOf(saved);
+    if (idx < 0) {
+      // closest available page not lower than saved
+      idx = 0;
+      for (var i = 0; i < available.length; i++) {
+        if (available[i] >= saved) { idx = i; break; }
+      }
+    }
+
+    readerState = {
+      comic: comic,
+      pages: available,
+      index: idx,
+      subPage: 0,
+      imgUrl: null,
+      pendingZoom: (typeof prog === 'object' && prog.zoomNormX != null && prog.zoomNormY != null)
+        ? { normX: prog.zoomNormX, normY: prog.zoomNormY }
+        : null,
+      lastNormX: typeof prog === 'object' ? prog.zoomNormX : null,
+      lastNormY: typeof prog === 'object' ? prog.zoomNormY : null
+    };
+
+    rdTitle.textContent = comic.title || ('Comic #' + comic.id);
+    reader.classList.add('open');
+    renderPage();
+
+    try {
+      window.history.pushState({ readerOpen: comic.id }, '');
+    } catch (e) {}
+  }
+
+  function closeReader() {
+    if (readerState && readerState.comic && readerState.lastNormX != null) {
+      saveProgress(readerState.comic.id, currentPageNum(), readerState.lastNormX, readerState.lastNormY);
+    }
+    if (readerState && db && readerState.comic && readerState.comic.id) {
+      var isAtEnd = readerState.index >= readerState.pages.length - 1;
+      var total = readerState.comic.totalPages || readerState.pages.length;
+      var pageNum = readerState.pages[readerState.index] || 0;
+      if (readerState.hasAutoDeleted || (isAtEnd && pageNum >= total)) {
+        deleteComicFromOffline(db, readerState.comic.id);
+      }
+    }
+    readerState = null;
+    if (rdImg.src) {
+      try { URL.revokeObjectURL(rdImg.src); } catch (e) {}
+      rdImg.removeAttribute('src');
+    }
+    reader.classList.remove('open');
+  }
+
+  // ---------- Zoomed preview panel (mirrors the main reader's behavior) ----------
+  var PANEL_INSET_X = 20;
+  var PANEL_INSET_Y = 14;
+  var PANEL_BOX_H = 180;
+  var PANEL_ZOOM = 2.8;
+
+  // The comic page image fills rdStage, starting where the zoom panel ends.
+  function currentPageNum() {
+    return readerState ? readerState.pages[readerState.index] : 0;
+  }
+
+  function currentIsWide() {
+    return rdImg.naturalWidth > 0 && rdImg.naturalHeight > 0 &&
+      (rdImg.naturalWidth / rdImg.naturalHeight) >= 1.15;
+  }
+
+  function displayedImageRect() {
+    var sw = rdStage.clientWidth, sh = rdStage.clientHeight;
+    if (sw <= 0 || sh <= 0) return null;
+    var stageRect = rdStage.getBoundingClientRect();
+    return {
+      screenLeft: stageRect.left,
+      screenTop: stageRect.top,
+      width: sw,
+      height: sh
+    };
+  }
+
+  function applyMagnifier(w, h, x, y, src) {
+    rdZoomImg.style.width = Math.round(w) + 'px';
+    rdZoomImg.style.height = Math.round(h) + 'px';
+    rdZoomImg.style.transform = 'translate3d(' + Math.round(x) + 'px,' + Math.round(y) + 'px,0)';
+    if (rdZoomImg.src !== src) rdZoomImg.src = src;
+  }
+
+  function applyMagnifierFromNorm(normX, normY) {
+    var rect = displayedImageRect();
+    if (!rect || !rdImg.src) return;
+    var boxWidth = rdZoomPanel ? rdZoomPanel.clientWidth : window.innerWidth;
+    var isWide = splitSpreads && currentIsWide();
+
+    var natW = rdImg.naturalWidth || (isWide ? rect.width * 2 : rect.width);
+    var effectiveDisplayWidth = isWide ? rect.width * 2 : rect.width;
+    var naturalScaleFactor = natW > 0 ? (natW * 1.6) / effectiveDisplayWidth : PANEL_ZOOM;
+    var scaleFactor = Math.min(5.5, Math.max(PANEL_ZOOM, naturalScaleFactor));
+
+    var scaledWidth = effectiveDisplayWidth * scaleFactor;
+    var scaledHeight = (isWide && rdImg.naturalHeight && rdImg.naturalWidth
+      ? (rdImg.naturalHeight / rdImg.naturalWidth) * scaledWidth
+      : rect.height * scaleFactor);
+
+    var targetImgX = (boxWidth / 2) - (normX * scaledWidth);
+    var targetImgY = (PANEL_BOX_H / 2) - (normY * scaledHeight);
+
+    if (scaledWidth > boxWidth) targetImgX = Math.min(0, Math.max(boxWidth - scaledWidth, targetImgX));
+    else targetImgX = (boxWidth - scaledWidth) / 2;
+
+    if (scaledHeight > PANEL_BOX_H) targetImgY = Math.min(0, Math.max(PANEL_BOX_H - scaledHeight, targetImgY));
+    else targetImgY = (PANEL_BOX_H - scaledHeight) / 2;
+
+    applyMagnifier(scaledWidth, scaledHeight, targetImgX, targetImgY, rdImg.src);
+
+    // Position the blue tint zoom highlight box on the comic page
+    if (rdZoomHighlight) {
+      var highlightW = boxWidth / scaleFactor;
+      var highlightH = PANEL_BOX_H / scaleFactor;
+      var hX = (-targetImgX) / scaleFactor;
+      var hY = (-targetImgY) / scaleFactor;
+
+      if (isWide) {
+        var isRightHalf = readerState ? readerState.subPage === 1 : false;
+        hX = hX - (isRightHalf ? rect.width : 0);
+      }
+
+      var finalLeft = Math.max(0, Math.min(rect.width - highlightW, hX));
+      var finalTop = Math.max(0, Math.min(rect.height - highlightH, hY));
+
+      rdZoomHighlight.style.display = 'block';
+      rdZoomHighlight.style.left = Math.round(finalLeft) + 'px';
+      rdZoomHighlight.style.top = Math.round(finalTop) + 'px';
+      rdZoomHighlight.style.width = Math.round(Math.max(8, Math.min(rect.width, highlightW))) + 'px';
+      rdZoomHighlight.style.height = Math.round(Math.max(8, Math.min(rect.height, highlightH))) + 'px';
+    }
+  }
+
+  // Show the zoomed content under the user's touch/drag point.
+  function updateMagnifier(clientX, clientY) {
+    var rect = displayedImageRect();
+    if (!rect) return;
+    var isWide = splitSpreads && currentIsWide();
+    var normX = Math.max(0, Math.min(1, (clientX - rect.screenLeft) / rect.width));
+    var normY = Math.max(0, Math.min(1, (clientY - rect.screenTop) / rect.height));
+
+    if (isWide) {
+      // Re-map a touch on the visible half onto the full-wide image's horizontal axis
+      normX = readerState.subPage === 1 ? (0.5 + normX * 0.5) : (normX * 0.5);
+    }
+
+    applyMagnifierFromNorm(normX, normY);
+
+    if (readerState) {
+      readerState.pendingZoom = null;
+    }
+    if (readerState && readerState.comic) {
+      readerState.lastNormX = normX;
+      readerState.lastNormY = normY;
+      clearTimeout(saveProgTimer);
+      saveProgTimer = setTimeout(function () {
+        if (readerState && readerState.comic) {
+          saveProgress(readerState.comic.id, currentPageNum(), readerState.lastNormX, readerState.lastNormY);
+        }
+      }, 400);
+    }
+  }
+
+  // Default after a page change: reset the preview to the upper-left corner of the
+  // new page, inset a little on both top and left (not glued to exact 0,0).
+  function initMagnifier() {
+    var rect = displayedImageRect();
+    if (!rect || !rdImg.src) return;
+    var boxWidth = rdZoomPanel ? rdZoomPanel.clientWidth : window.innerWidth;
+    var isWide = splitSpreads && currentIsWide();
+
+    var natW = rdImg.naturalWidth || (isWide ? rect.width * 2 : rect.width);
+    var effectiveDisplayWidth = isWide ? rect.width * 2 : rect.width;
+    var naturalScaleFactor = natW > 0 ? (natW * 1.6) / effectiveDisplayWidth : PANEL_ZOOM;
+    var scaleFactor = Math.min(5.5, Math.max(PANEL_ZOOM, naturalScaleFactor));
+
+    var scaledWidth = effectiveDisplayWidth * scaleFactor;
+    var scaledHeight = (isWide && rdImg.naturalHeight && rdImg.naturalWidth
+      ? (rdImg.naturalHeight / rdImg.naturalWidth) * scaledWidth
+      : rect.height * scaleFactor);
+
+    var normX;
+    var normY;
+
+    if (readerState && readerState.pendingZoom) {
+      normX = readerState.pendingZoom.normX;
+      normY = readerState.pendingZoom.normY;
+      readerState.lastNormX = normX;
+      readerState.lastNormY = normY;
+    } else if (readerState && readerState.lastNormX != null && readerState.lastNormY != null) {
+      normX = readerState.lastNormX;
+      normY = readerState.lastNormY;
+    } else {
+      normX = ((boxWidth / 2) - PANEL_INSET_X) / scaledWidth;
+      normY = ((PANEL_BOX_H / 2) - PANEL_INSET_Y) / scaledHeight;
+      if (isWide) {
+        // Split page: start the preview on the left half (part 1) or right half (part 2)
+        normX = readerState.subPage === 1 ? 0.75 : 0.25;
+      }
+    }
+
+    applyMagnifierFromNorm(normX, normY);
+  }
+
+  // Move the stage image into a full-stage frame and show half of a wide 2-in-1 scan.
+  function applySplitLayout() {
+    if (!readerState) return;
+    if (!splitFrame) {
+      splitFrame = document.createElement('div');
+      splitFrame.className = 'rd-split-frame';
+      rdStage.insertBefore(splitFrame, rdLoading);
+    }
+    var split = splitSpreads && currentIsWide();
+    if (split) {
+      if (rdImg.parentNode !== splitFrame) splitFrame.appendChild(rdImg);
+      rdStage.classList.add('rd-split');
+      rdImg.style.transform = readerState.subPage === 1 ? 'translateX(-50%)' : 'translateX(-10%)';
+      rdSplit.style.display = '';
+    } else {
+      if (rdImg.parentNode === splitFrame) rdStage.appendChild(rdImg);
+      rdStage.classList.remove('rd-split');
+      rdImg.style.transform = '';
+      rdSplit.style.display = 'none';
+    }
+  }
+
+  function refreshFooter() {
+    if (!readerState) return;
+    var s = readerState;
+    var isWide = currentIsWide();
+    var split = splitSpreads && isWide;
+    var canPrev = s.index > 0 || (split && s.subPage === 1);
+    var canNext = s.index < s.pages.length - 1 || (split && s.subPage === 0);
+    rdPrev.disabled = !canPrev;
+    rdFirst.disabled = !canPrev;
+    rdNext.disabled = !canNext;
+    rdLast.disabled = !canNext;
+    if (isWide) {
+      rdSplit.style.display = '';
+      rdSplit.textContent = splitSpreads ? '◧ Part ' + (s.subPage + 1) + '/2' : '◫ Full Spread';
+      rdSplit.title = splitSpreads ? 'Show Full 2-Page Spread' : 'Split Spread into Single Pages';
+      rdSplit.classList.toggle('split-active', splitSpreads);
+    } else {
+      rdSplit.style.display = 'none';
+    }
+  }
+
+  function refreshCounter() {
+    if (!readerState) return;
+    var s = readerState;
+    var pageNum = s.pages[s.index];
+    var suffix = (splitSpreads && currentIsWide()) ? ' (' + (s.subPage + 1) + '/2)' : '';
+    var loading = rdLoading.style.display === 'flex';
+    rdPg.textContent = (loading ? '⏳ ' : '') + pageNum + suffix + ' / ' + s.pages.length;
+  }
+
+  function toggleSplitSpreads() {
+    splitSpreads = !splitSpreads;
+    try { localStorage.setItem('comic_splitSpreads', String(splitSpreads)); } catch (e) {}
+    if (!readerState) return;
+    readerState.subPage = 0;
+    applySplitLayout();
+    refreshFooter();
+    refreshCounter();
+    initMagnifier();
+    setTimeout(initMagnifier, 60);
+    setTimeout(initMagnifier, 200);
+  }
+
+  rdImg.addEventListener('load', function () {
+    rdLoading.style.display = 'none';
+    var pn = currentPageNum();
+    if (pn && rdImg.naturalWidth > 0 && rdImg.naturalHeight > 0) {
+      wideCache[pn] = (rdImg.naturalWidth / rdImg.naturalHeight) >= 1.15;
+    }
+    applySplitLayout();
+    refreshFooter();
+    refreshCounter();
+    initMagnifier();
+    setTimeout(initMagnifier, 60);
+    setTimeout(initMagnifier, 200);
+    setTimeout(initMagnifier, 450);
+  });
+  rdImg.addEventListener('error', function () {
+    rdLoading.style.display = 'none';
+    refreshCounter();
+  });
+
+  function renderPage() {
+    if (!readerState) return;
+    var s = readerState;
+    var pageNum = s.pages[s.index];
+    rdLoading.style.display = 'flex';
+    rdLoading.textContent = 'Loading page…';
+    applySplitLayout();
+
+    getPageBlob(db, s.comic.id, pageNum).then(function (blob) {
+      if (!blob) {
+        rdLoading.textContent = 'Page ' + pageNum + ' not available offline.';
+        rdLoading.style.display = 'flex';
+        refreshCounter();
+        return;
+      }
+      var url = blobUrl(s.comic.id, pageNum, blob);
+      var wasSame = rdImg.src === url;
+      rdImg.src = url;
+      if (!wasSame) {
+        rdLoading.textContent = 'Loading page…';
+        rdLoading.style.display = 'none';
+      } else {
+        rdLoading.style.display = 'flex';
+        rdLoading.textContent = 'Loading page…';
+        var done = function () { rdLoading.style.display = 'none'; refreshCounter(); };
+        if (rdImg.complete && rdImg.naturalWidth > 0) done();
+        else { rdImg.onload = done; rdImg.onerror = done; }
+      }
+
+      rdSlider.max = s.pages.length;
+      rdSlider.value = s.index + 1;
+      refreshFooter();
+      refreshCounter();
+
+      var applyZoom = function () {
+        initMagnifier();
+      };
+
+      applyZoom();
+      setTimeout(applyZoom, 60);
+      setTimeout(applyZoom, 200);
+      setTimeout(applyZoom, 450);
+
+      saveProgress(s.comic.id, pageNum, s.lastNormX, s.lastNormY);
+
+      // When comic is completed, automatically delete it from offline storage
+      var isLastIndex = s.index >= s.pages.length - 1;
+      var total = s.comic.totalPages || s.pages.length;
+      var isAtEnd = isLastIndex && pageNum >= total && (!splitSpreads || !currentIsWide() || s.subPage === 1);
+      if (isAtEnd && !s.hasAutoDeleted) {
+        s.hasAutoDeleted = true;
+        deleteComicFromOffline(db, s.comic.id);
+        showToast('✓ Completed • Removed from offline storage');
+      }
+    });
+  }
+
+  function goNext() {
+    if (!readerState) return;
+    var s = readerState;
+    var split = splitSpreads && currentIsWide();
+    if (split && s.subPage === 0) {
+      s.subPage = 1;
+      renderPage();
+      return;
+    }
+    if (s.index >= s.pages.length - 1) {
+      showToast('✓ Comic completed • Returning to library');
+      setTimeout(closeReader, 700);
+      return;
+    }
+    s.pendingZoom = null;
+    s.lastNormX = null;
+    s.lastNormY = null;
+    s.index++;
+    s.subPage = 0;
+    renderPage();
+  }
+
+  function goPrev() {
+    if (!readerState) return;
+    var s = readerState;
+    var split = splitSpreads && currentIsWide();
+    if (split && s.subPage === 1) {
+      s.subPage = 0;
+      renderPage();
+      return;
+    }
+    if (s.index <= 0) return;
+    s.pendingZoom = null;
+    s.lastNormX = null;
+    s.lastNormY = null;
+    s.index--;
+    s.subPage = (splitSpreads && wideCache[s.pages[s.index]]) ? 1 : 0;
+    renderPage();
+  }
+
+  rdPrev.addEventListener('click', goPrev);
+  rdNext.addEventListener('click', goNext);
+  rdFirst.addEventListener('click', function () {
+    if (!readerState) return;
+    readerState.pendingZoom = null;
+    readerState.lastNormX = null;
+    readerState.lastNormY = null;
+    readerState.index = 0;
+    readerState.subPage = 0;
+    renderPage();
+  });
+  rdLast.addEventListener('click', function () {
+    if (!readerState) return;
+    readerState.pendingZoom = null;
+    readerState.lastNormX = null;
+    readerState.lastNormY = null;
+    readerState.index = readerState.pages.length - 1;
+    readerState.subPage = 0;
+    renderPage();
+  });
+  rdSplit.addEventListener('click', toggleSplitSpreads);
+
+  // Update the zoomed preview panel as the user touches/drags on the page
+  rdStage.addEventListener('touchstart', function (e) {
+    if (e.touches.length === 1) {
+      var t = e.touches[0];
+      updateMagnifier(t.clientX, t.clientY);
+    }
+  }, { passive: true });
+  rdStage.addEventListener('touchmove', function (e) {
+    if (e.touches.length === 1) {
+      e.preventDefault();
+      var t = e.touches[0];
+      updateMagnifier(t.clientX, t.clientY);
+    }
+  }, { passive: false });
+  rdStage.addEventListener('touchend', function () {}, { passive: true });
+
+  // Mouse drag support for desktop/responsive testing
+  var isMouseDown = false;
+  rdStage.addEventListener('mousedown', function (e) {
+    isMouseDown = true;
+    updateMagnifier(e.clientX, e.clientY);
+  });
+  window.addEventListener('mousemove', function (e) {
+    if (isMouseDown) {
+      updateMagnifier(e.clientX, e.clientY);
+    }
+  });
+  window.addEventListener('mouseup', function () {
+    isMouseDown = false;
+  });
+
+  window.addEventListener('resize', function () {
+    if (reader.classList.contains('open')) {
+      setTimeout(initMagnifier, 80);
+    }
+  });
+  rdSlider.addEventListener('input', function () {
+    if (!readerState) return;
+    var idx = parseInt(rdSlider.value, 10) - 1;
+    if (idx >= 0 && idx < readerState.pages.length) {
+      readerState.pendingZoom = null;
+      readerState.lastNormX = null;
+      readerState.lastNormY = null;
+      readerState.index = idx;
+      readerState.subPage = 0;
+      renderPage();
+    }
+  });
+  rdBack.addEventListener('click', function () {
+    try {
+      if (window.history.state && window.history.state.readerOpen) {
+        window.history.back();
+      } else {
+        closeReader();
+      }
+    } catch (e) { closeReader(); }
+  });
+
+  window.addEventListener('popstate', function (e) {
+    if (reader.classList.contains('open') && (!e.state || !e.state.readerOpen)) {
+      closeReader();
+    }
+  });
+
+  libExit.addEventListener('click', exitOfflineMode);
+
+  // Keydown arrows for debugging / bluetooth keyboards
+  window.addEventListener('keydown', function (e) {
+    if (!readerState) return;
+    if (e.key === 'ArrowLeft') { goPrev(); e.preventDefault(); }
+    if (e.key === 'ArrowRight') { goNext(); e.preventDefault(); }
+  });
+
+  // ---------- Init ----------
+  function init() {
+    if (typeof window.indexedDB === 'undefined') {
+      libBody.innerHTML = '<div class="empty-state"><div class="em">⚠️</div><h2>Storage unavailable</h2><p>IndexedDB is not available in this WebView.</p></div>';
+      return;
+    }
+    openDB().then(function (database) {
+      db = database;
+      dbReady = true;
+      return getAllComics(database).then(function (records) {
+        var comics = (records || []).filter(function (c) { return c && c.id; });
+        return Promise.all(comics.map(function (c) {
+          return getAvailablePages(database, c.id).then(function (pages) {
+            if (!pages || pages.length === 0) {
+              var count = c.downloadedPages || c.totalPages || 0;
+              if (count > 0) {
+                pages = [];
+                for (var i = 1; i <= count; i++) pages.push(i);
+              }
+            }
+            state.pageMap[c.id] = pages || [];
+            return c;
+          });
+        })).then(function (all) {
+          return (all || []).filter(function (c) { return c && c.id; });
+        });
+      });
+    }).then(function (items) {
+      renderLibrary(items);
+    }).catch(function (err) {
+      libBody.innerHTML = '<div class="empty-state"><div class="em">⚠️</div><h2>Offline library error</h2><p>' + (err && err.message ? err.message : 'Could not open offline storage.') + '</p></div>';
+    });
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>

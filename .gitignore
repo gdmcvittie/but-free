@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Local Environment Variables
+.env
+!.env.example
+
+# Build Artifacts and Distributables
+dist/
+dist_electron/
+build/
+*.apk
+*.zip
+*.tar.gz
+*.exe
+**/bin/
+bin/
+cookies.txt
+**/cookies.txt
+**/downloads/
+**/logs/
+data/
+**/data/
+download_history.json
+**/download_history.json
+
+# Android & Gradle Cache
+.gradle/
+local.properties
+*.hprof
+
+# Toolchain (Directory Junction / Local SDK)
+toolchain/
+
+# Logs & Temporary Files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+tmp/
+scratch/
+.cache/
+
+# IDE & OS Files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+**/data/**

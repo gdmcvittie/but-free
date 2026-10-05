@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>butFREE Downloader & Streaming Hub</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: #0f1115; color: #e6e8ee;
+  }
+  h1 { margin: 0 0 4px; font-size: 20px; letter-spacing: .02em; }
+  h2 { font-size: 15px; margin: 26px 0 12px; color: #cbd5e1; display: flex; align-items: center; gap: 8px; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(99, 102, 241, 0.2); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3); }
+  .sub { color: #8b93a7; margin-bottom: 20px; font-size: 13px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 22px; }
+  .stat { background: #171a21; border: 1px solid #242833; border-radius: 10px; padding: 12px 14px; }
+  .stat .k { color: #8b93a7; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  .stat .v { font-size: 20px; font-weight: 600; margin-top: 4px; }
+  .bar { height: 6px; background: #242833; border-radius: 999px; overflow: hidden; margin: 8px 0 6px; }
+  .bar > i { display: block; height: 100%; background: linear-gradient(90deg, #4f8cff, #7c5cff); transition: width .4s ease; }
+  .row { background: #171a21; border: 1px solid #242833; border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; }
+  .row .t { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+  .row .title { font-weight: 600; }
+  .muted { color: #8b93a7; font-size: 12px; }
+  .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid #2c3140; text-transform: uppercase; letter-spacing: .04em; }
+  .downloading { color: #7fb2ff; border-color: #27476e; }
+  .uploading  { color: #ffcf7f; border-color: #6e5327; }
+  .completed  { color: #7fe0a8; border-color: #27573c; }
+  .streaming  { color: #a78bfa; border-color: #5b21b6; background: rgba(139, 92, 246, 0.1); }
+  .error, .cancelled { color: #ff8f8f; border-color: #6e2a2a; }
+  button { background: #242833; color: #e6e8ee; border: 1px solid #343a49; border-radius: 7px; padding: 5px 11px; cursor: pointer; font-size: 12px; }
+  button:hover { background: #2e3442; }
+  .btn-danger { background: rgba(239, 68, 68, 0.1); color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
+  .btn-danger:hover { background: rgba(239, 68, 68, 0.2); }
+  .empty { color: #8b93a7; padding: 24px; text-align: center; border: 1px dashed #242833; border-radius: 10px; font-size: 13px; }
+  #auth { max-width: 340px; margin: 60px auto; }
+  input { width: 100%; padding: 9px 11px; background: #171a21; border: 1px solid #343a49; border-radius: 8px; color: #e6e8ee; }
+</style>
+</head>
+<body>
+<div id="auth">
+  <h1>butFREE Downloader</h1>
+  <p class="sub">Enter the node key to access the live dashboard.</p>
+  <input id="key" type="password" placeholder="Node key (optional if open)" />
+  <button style="width:100%;margin-top:10px;padding:9px" onclick="connect()">Connect</button>
+</div>
+
+<div id="main" hidden>
+  <div style="display:flex; justify-content:space-between; align-items:baseline">
+    <h1>butFREE Downloader & Streaming Hub</h1>
+    <button onclick="restartServer()" class="btn-danger" title="Restart VPS downloader daemon">Restart Server</button>
+  </div>
+  <p class="sub" id="uptime"></p>
+  <div class="stats" id="stats"></div>
+
+  <h2>🎬 Live Video Streams (Freevee TV & Movies) <span id="streamCount" class="badge">0</span></h2>
+  <div id="streams"></div>
+
+  <h2>🎵 Audio Downloads & Google Drive Uploads (Fraudio) <span id="downloadCount" class="badge">0</span></h2>
+  <div id="jobs"></div>
+</div>
+
+<script>
+  let timer = null;
+
+  const fmtBytes = (n) => {
+    if (!n) return '0 B';
+    const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.min(u.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+    return (n / 1024 ** i).toFixed(i ? 1 : 0) + ' ' + u[i];
+  };
+  const fmtUptime = (s) => {
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return h ? `${h}h ${m}m` : `${m}m ${s % 60}s`;
+  };
+
+  function connect() {
+    const key = document.getElementById('key').value.trim();
+    sessionStorage.setItem('butfree-node-key', key);
+    refresh();
+  }
+
+  async function stopStream(streamId) {
+    const key = sessionStorage.getItem('butfree-node-key') || '';
+    if (!confirm('Stop this active torrent stream?')) return;
+    try {
+      await fetch('/api/torrent/stream/' + encodeURIComponent(streamId) + '/stop', {
+        method: 'POST',
+        headers: key ? { 'x-node-key': key } : {}
+      });
+      refresh();
+    } catch (e) {
+      alert('Could not stop stream: ' + e.message);
+    }
+  }
+
+  async function restartServer() {
+    const key = sessionStorage.getItem('butfree-node-key') || '';
+    if (!confirm('Are you sure you want to restart the unified downloader daemon?')) return;
+    try {
+      await fetch('/api/restart', {
+        method: 'POST',
+        headers: key ? { 'x-node-key': key } : {}
+      });
+      alert('Restart initiated. Reconnecting in 3 seconds...');
+      setTimeout(refresh, 3000);
+    } catch (e) {
+      alert('Could not restart: ' + e.message);
+    }
+  }
+
+  async function refresh() {
+    const key = sessionStorage.getItem('butfree-node-key') || '';
+    try {
+      const res = await fetch('/api/dashboard', { headers: key ? { 'x-node-key': key } : {} });
+      if (!res.ok) throw new Error(res.status === 401 ? 'Invalid node key' : 'HTTP ' + res.status);
+      const data = await res.json();
+      document.getElementById('auth').hidden = true;
+      document.getElementById('main').hidden = false;
+      render(data);
+      clearTimeout(timer);
+      timer = setTimeout(refresh, 2500);
+    } catch (err) {
+      document.getElementById('auth').hidden = false;
+      document.getElementById('main').hidden = true;
+      clearTimeout(timer);
+      document.getElementById('auth').querySelector('.sub').textContent = err.message;
+    }
+  }
+
+  function render(data) {
+    const s = data.stats || {};
+    document.getElementById('uptime').textContent =
+      `Uptime ${fmtUptime(s.uptimeSeconds || 0)} · Memory ${s.memoryUsageMB || 0} MB · Max concurrent ${s.maxConcurrent || 2}`;
+
+    const activeStreams = data.streams || [];
+    const downloads = data.downloads || [];
+    document.getElementById('streamCount').textContent = activeStreams.length;
+    document.getElementById('downloadCount').textContent = downloads.length;
+
+    document.getElementById('stats').innerHTML = [
+      ['Active Streams', activeStreams.length],
+      ['Downloading', s.activeCount || 0],
+      ['Queued', s.queuedCount || 0],
+      ['Total Audio Jobs', downloads.length]
+    ].map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+
+    // Render TV Streams
+    if (!activeStreams.length) {
+      document.getElementById('streams').innerHTML = '<div class="empty">No active video streams. Start a movie/TV torrent from Freevee to stream live.</div>';
+    } else {
+      document.getElementById('streams').innerHTML = activeStreams.map(st => `
+        <div class="row">
+          <div class="t">
+            <span class="title">📺 ${st.title}</span>
+            <div style="display:flex; gap:8px; align-items:center">
+              <span class="pill streaming">STREAMING</span>
+              <button onclick="stopStream('${st.id}')" class="btn-danger" style="padding:2px 8px; font-size:11px">Stop</button>
+            </div>
+          </div>
+          <div class="bar"><i style="width:${Math.min(100, st.progress || 0)}%"></i></div>
+          <div class="muted">
+            Buffer: ${st.progress}% · Size: ${fmtBytes(st.size)} · ↓ ${fmtBytes(st.downloadSpeed)}/s · ↑ ${fmtBytes(st.uploadSpeed)}/s · ${st.peers} peers · Active ${st.ageSeconds}s
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // Render Audiobook & YouTube Downloads
+    const jobs = downloads.filter((j) => !['completed', 'error', 'cancelled'].includes(j.status));
+    const done = downloads.filter((j) => ['completed', 'error', 'cancelled'].includes(j.status)).slice(0, 10);
+
+    const card = (j) => `
+      <div class="row">
+        <div class="t">
+          <span class="title">${j.type === 'youtube' ? '▶️' : '🎧'} ${j.title || '(untitled)'}</span>
+          <span class="pill ${j.status}">${j.status}</span>
+        </div>
+        <div class="bar"><i style="width:${Math.min(100, j.percent || 0)}%"></i></div>
+        <div class="muted">
+          ${j.stage} · ${j.percent || 0}%${j.numPeers ? ` · ${j.numPeers} peers` : ''}${j.downloadSpeed ? ` · ${fmtBytes(j.downloadSpeed)}/s` : ''}
+          ${j.error ? ` · ${j.error}` : ''}
+        </div>
+      </div>`;
+
+    document.getElementById('jobs').innerHTML =
+      (jobs.length ? jobs.map(card).join('') : '<div class="empty">No active audiobook or YouTube downloads.</div>')
+      + (done.length ? `<h2 style="font-size:14px;margin:20px 0 8px">Recent Completed Transfers</h2>${done.map(card).join('')}` : '');
+  }
+
+  refresh();
+</script>
+</body>
+</html>

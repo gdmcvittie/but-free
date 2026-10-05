@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>FRAUDIO Offline Player</title>
+  <style>
+    :root {
+      --bg: #0E1119;
+      --card-bg: #161A26;
+      --card-hover: #1E2333;
+      --border: #232A3B;
+      --accent: #3DDC97;
+      --accent-dim: rgba(61, 220, 151, 0.15);
+      --text: #F1F5F9;
+      --text-muted: #94A3B8;
+      --danger: #EF4444;
+      --danger-dim: rgba(239, 68, 68, 0.15);
+      --player-height: 82px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      padding-bottom: calc(var(--player-height) + 20px);
+      overflow-x: hidden;
+      min-height: 100vh;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(14, 17, 25, 0.95);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      background: var(--accent-dim);
+      border: 1px solid var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      font-weight: bold;
+      font-size: 14px;
+    }
+
+    .brand-title {
+      font-size: 1.1rem;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      color: #fff;
+    }
+
+    .badge-offline {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 2px 7px;
+      border-radius: 12px;
+      background: rgba(234, 179, 8, 0.2);
+      color: #FACC15;
+      border: 1px solid rgba(234, 179, 8, 0.4);
+      margin-left: 6px;
+    }
+
+    .btn-online {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.15s;
+    }
+
+    .btn-online:active {
+      background: var(--card-hover);
+    }
+
+    .stats-bar {
+      display: flex;
+      gap: 8px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .stats-bar::-webkit-scrollbar {
+      display: none;
+    }
+
+    .stat-pill {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .stat-pill strong {
+      color: var(--accent);
+    }
+
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      padding: 0 16px;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .tab-btn {
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-muted);
+      padding: 10px 14px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .section-container {
+      padding: 0 16px;
+    }
+
+    .item-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .media-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .media-card:active {
+      background: var(--card-hover);
+    }
+
+    .media-card.playing {
+      border-color: var(--accent);
+      background: rgba(61, 220, 151, 0.05);
+    }
+
+    .thumb {
+      width: 46px;
+      height: 46px;
+      border-radius: 6px;
+      background: #11141D;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      flex-shrink: 0;
+      font-size: 20px;
+    }
+
+    .thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .meta {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .title {
+      font-size: 0.9rem;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #fff;
+    }
+
+    .media-card.playing .title {
+      color: var(--accent);
+    }
+
+    .subtitle {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 3px;
+    }
+
+    .card-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-icon {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .btn-icon:active {
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+    }
+
+    .btn-icon.delete:active {
+      background: var(--danger-dim);
+      color: var(--danger);
+    }
+
+    .empty-msg {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
+    /* Bottom Player Bar */
+    .player-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: var(--player-height);
+      background: #121622;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 0 16px;
+      z-index: 20;
+      box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    .progress-track {
+      position: absolute;
+      top: -3px;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: #232A3B;
+      cursor: pointer;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: var(--accent);
+      width: 0%;
+      transition: width 0.1s linear;
+    }
+
+    .player-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .player-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .player-thumb {
+      width: 44px;
+      height: 44px;
+      border-radius: 6px;
+      background: #1A1F2C;
+      overflow: hidden;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+
+    .player-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .player-info {
+      min-width: 0;
+    }
+
+    .player-title {
+      font-size: 0.88rem;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #fff;
+    }
+
+    .player-sub {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 2px;
+    }
+
+    .player-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .play-btn {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: none;
+      color: #0E1119;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      cursor: pointer;
+    }
+
+    .play-btn:active {
+      transform: scale(0.95);
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <div class="brand-icon">F</div>
+      <div class="brand-title">FRAUDIO</div>
+      <span class="badge-offline">Offline</span>
+    </div>
+    <button class="btn-online" id="btnOnline">
+      <span>🌐</span> Reconnect
+    </button>
+  </header>
+
+  <div class="stats-bar" id="statsBar">
+    <div class="stat-pill"><span id="statSize">0 MB</span> <strong>Saved</strong></div>
+    <div class="stat-pill"><span id="statTracks">0</span> <strong>Tracks</strong></div>
+    <div class="stat-pill"><span id="statAlbums">0</span> <strong>Albums</strong></div>
+    <div class="stat-pill"><span id="statBooks">0</span> <strong>Audiobooks</strong></div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="tracks">🎵 Tracks</button>
+    <button class="tab-btn" data-tab="albums">💿 Albums</button>
+    <button class="tab-btn" data-tab="playlists">📋 Playlists</button>
+    <button class="tab-btn" data-tab="books">📖 Audiobooks</button>
+  </div>
+
+  <main class="section-container">
+    <div class="item-list" id="itemList">
+      <!-- Items dynamically populated from IndexedDB -->
+    </div>
+  </main>
+
+  <!-- Hidden HTML5 Audio Element -->
+  <audio id="audioElement" preload="auto"></audio>
+
+  <!-- Bottom Mini Player -->
+  <div class="player-bar" id="playerBar">
+    <div class="progress-track" id="progressTrack">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+    <div class="player-inner">
+      <div class="player-left">
+        <div class="player-thumb" id="playerThumb">🎵</div>
+        <div class="player-info">
+          <div class="player-title" id="playerTitle">Nothing playing</div>
+          <div class="player-sub" id="playerSub">Select an offline song or book</div>
+        </div>
+      </div>
+      <div class="player-controls">
+        <button class="btn-icon" id="btnPrev">⏮️</button>
+        <button class="play-btn" id="btnPlayPause">▶</button>
+        <button class="btn-icon" id="btnNext">⏭️</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const DB_NAME = 'fraudio_client_offline';
+    const DB_VERSION = 1;
+
+    let db = null;
+    let activeTab = 'tracks';
+    let tracks = [];
+    let collections = [];
+    let currentQueue = [];
+    let currentIndex = -1;
+    let currentPlayingId = null;
+
+    const audio = document.getElementById('audioElement');
+    const playerBar = document.getElementById('playerBar');
+    const playerTitle = document.getElementById('playerTitle');
+    const playerSub = document.getElementById('playerSub');
+    const playerThumb = document.getElementById('playerThumb');
+    const btnPlayPause = document.getElementById('btnPlayPause');
+    const progressTrack = document.getElementById('progressTrack');
+    const progressFill = document.getElementById('progressFill');
+    const itemList = document.getElementById('itemList');
+
+    function formatBytes(bytes) {
+      if (!bytes || bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return (bytes / Math.pow(k, i)).toFixed(1) + ' ' + sizes[i];
+    }
+
+    function formatTime(sec) {
+      if (!sec || isNaN(sec)) return '0:00';
+      const m = Math.floor(sec / 60);
+      const s = Math.floor(sec % 60);
+      return m + ':' + (s < 10 ? '0' : '') + s;
+    }
+
+    async function initDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onsuccess = (e) => {
+          db = e.target.result;
+          resolve(db);
+        };
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function loadData() {
+      if (!db) await initDB();
+      return new Promise((resolve) => {
+        const tx = db.transaction(['tracks', 'collections'], 'readonly');
+        const reqTracks = tx.objectStore('tracks').getAll();
+        const reqCols = tx.objectStore('collections').getAll();
+
+        let loadedTracks = [];
+        let loadedCols = [];
+
+        reqTracks.onsuccess = () => {
+          loadedTracks = reqTracks.result || [];
+          if (reqCols.readyState === 'done') finish();
+        };
+
+        reqCols.onsuccess = () => {
+          loadedCols = reqCols.result || [];
+          if (reqTracks.readyState === 'done') finish();
+        };
+
+        function finish() {
+          tracks = loadedTracks;
+          collections = loadedCols;
+          updateStats();
+          renderTab();
+          resolve();
+        }
+      });
+    }
+
+    function updateStats() {
+      let totalBytes = 0;
+      tracks.forEach(t => totalBytes += (t.sizeBytes || (t.blob ? t.blob.size : 0)));
+      const albums = collections.filter(c => c.type === 'album');
+      const books = collections.filter(c => c.type === 'book');
+
+      document.getElementById('statSize').textContent = formatBytes(totalBytes);
+      document.getElementById('statTracks').textContent = tracks.length;
+      document.getElementById('statAlbums').textContent = albums.length;
+      document.getElementById('statBooks').textContent = books.length;
+    }
+
+    function renderTab() {
+      itemList.innerHTML = '';
+
+      if (activeTab === 'tracks') {
+        renderTracks();
+      } else if (activeTab === 'albums') {
+        renderAlbums();
+      } else if (activeTab === 'playlists') {
+        renderPlaylists();
+      } else if (activeTab === 'books') {
+        renderBooks();
+      }
+    }
+
+    function renderTracks() {
+      if (!tracks.length) {
+        itemList.innerHTML = '<div class="empty-msg">No tracks saved offline.<br>Download songs while online to listen anywhere.</div>';
+        return;
+      }
+
+      tracks.forEach((track, idx) => {
+        const card = document.createElement('div');
+        card.className = 'media-card' + (currentPlayingId === track.id ? ' playing' : '');
+        card.onclick = () => playQueue(tracks, idx);
+
+        let thumbHtml = '🎵';
+        if (track.coverBlob) {
+          const coverUrl = URL.createObjectURL(track.coverBlob);
+          thumbHtml = `<img src="${coverUrl}" alt="Cover" />`;
+        }
+
+        card.innerHTML = `
+          <div class="thumb">${thumbHtml}</div>
+          <div class="meta">
+            <div class="title">${escapeHtml(track.title)}</div>
+            <div class="subtitle">${escapeHtml(track.artist || 'Unknown')} · ${formatTime(track.durationSec)} · ${formatBytes(track.sizeBytes)}</div>
+          </div>
+          <div class="card-actions">
+            <button class="btn-icon delete" title="Delete track" onclick="event.stopPropagation(); deleteTrack('${track.id}')">🗑️</button>
+          </div>
+        `;
+        itemList.appendChild(card);
+      });
+    }
+
+    function renderAlbums() {
+      const albums = collections.filter(c => c.type === 'album');
+      if (!albums.length) {
+        itemList.innerHTML = '<div class="empty-msg">No albums saved offline.</div>';
+        return;
+      }
+
+      albums.forEach(album => {
+        const card = document.createElement('div');
+        card.className = 'media-card';
+        card.onclick = () => playCollection(album);
+
+        card.innerHTML = `
+          <div class="thumb">💿</div>
+          <div class="meta">
+            <div class="title">${escapeHtml(album.title)}</div>
+            <div class="subtitle">${escapeHtml(album.artist || 'Unknown')} · ${album.trackIds ? album.trackIds.length : album.totalTracks} tracks</div>
+          </div>
+          <div class="card-actions">
+            <button class="btn-icon delete" title="Delete album" onclick="event.stopPropagation(); deleteCollection('${album.id}')">🗑️</button>
+          </div>
+        `;
+        itemList.appendChild(card);
+      });
+    }
+
+    function renderPlaylists() {
+      const playlists = collections.filter(c => c.type === 'playlist');
+      if (!playlists.length) {
+        itemList.innerHTML = '<div class="empty-msg">No playlists saved offline.</div>';
+        return;
+      }
+
+      playlists.forEach(pl => {
+        const card = document.createElement('div');
+        card.className = 'media-card';
+        card.onclick = () => playCollection(pl);
+
+        card.innerHTML = `
+          <div class="thumb">📋</div>
+          <div class="meta">
+            <div class="title">${escapeHtml(pl.title)}</div>
+            <div class="subtitle">Playlist · ${pl.trackIds ? pl.trackIds.length : pl.totalTracks} tracks</div>
+          </div>
+          <div class="card-actions">
+            <button class="btn-icon delete" title="Delete playlist" onclick="event.stopPropagation(); deleteCollection('${pl.id}')">🗑️</button>
+          </div>
+        `;
+        itemList.appendChild(card);
+      });
+    }
+
+    function renderBooks() {
+      const books = collections.filter(c => c.type === 'book');
+      if (!books.length) {
+        itemList.innerHTML = '<div class="empty-msg">No audiobooks saved offline.</div>';
+        return;
+      }
+
+      books.forEach(book => {
+        const card = document.createElement('div');
+        card.className = 'media-card';
+        card.onclick = () => playCollection(book);
+
+        card.innerHTML = `
+          <div class="thumb">📖</div>
+          <div class="meta">
+            <div class="title">${escapeHtml(book.title)}</div>
+            <div class="subtitle">${escapeHtml(book.author || 'Unknown author')}</div>
+          </div>
+          <div class="card-actions">
+            <button class="btn-icon delete" title="Delete audiobook" onclick="event.stopPropagation(); deleteCollection('${book.id}')">🗑️</button>
+          </div>
+        `;
+        itemList.appendChild(card);
+      });
+    }
+
+    function playCollection(collection) {
+      const ids = collection.trackIds || [];
+      const colTracks = ids.map(id => tracks.find(t => t.id === id)).filter(Boolean);
+      if (colTracks.length) {
+        playQueue(colTracks, 0);
+      }
+    }
+
+    function playQueue(queue, index) {
+      currentQueue = queue;
+      currentIndex = index;
+      const item = queue[index];
+      if (!item) return;
+
+      currentPlayingId = item.id;
+      playerTitle.textContent = item.title;
+      playerSub.textContent = item.artist || item.author || 'Unknown';
+
+      if (item.coverBlob) {
+        const url = URL.createObjectURL(item.coverBlob);
+        playerThumb.innerHTML = `<img src="${url}" />`;
+      } else {
+        playerThumb.innerHTML = item.kind === 'audiobook' ? '📖' : '🎵';
+      }
+
+      if (item.blob) {
+        const audioUrl = URL.createObjectURL(item.blob);
+        audio.src = audioUrl;
+
+        // Restore saved playback position
+        getPosition(item.id).then(pos => {
+          if (pos && pos > 0) {
+            audio.currentTime = pos;
+          }
+          audio.play().catch(e => console.warn('Play error:', e));
+          btnPlayPause.textContent = '⏸';
+          renderTab();
+        });
+      }
+    }
+
+    async function getPosition(itemId) {
+      try {
+        return new Promise(resolve => {
+          const tx = db.transaction('progress', 'readonly');
+          const req = tx.objectStore('progress').get(itemId);
+          req.onsuccess = () => resolve(req.result ? req.result.positionSec : 0);
+          req.onerror = () => resolve(0);
+        });
+      } catch {
+        return 0;
+      }
+    }
+
+    async function savePosition(itemId, pos, dur) {
+      if (!itemId) return;
+      try {
+        const tx = db.transaction(['progress', 'syncQueue'], 'readwrite');
+        tx.objectStore('progress').put({ itemId, positionSec: pos, durationSec: dur, updatedAt: Date.now() });
+        tx.objectStore('syncQueue').add({ itemId, positionSec: pos, durationSec: dur, timestamp: Date.now() });
+      } catch {}
+    }
+
+    audio.ontimeupdate = () => {
+      if (!audio.duration) return;
+      const pct = (audio.currentTime / audio.duration) * 100;
+      progressFill.style.width = pct + '%';
+    };
+
+    // Save position every 5 seconds
+    setInterval(() => {
+      if (!audio.paused && currentPlayingId && audio.duration) {
+        savePosition(currentPlayingId, audio.currentTime, audio.duration);
+      }
+    }, 5000);
+
+    audio.onpause = () => {
+      btnPlayPause.textContent = '▶';
+      if (currentPlayingId && audio.duration) {
+        savePosition(currentPlayingId, audio.currentTime, audio.duration);
+      }
+    };
+
+    audio.onplay = () => {
+      btnPlayPause.textContent = '⏸';
+    };
+
+    audio.onended = () => {
+      if (currentIndex < currentQueue.length - 1) {
+        playQueue(currentQueue, currentIndex + 1);
+      } else {
+        btnPlayPause.textContent = '▶';
+      }
+    };
+
+    btnPlayPause.onclick = () => {
+      if (!audio.src) return;
+      if (audio.paused) {
+        audio.play();
+      } else {
+        audio.pause();
+      }
+    };
+
+    document.getElementById('btnPrev').onclick = () => {
+      if (audio.currentTime > 4) {
+        audio.currentTime = 0;
+      } else if (currentIndex > 0) {
+        playQueue(currentQueue, currentIndex - 1);
+      }
+    };
+
+    document.getElementById('btnNext').onclick = () => {
+      if (currentIndex < currentQueue.length - 1) {
+        playQueue(currentQueue, currentIndex + 1);
+      }
+    };
+
+    progressTrack.onclick = (e) => {
+      if (!audio.duration) return;
+      const rect = progressTrack.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const fraction = Math.max(0, Math.min(1, clickX / rect.width));
+      audio.currentTime = fraction * audio.duration;
+    };
+
+    async function deleteTrack(trackId) {
+      if (!confirm('Remove track from device offline storage?')) return;
+      const tx = db.transaction('tracks', 'readwrite');
+      tx.objectStore('tracks').delete(trackId);
+      tx.oncomplete = () => loadData();
+    }
+
+    async function deleteCollection(collectionId) {
+      if (!confirm('Remove this collection and its downloaded audio from this device?')) return;
+      const tx = db.transaction(['collections', 'tracks'], 'readwrite');
+      const colStore = tx.objectStore('collections');
+      const trackStore = tx.objectStore('tracks');
+
+      const col = collections.find(c => c.id === collectionId);
+      if (col && col.trackIds) {
+        col.trackIds.forEach(id => trackStore.delete(id));
+      }
+      colStore.delete(collectionId);
+      tx.oncomplete = () => loadData();
+    }
+
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeTab = btn.getAttribute('data-tab');
+        renderTab();
+      };
+    });
+
+    document.getElementById('btnOnline').onclick = () => {
+      window.location.href = '/';
+    };
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    // Startup
+    initDB().then(() => loadData());
+  </script>
+</body>
+</html>
