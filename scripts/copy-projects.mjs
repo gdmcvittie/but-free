@@ -152,9 +152,13 @@ fs.mkdirSync(downloaderDst, { recursive: true });
 const tvStreamerSrc = 'C:\\_code\\___MY-TV\\cloud-only\\torrent-streamer';
 const musicStreamerSrc = 'C:\\_code\\fraudio\\fraudio-streamer';
 
-copyDirectory(tvStreamerSrc, downloaderDst);
-copyDirectory(musicStreamerSrc, downloaderDst);
-console.log(`  ✓ Consolidated torrent, audio, and video downloader into /downloader.\n`);
+if (!fs.existsSync(path.join(downloaderDst, 'tvDownloadManager.js'))) {
+  copyDirectory(tvStreamerSrc, downloaderDst);
+  copyDirectory(musicStreamerSrc, downloaderDst);
+  console.log(`  ✓ Consolidated torrent, audio, and video downloader into /downloader.\n`);
+} else {
+  console.log(`  ✓ Combined Downloader (/downloader) already configured.\n`);
+}
 
 // Post-Migration Path and Branding Adjustments
 console.log('Applying Monorepo Branding and Toolchain Path Patches...');

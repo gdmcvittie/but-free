@@ -37,6 +37,14 @@ import {
   getJobs,
   nodeStatus
 } from './downloadManager.js';
+import {
+  addDownloadJob as addTvDownloadJob,
+  getJobs as getTvJobs,
+  getJob as getTvJob,
+  cancelJob as cancelTvJob,
+  deleteJob as deleteTvJob,
+  clearHistory as clearTvHistory
+} from './tvDownloadManager.js';
 import { getPlaylistTracks } from './youtubeDownloader.js';
 import { transcodeMediaFile, getVideoHeight, getMediaDuration } from './transcoder.js';
 
@@ -211,6 +219,96 @@ app.get(['/api/torrent', '/api/torrent/stream'], (req, res) => {
     activeStreams: activeStreams.size,
     message: 'Torrent node is active and ready.'
   });
+});
+
+// -------------------------------------------------------------
+// Freevee TV & Movie Torrent Download Endpoints
+// -------------------------------------------------------------
+app.post('/api/torrent/download', requireAuth, (req, res) => {
+  const { magnet, title, kind, meta, driveConfig, transcodeConfig, webhookUrl, userId } = req.body || {};
+  if (!magnet) {
+    return res.status(400).json({ error: 'Missing magnet or torrent URL' });
+  }
+
+  try {
+    const job = addTvDownloadJob({
+      magnet,
+      title,
+      kind,
+      meta,
+      driveConfig,
+      transcodeConfig,
+      webhookUrl,
+      userId
+    });
+
+    res.json({
+      success: true,
+      message: 'TV download job added to queue',
+      job: {
+        id: job.id,
+        title: job.title,
+        status: job.status,
+        stage: job.stage
+      }
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/torrent/downloads', requireAuth, (req, res) => {
+  const userId = req.query.userId || null;
+  const list = getTvJobs(userId).map(j => ({
+    id: j.id,
+    userId: j.userId,
+    title: j.title,
+    kind: j.kind,
+    status: j.status,
+    stage: j.stage,
+    downloadPercent: j.downloadPercent,
+    downloadSpeed: j.downloadSpeed,
+    numPeers: j.numPeers,
+    transcodePercent: j.transcodePercent,
+    uploadPercent: j.uploadPercent,
+    driveFileId: j.driveFileId,
+    error: j.error,
+    createdAt: j.createdAt,
+    updatedAt: j.updatedAt,
+    queuePosition: j.queuePosition,
+    queueType: j.queueType
+  }));
+  res.json({ success: true, downloads: list });
+});
+
+app.get('/api/torrent/download/:id', requireAuth, (req, res) => {
+  const job = getTvJob(req.params.id);
+  if (!job) return res.status(404).json({ success: false, error: 'Job not found' });
+  res.json({ success: true, job });
+});
+
+app.post('/api/torrent/download/:id/cancel', requireAuth, (req, res) => {
+  const { id } = req.params;
+  const cancelled = cancelTvJob(id);
+  res.json({ success: true, cancelled });
+});
+
+app.delete('/api/torrent/downloads/history', requireAuth, (req, res) => {
+  const userId = req.query.userId || req.body?.userId || null;
+  const count = clearTvHistory(userId);
+  res.json({ success: true, count });
+});
+
+app.post('/api/torrent/downloads/clear-history', requireAuth, (req, res) => {
+  const userId = req.query.userId || req.body?.userId || null;
+  const count = clearTvHistory(userId);
+  res.json({ success: true, count });
+});
+
+app.delete('/api/torrent/download/:id', requireAuth, (req, res) => {
+  const { id } = req.params;
+  const deleted = deleteTvJob(id);
+  res.json({ success: true, deleted });
 });
 
 // -------------------------------------------------------------

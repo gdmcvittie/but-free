@@ -5509,7 +5509,7 @@ async function dispatchTorrentDownload({ userId, magnet, title, kind, meta = {},
   try {
     const vpsRes = await fetch(`${targetServer}/api/torrent/download`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getTorrentHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         magnet,
         title: title || 'Download',
@@ -5562,7 +5562,7 @@ app.get('/api/downloads', authenticate, async (req, res) => {
 
   try {
     const vpsRes = await fetch(`${targetServer}/api/torrent/downloads?userId=${encodeURIComponent(userId)}`, {
-      headers: { 'Accept': 'application/json' },
+      headers: getTorrentHeaders({ 'Accept': 'application/json' }),
       signal: AbortSignal.timeout(4000)
     });
 
@@ -5581,7 +5581,7 @@ app.post('/api/downloads/:id/cancel', authenticate, async (req, res) => {
   try {
     const vpsRes = await fetch(`${targetServer}/api/torrent/download/${req.params.id}/cancel`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: getTorrentHeaders({ 'Content-Type': 'application/json' })
     });
     const data = await vpsRes.json();
     res.json(data);
@@ -5596,7 +5596,7 @@ app.delete('/api/downloads/history', authenticate, async (req, res) => {
   try {
     const vpsRes = await fetch(`${targetServer}/api/torrent/downloads/history?userId=${encodeURIComponent(userId)}`, {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getTorrentHeaders({ 'Content-Type': 'application/json' }),
       signal: AbortSignal.timeout(4000)
     });
     if (vpsRes.ok) {
@@ -5615,7 +5615,7 @@ app.post('/api/downloads/clear-history', authenticate, async (req, res) => {
   try {
     const vpsRes = await fetch(`${targetServer}/api/torrent/downloads/history?userId=${encodeURIComponent(userId)}`, {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getTorrentHeaders({ 'Content-Type': 'application/json' }),
       signal: AbortSignal.timeout(4000)
     });
     if (vpsRes.ok) {
@@ -5633,7 +5633,7 @@ app.delete('/api/downloads/:id', authenticate, async (req, res) => {
   try {
     const vpsRes = await fetch(`${targetServer}/api/torrent/download/${req.params.id}`, {
       method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getTorrentHeaders({ 'Content-Type': 'application/json' }),
       signal: AbortSignal.timeout(4000)
     });
     const data = await vpsRes.json();

@@ -12,7 +12,13 @@ const MIME_BY_EXT = {
   '.ogg': 'audio/ogg',
   '.opus': 'audio/ogg',
   '.flac': 'audio/flac',
-  '.wma': 'audio/x-ms-wma'
+  '.wma': 'audio/x-ms-wma',
+  '.mp4': 'video/mp4',
+  '.mkv': 'video/x-matroska',
+  '.webm': 'video/webm',
+  '.avi': 'video/x-msvideo',
+  '.mov': 'video/quicktime',
+  '.m4v': 'video/mp4'
 };
 
 function mimeFor(filePath) {
@@ -24,8 +30,7 @@ function escapeQuery(value) {
   return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
-/** Looks up a child folder by exact name. Returns null when absent. */
-async function findFolder(accessToken, parentFolderId, folderName, refreshTokenFn) {
+export async function findFolder(accessToken, parentFolderId, folderName, refreshTokenFn) {
   const cleanName = sanitizeName(folderName);
   if (!accessToken || !parentFolderId || !cleanName) return null;
 
@@ -50,7 +55,7 @@ async function findFolder(accessToken, parentFolderId, folderName, refreshTokenF
   return null;
 }
 
-async function findOrCreateFolder(accessToken, parentFolderId, folderName, refreshTokenFn) {
+export async function findOrCreateFolder(accessToken, parentFolderId, folderName, refreshTokenFn) {
   const cleanName = sanitizeName(folderName);
   if (!accessToken || !parentFolderId) throw new Error('Missing credentials or parent folder for folder lookup');
   if (!cleanName) throw new Error('Refusing to create a folder with an empty name');
@@ -85,6 +90,30 @@ async function findOrCreateFolder(accessToken, parentFolderId, folderName, refre
   }
   const created = await res.json();
   return created.id;
+}
+
+export async function resolveTargetFolderId(accessToken, rootFolderId, meta, refreshTokenFn = null) {
+  if (meta && meta.kind === 'tv' && meta.showName) {
+    const showFolderId = await findOrCreateFolder(accessToken, rootFolderId, meta.showName, refreshTokenFn);
+    const seasonNum = parseInt(meta.season, 10) || 1;
+    const seasonCandidates = [`Season ${seasonNum}`, `Season ${String(seasonNum).padStart(2, '0')}`];
+    let seasonFolderId = null;
+    for (const cand of seasonCandidates) {
+      seasonFolderId = await findFolder(accessToken, showFolderId, cand, refreshTokenFn);
+      if (seasonFolderId) break;
+    }
+    if (!seasonFolderId) {
+      seasonFolderId = await findOrCreateFolder(accessToken, showFolderId, `Season ${seasonNum}`, refreshTokenFn);
+    }
+    return seasonFolderId;
+  }
+
+  if (meta && meta.kind === 'movie' && meta.genre) {
+    const cleanGenre = String(meta.genre).replace(/['\\\/]/g, '').trim() || 'Movies';
+    return await findOrCreateFolder(accessToken, rootFolderId, cleanGenre, refreshTokenFn);
+  }
+
+  return rootFolderId;
 }
 
 /**
