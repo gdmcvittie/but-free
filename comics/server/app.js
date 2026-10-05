@@ -83,8 +83,9 @@ try {
   process.exit(1);
 }
 
-// Passenger may provide a numeric port, string port, or UNIX domain socket path
-const RAW_PORT = process.env.PORT_COMICS || process.env.PORT || 3000;
+// Passenger provides 'passenger', a numeric port, or a UNIX domain socket path in process.env.PORT.
+// It MUST take priority over PORT_COMICS so Passenger can bind to its worker socket.
+const RAW_PORT = process.env.PORT || process.env.PORT_COMICS || 3000;
 const isUnixSocket = typeof RAW_PORT === 'string' && !/^\d+$/.test(RAW_PORT);
 
 const server = isUnixSocket

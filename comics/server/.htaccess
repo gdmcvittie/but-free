@@ -2,11 +2,12 @@
 # Namecheap cPanel Passenger Node.js Configuration
 # ================================================================
 
-# Ensure Passenger is enabled for the Node.js application
-PassengerAppRoot "/home/USER/public_html"
-PassengerAppType node
-PassengerStartupFile app.js
-PassengerNodejs "/home/USER/nodevenv/public_html/18/bin/node"
+# NOTE: If using cPanel "Setup Node.js App", cPanel manages these directives automatically.
+# Only uncomment and update these if you are manually configuring Passenger:
+# PassengerAppRoot "/home/YOUR_CPANEL_USER/comics"
+# PassengerAppType node
+# PassengerStartupFile app.js
+# PassengerNodejs "/home/YOUR_CPANEL_USER/nodevenv/comics/20/bin/node"
 
 # Enable gzip / deflate compression
 <IfModule mod_deflate.c>

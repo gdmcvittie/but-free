@@ -149,6 +149,12 @@ if (!only || only === 'comics') {
     // Copy compiled server and web dist into dist/comics
     console.log(`[Comics] Exporting to ${comicsDist}...`);
     copyClean(comicsServerDir, comicsDist, ['src', 'scratch']);
+
+    // Ensure compiled Vite assets (index.html, assets/, manifest, icons) are also at root of dist/comics
+    const comicsViteDist = path.join(comicsServerDir, 'dist');
+    if (fs.existsSync(comicsViteDist)) {
+      copyClean(comicsViteDist, comicsDist);
+    }
     console.log(`✓ Exported comics server, backend, and web assets to ${comicsDist}`);
   }
 }
