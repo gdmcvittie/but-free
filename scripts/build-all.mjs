@@ -96,6 +96,7 @@ const welcomeDist = path.join(distRoot, 'welcome');
 const comicsDist = path.join(distRoot, 'comics');
 const musicDist = path.join(distRoot, 'music');
 const tvDist = path.join(distRoot, 'tv');
+const gamesDist = path.join(distRoot, 'games');
 const downloaderDist = path.join(distRoot, 'downloader');
 
 // -----------------------------------------------------------------------------
@@ -329,11 +330,30 @@ if (!only || only === 'tv') {
 }
 
 // -----------------------------------------------------------------------------
-// 4. Downloader Server -> dist/downloader
+// 4. Games App: FREEPLAY -> dist/games
+// -----------------------------------------------------------------------------
+if (!only || only === 'games') {
+  console.log('\n==================================================================');
+  console.log(' [4/5] Building FREEPLAY (Cloud Retro Games)');
+  console.log('==================================================================');
+  const gamesServerDir = path.join(root, 'games', 'server');
+
+  if (fs.existsSync(gamesServerDir)) {
+    console.log('[Games] Compiling Web App (vite build)...');
+    runCommand('npx', ['vite', 'build'], gamesServerDir);
+
+    console.log(`[Games] Exporting to ${gamesDist}...`);
+    copyClean(gamesServerDir, gamesDist, ['src', 'tmp']);
+    console.log(`✓ Exported FREEPLAY server, backend, and web assets to ${gamesDist}`);
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 5. Downloader Server -> dist/downloader
 // -----------------------------------------------------------------------------
 if (!only || only === 'downloader') {
   console.log('\n==================================================================');
-  console.log(' [4/4] Packaging Central Downloader Server (/downloader)');
+  console.log(' [5/5] Packaging Central Downloader Server (/downloader)');
   console.log('==================================================================');
   const downloaderSrc = path.join(root, 'downloader');
   if (fs.existsSync(downloaderSrc)) {
@@ -353,6 +373,7 @@ if (fs.existsSync(welcomeDist)) console.log('  🌐 dist/welcome/      - Landing
 if (fs.existsSync(comicsDist))  console.log('  📚 dist/comics/       - ComixoloFree Web App & Cloud Server');
 if (fs.existsSync(musicDist))   console.log('  🎵 dist/music/        - Fraudio Web App & Lossless Audio Server');
 if (fs.existsSync(tvDist))      console.log('  🎬 dist/tv/           - Freevee Web App & Streaming Server');
+if (fs.existsSync(gamesDist))   console.log('  🎮 dist/games/        - FREEPLAY Web App & Retro Arcade Server');
 if (fs.existsSync(downloaderDist)) console.log('  ⚡ dist/downloader/   - Central Torrent & Media Downloader');
 if (fs.existsSync(apksDistDir)) {
   console.log('  📦 dist/apks/         - Standalone Mobile & TV Packages:');

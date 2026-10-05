@@ -9,6 +9,7 @@
     "music/server",
     "tv/server",
     "tv/firetv",
+    "games/server",
     "downloader"
   ],
   "scripts": {
@@ -18,6 +19,7 @@
     "build:comics": "node scripts/build-all.mjs --only=comics",
     "build:music": "node scripts/build-all.mjs --only=music",
     "build:tv": "node scripts/build-all.mjs --only=tv",
+    "build:games": "node scripts/build-all.mjs --only=games",
     "install:all": "node scripts/install-all.mjs",
     "fix:git": "node scripts/fix-git.mjs"
   },

@@ -1,0 +1,32 @@
+{
+  "name": "freeplay-server",
+  "productName": "FREEPLAY",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "FREEPLAY - Cloud Video Games and Retro Arcade for Google Drive (games.butfree.online)",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "node server.js",
+    "dev:client": "vite",
+    "start": "node server.js",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "concurrently": "^9.2.1",
+    "lucide-react": "^1.24.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "vite": "^8.1.1"
+  }
+}

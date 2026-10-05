@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { spawn, execSync } from 'child_process';
+import { spawn, execSync, execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -104,12 +104,24 @@ export function getCookiesFile() {
 }
 
 export function isRunnable(binPath) {
-  if (!binPath) return false;
+  if (!binPath || !fs.existsSync(binPath)) return false;
+  if (!isWindows) {
+    try { fs.chmodSync(binPath, 0o755); } catch (_) {}
+  }
   try {
-    const probe = isWindows ? `"${binPath}" --version` : `${binPath} --version`;
-    execSync(probe, { stdio: ['ignore', 'ignore', 'ignore'], timeout: 20000 });
+    if (isWindows) {
+      execFileSync(binPath, ['--version'], { stdio: 'ignore', timeout: 20000, windowsHide: true });
+    } else {
+      execSync(`${binPath} --version`, { stdio: ['ignore', 'ignore', 'ignore'], timeout: 20000 });
+    }
     return true;
   } catch {
+    if (!isWindows) {
+      try {
+        execSync(`python3 "${binPath}" --version`, { stdio: ['ignore', 'ignore', 'ignore'], timeout: 20000 });
+        return true;
+      } catch {}
+    }
     return false;
   }
 }
@@ -138,6 +150,9 @@ async function downloadYtDlp(dest) {
 
   const temp = `${dest}.part`;
   fs.writeFileSync(temp, buffer);
+  if (!isWindows) {
+    try { fs.chmodSync(temp, 0o755); } catch (_) {}
+  }
   fs.renameSync(temp, dest);
   if (!isWindows) {
     try { fs.chmodSync(dest, 0o755); } catch (_) {}
@@ -155,19 +170,41 @@ export async function ensureYtDlp() {
   if (ytDlpPromise) return ytDlpPromise;
 
   ytDlpPromise = (async () => {
-    // 1. Use the cached local binary only while it is fresh AND actually runs.
-    //    A corrupt copy or one older than YTDL_MAX_AGE_MS (YouTube moves fast)
-    //    triggers a re-download below rather than silently failing every track.
+    // 1. Use the cached local binary if runnable.
     if (fs.existsSync(local)) {
       if (!isWindows) {
         try { fs.chmodSync(local, 0o755); } catch (_) {}
       }
+      const runnable = isRunnable(local);
       const stale = ageMs(local) > YTDL_MAX_AGE_MS;
-      if (!stale && isRunnable(local)) {
+
+      // If fresh and runnable, use it immediately
+      if (!stale && runnable) {
         ytDlpPath = local;
         return local;
       }
-      console.warn(`[FraudioStreamer] Cached yt-dlp is ${stale ? 'stale' : 'not runnable'}; refreshing…`);
+
+      // If runnable but stale, attempt a safe background refresh without deleting the working binary
+      if (stale && runnable) {
+        try {
+          const temp = `${local}.fresh`;
+          await downloadYtDlp(temp);
+          if (isRunnable(temp)) {
+            fs.renameSync(temp, local);
+            console.log('[FraudioStreamer] Refreshed yt-dlp binary to latest version');
+          } else {
+            try { fs.rmSync(temp, { force: true }); } catch (_) {}
+            console.warn('[FraudioStreamer] Downloaded yt-dlp update was not runnable; retaining current working binary');
+          }
+        } catch (err) {
+          console.warn('[FraudioStreamer] Failed to refresh yt-dlp from GitHub; retaining current working binary:', err.message);
+        }
+        ytDlpPath = local;
+        return local;
+      }
+
+      // If local exists but cannot run, remove it so we can re-download
+      console.warn('[FraudioStreamer] Cached yt-dlp is not runnable; refreshing…');
       try { fs.rmSync(local, { force: true }); } catch (_) {}
     }
 

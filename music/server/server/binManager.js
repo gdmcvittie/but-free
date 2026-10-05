@@ -125,8 +125,6 @@ export async function ensureYtDlp() {
   if (ytDlpPromise) return ytDlpPromise;
 
   ytDlpPromise = (async () => {
-    // Use a cached copy only while it is fresh AND actually runs; a corrupt or
-    // dependency-less binary would otherwise be trusted forever (size > 0).
     if (fs.existsSync(local)) {
       try {
         if (fs.statSync(local).size > 0) {
@@ -141,7 +139,30 @@ export async function ensureYtDlp() {
         ytDlpPath = local;
         return local;
       }
-      console.warn(`[Bin] Cached yt-dlp is ${stale ? 'stale' : 'not runnable'}; refreshing…`);
+      if (stale && runnable) {
+        try {
+          const temp = `${local}.fresh`;
+          const url = isWindows
+            ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
+            : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
+          const res = await fetch(url, { redirect: 'follow' });
+          if (res.ok) {
+            const buf = Buffer.from(await res.arrayBuffer());
+            if (buf.length >= 100000) {
+              fs.writeFileSync(temp, buf);
+              if (!isWindows) fs.chmodSync(temp, 0o755);
+              if (ytdlpRunnable(temp)) {
+                fs.renameSync(temp, local);
+              } else {
+                try { fs.rmSync(temp, { force: true }); } catch (_) {}
+              }
+            }
+          }
+        } catch (_) {}
+        ytDlpPath = local;
+        return local;
+      }
+      console.warn(`[Bin] Cached yt-dlp is not runnable; refreshing…`);
       try { fs.rmSync(local, { force: true }); } catch { /* ignore */ }
     }
 
@@ -154,9 +175,10 @@ export async function ensureYtDlp() {
 
     console.log('[Bin] Downloading yt-dlp…');
     fs.mkdirSync(BIN_DIR, { recursive: true });
+
     const url = isWindows
       ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
-      : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux';
+      : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
 
     const res = await fetch(url, { redirect: 'follow' });
     if (!res.ok) throw new Error(`yt-dlp download failed (HTTP ${res.status})`);
@@ -166,8 +188,13 @@ export async function ensureYtDlp() {
 
     const temp = `${local}.part`;
     fs.writeFileSync(temp, buffer);
+    if (!isWindows) {
+      try { fs.chmodSync(temp, 0o755); } catch (_) {}
+    }
     fs.renameSync(temp, local);
-    if (!isWindows) fs.chmodSync(local, 0o755);
+    if (!isWindows) {
+      try { fs.chmodSync(local, 0o755); } catch (_) {}
+    }
 
     if (!ytdlpRunnable(local)) {
       try { fs.rmSync(local, { force: true }); } catch { /* ignore */ }

@@ -6999,7 +6999,8 @@ app.use('/api', (req, res) => {
 });
 
 // Fallback for SPA frontend routing
-app.get('*', (req, res) => {
+app.use((req, res, next) => {
+  if (req.method !== 'GET') return next();
   const indexHtml = path.join(distPath, 'index.html');
   if (fs.existsSync(indexHtml)) {
     res.sendFile(indexHtml);

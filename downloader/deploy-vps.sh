@@ -8,14 +8,36 @@
 # ==============================================================================
 set -e
 
-echo "=== [1/6] Updating system packages on IONOS VPS ==="
-sudo apt-get update -y
-sudo apt-get install -y curl wget git build-essential ufw ffmpeg python3
+# Support running as root directly (Debian default) or with sudo
+if [ "$EUID" -ne 0 ]; then
+  SUDO="sudo"
+else
+  SUDO=""
+fi
+
+echo "=== [1/6] Updating system packages on Debian 13 VPS ==="
+$SUDO apt-get update -y
+$SUDO apt-get install -y curl wget git build-essential ufw ffmpeg python3 python3-pip python-is-python3 || $SUDO apt-get install -y curl wget git build-essential ufw ffmpeg python3
 
 echo "=== [2/6] Installing Node.js LTS (v22+) ==="
+export PATH="/usr/local/bin:$PATH"
 if ! command -v node &> /dev/null || [ "$(node -v | cut -d'.' -f1 | tr -d 'v')" -lt 22 ]; then
-  curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
-  sudo apt-get install -y nodejs
+  echo "Installing Node.js v22 binary from official nodejs.org distribution..."
+  ARCH=$(uname -m)
+  case "$ARCH" in
+    x86_64) NODE_ARCH="linux-x64" ;;
+    aarch64) NODE_ARCH="linux-arm64" ;;
+    armv7l) NODE_ARCH="linux-armv7l" ;;
+    *) NODE_ARCH="linux-x64" ;;
+  esac
+
+  TARBALL=$(curl -fsSL https://nodejs.org/dist/latest-v22.x/ | grep -o "node-v22\.[0-9]*\.[0-9]*-${NODE_ARCH}\.tar\.gz" | head -n 1)
+  if [ -z "$TARBALL" ]; then
+    TARBALL="node-v22.23.3-${NODE_ARCH}.tar.gz"
+  fi
+
+  echo "Downloading https://nodejs.org/dist/latest-v22.x/${TARBALL}..."
+  curl -fsSL "https://nodejs.org/dist/latest-v22.x/${TARBALL}" | $SUDO tar -xzf - -C /usr/local --strip-components=1
 fi
 echo "Node version: $(node -v)"
 echo "NPM version:  $(npm -v)"
@@ -23,17 +45,24 @@ echo "NPM version:  $(npm -v)"
 # Install PM2 process manager globally if missing
 if ! command -v pm2 &> /dev/null; then
   echo "Installing PM2 globally..."
-  sudo npm install -g pm2
+  $SUDO npm install -g pm2
 fi
 
 echo "=== [3/6] Setting up Unified Downloader Directory ==="
 APP_DIR="/opt/butfree-downloader"
-sudo mkdir -p "$APP_DIR"
-sudo chown -R "$USER:$USER" "$APP_DIR"
+$SUDO mkdir -p "$APP_DIR"
+$SUDO mkdir -p "$APP_DIR/downloads"
+$SUDO mkdir -p "$APP_DIR/logs"
+
+TARGET_USER="${SUDO_USER:-$USER}"
+$SUDO chown -R "$TARGET_USER:$TARGET_USER" "$APP_DIR"
 
 # Copy files into deployment directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cp -r "$SCRIPT_DIR"/* "$APP_DIR/"
+if [ "$SCRIPT_DIR" != "$APP_DIR" ]; then
+  cp -r "$SCRIPT_DIR"/* "$APP_DIR/" 2>/dev/null || true
+  cp "$SCRIPT_DIR"/.env* "$APP_DIR/" 2>/dev/null || true
+fi
 
 cd "$APP_DIR"
 echo "=== [4/6] Installing Dependencies & Binaries ==="
@@ -64,12 +93,13 @@ pm2 start ecosystem.config.cjs
 pm2 save
 
 # Setup PM2 startup script so it survives reboots
-sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u "$USER" --hp "$HOME" || true
+$SUDO env PATH=$PATH:/usr/local/bin:/usr/bin pm2 startup systemd -u "$TARGET_USER" --hp "$HOME" 2>/dev/null || true
 
 echo "=== [6/6] Configuring Firewall (UFW) ==="
-sudo ufw allow OpenSSH
-sudo ufw allow 4000/tcp
-sudo ufw --force enable || true
+$SUDO ufw allow 22/tcp || true
+$SUDO ufw allow OpenSSH || true
+$SUDO ufw allow 4000/tcp || true
+$SUDO ufw --force enable || true
 
 SERVER_IP=$(curl -s -4 ifconfig.me || hostname -I | awk '{print $1}')
 
