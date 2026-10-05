@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
+import AdmZip from 'adm-zip';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -297,23 +298,20 @@ if (!only || only === 'tv') {
     console.log('[TV] Packaging Roku Channel...');
     const rokuZipPath = path.join(apksDistDir, 'roku.zip');
     try {
-      const isWin = process.platform === 'win32';
-      if (isWin) {
-        // Use built-in PowerShell Compress-Archive
-        const psCmd = `Compress-Archive -Path '${tvRokuDir}\\*' -DestinationPath '${rokuZipPath}' -Force`;
-        runCommand('powershell', ['-NoProfile', '-Command', psCmd], root);
-        if (fs.existsSync(tvServerDir)) {
-          const srvRoku = path.join(tvServerDir, 'public', 'roku.zip');
-          fs.mkdirSync(path.dirname(srvRoku), { recursive: true });
-          fs.copyFileSync(rokuZipPath, srvRoku);
+      const zip = new AdmZip();
+      zip.addLocalFolder(tvRokuDir);
+      zip.writeZip(rokuZipPath);
+      if (fs.existsSync(tvServerDir)) {
+        const srvRoku = path.join(tvServerDir, 'public', 'roku.zip');
+        fs.mkdirSync(path.dirname(srvRoku), { recursive: true });
+        fs.copyFileSync(rokuZipPath, srvRoku);
 
-          const tvDownloadsDir = path.join(tvServerDir, 'public', 'tv', 'downloads');
-          fs.mkdirSync(tvDownloadsDir, { recursive: true });
-          fs.copyFileSync(rokuZipPath, path.join(tvDownloadsDir, 'roku.zip'));
-          fs.copyFileSync(rokuZipPath, path.join(tvDownloadsDir, 'roku-cloud-app.zip'));
-        }
-        console.log(`✓ Packaged roku.zip to dist/apks/ and tv/server/public/`);
+        const tvDownloadsDir = path.join(tvServerDir, 'public', 'tv', 'downloads');
+        fs.mkdirSync(tvDownloadsDir, { recursive: true });
+        fs.copyFileSync(rokuZipPath, path.join(tvDownloadsDir, 'roku.zip'));
+        fs.copyFileSync(rokuZipPath, path.join(tvDownloadsDir, 'roku-cloud-app.zip'));
       }
+      console.log(`✓ Packaged roku.zip to dist/apks/ and tv/server/public/`);
     } catch (err) {
       console.warn(`[WARN] Roku zip packaging note: ${err.message}`);
     }

@@ -1,6 +1,6 @@
 # FREEVEE - Roku App
 
-A simplified Roku channel for the FREEVEE server, designed for streaming from the cloud instance at FREEVEE.liftedpixel.ca.
+A simplified Roku channel for the FREEVEE server, designed for streaming from the cloud instance at tv.butfree.online.
 
 ## Features
 

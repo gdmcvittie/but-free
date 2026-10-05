@@ -6,7 +6,8 @@
     "description": "FREEVEE Fire TV (10-foot UI web app) - pairing login, Google Drive library, services, free TV and torrent streaming from the FREEVEE server.",
     "scripts": {
         "dev": "vite",
-        "build": "vite build",
+        "build": "vite build && node ../../scripts/sync-firetv-assets.mjs && node ../../scripts/package-roku.mjs",
+        "sync:assets": "node ../../scripts/sync-firetv-assets.mjs",
         "preview": "vite preview --host"
     },
     "dependencies": {

@@ -2705,9 +2705,9 @@ sub stopActiveTorrentStream()
         cloudStopTask.control = "run"
     end if
 
-    ' 2. Tell the dedicated torrent streamer to stop and clear the torrent from memory/cache
+    ' 2. Tell the cloud server / dedicated torrent streamer to stop and clear the torrent from memory/cache
     task = CreateObject("roSGNode", "HttpTask")
-    task.url = m.torrentServerUrl + "/api/torrent/stream/" + streamId + "/stop"
+    task.url = m.serverUrl + "/api/torrent/stream/" + streamId + "/stop"
     task.method = "POST"
     task.control = "run"
 end sub
@@ -3023,7 +3023,7 @@ sub playTorrentStream(linkUrl as String, itemTitle as String)
     m.currentTorrentTitle = itemTitle
 
     m.torrentInitTask = CreateObject("roSGNode", "HttpTask")
-    m.torrentInitTask.url = m.torrentServerUrl + "/api/torrent/stream"
+    m.torrentInitTask.url = m.serverUrl + "/api/torrent/stream"
     m.torrentInitTask.method = "POST"
     m.torrentInitTask.timeoutMs = 90000
     m.torrentInitTask.postData = FormatJson({ url: linkUrl })
@@ -3090,7 +3090,7 @@ sub onTorrentInitResult()
 
     if isNativeMp4 and streamId = ""
         if Left(streamUrl, 4) <> "http"
-            streamUrl = m.torrentServerUrl + streamUrl
+            streamUrl = m.serverUrl + streamUrl
         end if
         playVideoUrl(streamUrl, title, 0, "", false)
     else if streamId <> ""
@@ -3113,7 +3113,7 @@ sub onTorrentInitResult()
         m.torrentHlsWarmupTask.control = "run"
     else
         if Left(streamUrl, 4) <> "http"
-            streamUrl = m.torrentServerUrl + streamUrl
+            streamUrl = m.serverUrl + streamUrl
         end if
         playVideoUrl(streamUrl, title, 0, "", false)
     end if
@@ -3217,7 +3217,7 @@ sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, file
         m.chunkWarmTask = invalid
     end if
 
-    isTorrent = Instr(1, LCase(streamUrl), "/api/torrent/stream/") > 0 or Instr(1, LCase(streamUrl), "download.butfree.online") > 0 or Instr(1, LCase(streamUrl), "torrent.liftedpixel.ca") > 0 or Instr(1, LCase(streamUrl), "/api/stream/torrent-hls/") > 0 or Instr(1, LCase(streamUrl), "/api/torrent/serve/") > 0
+    isTorrent = Instr(1, LCase(streamUrl), "/api/torrent/stream/") > 0 or Instr(1, LCase(streamUrl), "download.butfree.online") > 0 or Instr(1, LCase(streamUrl), "/api/stream/torrent-hls/") > 0 or Instr(1, LCase(streamUrl), "/api/torrent/serve/") > 0
     isDrive = Instr(1, LCase(streamUrl), "/api/stream/drive/") > 0
     playUrl = streamUrl
     m.currentStreamUrl = playUrl

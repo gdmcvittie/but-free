@@ -119,7 +119,14 @@ export const api = {
   // ---- Torrents ----
   torrentSearch: (type, q) =>
     httpGet(`/api/torrent-search?q=${encodeURIComponent(q)}&type=${encodeURIComponent(type)}`),
-  startTorrentStream: (url) => torrentSend('/api/torrent/stream', { url }),
+  startTorrentStream: async (url) => {
+    try {
+      return await httpSend('/api/torrent/stream', 'POST', { url });
+    } catch (err) {
+      console.warn('[FireTV] Proxy stream dispatch failed, attempting direct torrent node:', err.message);
+      return await torrentSend('/api/torrent/stream', { url });
+    }
+  },
   stopTorrentHls: (streamId, fileIndex = 0) =>
     httpSend('/api/stream/torrent-hls/stop', 'POST', { streamId, fileIndex }),
 
@@ -148,8 +155,7 @@ export const api = {
     return `${SERVER_URL}/api/stream/torrent-hls/${encodeURIComponent(streamId)}/${fileIndex}.m3u8`;
   },
   torrentFileUrl: (streamId, fileIndex) => {
-    const base = `${TORRENT_SERVER_URL}/api/torrent/serve/${encodeURIComponent(streamId)}/${fileIndex}`;
-    return base;
+    return `${SERVER_URL}/api/torrent/serve/${encodeURIComponent(streamId)}/${fileIndex}`;
   },
   resolvePosterUrl: (poster, fallback = 'images/no-poster.jpg') => {
     if (!poster) return fallback;

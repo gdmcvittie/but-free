@@ -15379,9 +15379,6 @@
 	function getServerUrl() {
 		return SERVER_URL;
 	}
-	function getTorrentServerUrl() {
-		return TORRENT_SERVER_URL;
-	}
 	function getToken() {
 		try {
 			return localStorage.getItem(STORAGE_KEY_TOKEN) || "";
@@ -15481,7 +15478,19 @@
 		getWhatsOn: () => httpGet("/api/whatson?roku=1"),
 		getFreeTvChannels: () => httpGet("/api/freetv/channels"),
 		torrentSearch: (type, q) => httpGet(`/api/torrent-search?q=${encodeURIComponent(q)}&type=${encodeURIComponent(type)}`),
-		startTorrentStream: (url) => torrentSend("/api/torrent/stream", { url }),
+		startTorrentStream: function() {
+			var _ref = _asyncToGenerator(function* (url) {
+				try {
+					return yield httpSend("/api/torrent/stream", "POST", { url });
+				} catch (err) {
+					console.warn("[FireTV] Proxy stream dispatch failed, attempting direct torrent node:", err.message);
+					return yield torrentSend("/api/torrent/stream", { url });
+				}
+			});
+			return function startTorrentStream(_x7) {
+				return _ref.apply(this, arguments);
+			};
+		}(),
 		stopTorrentHls: (streamId, fileIndex = 0) => httpSend("/api/stream/torrent-hls/stop", "POST", {
 			streamId,
 			fileIndex
@@ -15508,7 +15517,7 @@
 			return `${SERVER_URL}/api/stream/torrent-hls/${encodeURIComponent(streamId)}/${fileIndex}.m3u8`;
 		},
 		torrentFileUrl: (streamId, fileIndex) => {
-			return `${TORRENT_SERVER_URL}/api/torrent/serve/${encodeURIComponent(streamId)}/${fileIndex}`;
+			return `${SERVER_URL}/api/torrent/serve/${encodeURIComponent(streamId)}/${fileIndex}`;
 		},
 		resolvePosterUrl: (poster, fallback = "images/no-poster.jpg") => {
 			if (!poster) return fallback;
@@ -15945,7 +15954,7 @@
 			currentTorrentFileIndexRef.current = "0";
 			if (!streamId) return;
 			api.stopTorrentHls(streamId, fileIndex).catch(() => {});
-			fetch(`${getTorrentServerUrl()}/api/torrent/stream/${encodeURIComponent(streamId)}/stop`, { method: "POST" }).catch(() => {});
+			fetch(`${getServerUrl()}/api/torrent/stream/${encodeURIComponent(streamId)}/stop`, { method: "POST" }).catch(() => {});
 		}, []);
 		const pushState = (0, import_react.useCallback)((newBreadcrumb) => {
 			setNavStack((prev) => [...prev, {

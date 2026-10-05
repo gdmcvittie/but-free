@@ -191,8 +191,8 @@ export default function App() {
     if (!streamId) return;
     // Notify cloud server to terminate FFmpeg HLS transcode and notify torrent streamer
     api.stopTorrentHls(streamId, fileIndex).catch(() => {});
-    // Direct stop torrent streamer as fallback
-    fetch(`${getTorrentServerUrl()}/api/torrent/stream/${encodeURIComponent(streamId)}/stop`, { method: 'POST' }).catch(() => {});
+    // Direct stop torrent streamer via server proxy fallback
+    fetch(`${getServerUrl()}/api/torrent/stream/${encodeURIComponent(streamId)}/stop`, { method: 'POST' }).catch(() => {});
   }, []);
 
   // ---- Navigation ----
