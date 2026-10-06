@@ -89,8 +89,8 @@ export default function DrivePickerModal({ isOpen, onClose, onFolderSelected, cu
               <p className="text-xs text-slate-400">Choose the Google Drive folder where your game ROMs are stored</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-white/5 transition">
-            <X className="w-5 h-5" />
+          <button onClick={onClose} className="icon-btn icon-btn-sm">
+            <X className="w-4 h-4" />
           </button>
         </div>
 
@@ -152,13 +152,9 @@ export default function DrivePickerModal({ isOpen, onClose, onFolderSelected, cu
                   </div>
                   <button
                     onClick={() => handleSelectCurrent(f)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
-                      isSelected
-                        ? 'bg-purple-600 text-white shadow-sm'
-                        : 'bg-slate-800 hover:bg-purple-600 text-slate-300 hover:text-white'
-                    }`}
+                    className={isSelected ? 'btn btn-primary btn-xs' : 'btn btn-secondary btn-xs'}
                   >
-                    {isSelected ? <Check className="w-3.5 h-3.5" /> : null}
+                    {isSelected ? <Check className="w-3 h-3" /> : null}
                     <span>{isSelected ? 'Active' : 'Select'}</span>
                   </button>
                 </div>
@@ -180,7 +176,7 @@ export default function DrivePickerModal({ isOpen, onClose, onFolderSelected, cu
             <button
               type="submit"
               disabled={creating || !newFolderName.trim()}
-              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-xs font-medium text-white flex items-center gap-1.5 transition"
+              className="btn btn-secondary btn-sm"
             >
               {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderPlus className="w-3.5 h-3.5" />}
               <span>New Folder</span>
@@ -190,7 +186,7 @@ export default function DrivePickerModal({ isOpen, onClose, onFolderSelected, cu
           {currentParentId !== 'root' && (
             <button
               onClick={() => handleSelectCurrent(breadcrumbs[breadcrumbs.length - 1])}
-              className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs transition shadow-md shadow-purple-600/25 flex items-center justify-center gap-2"
+              className="btn btn-primary w-full"
             >
               <Check className="w-4 h-4" />
               <span>Use Current Folder: "{breadcrumbs[breadcrumbs.length - 1]?.name}"</span>

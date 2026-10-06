@@ -29,9 +29,9 @@ export default function AuthModal({ isOpen, onClose }) {
       <div className="glass-modal w-full max-w-md rounded-2xl overflow-hidden p-6 relative animate-in fade-in zoom-in-95 duration-200">
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white rounded-lg hover:bg-white/5 transition"
+          className="icon-btn icon-btn-sm absolute top-4 right-4"
         >
-          <X className="w-5 h-5" />
+          <X className="w-4 h-4" />
         </button>
 
         {/* Modal Brand Header */}
@@ -73,14 +73,15 @@ export default function AuthModal({ isOpen, onClose }) {
 
         {/* Primary Action Button */}
         <button
+          type="button"
           onClick={handleGoogleSignIn}
           disabled={loading}
-          className="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-900 font-semibold text-sm shadow-lg transition"
+          className="btn-google"
         >
           {loading ? (
-            <Loader2 className="w-5 h-5 animate-spin text-purple-600" />
+            <Loader2 className="w-5 h-5 animate-spin text-purple-400" />
           ) : (
-            <svg className="w-5 h-5" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
               <path
                 fill="#4285F4"
                 d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"

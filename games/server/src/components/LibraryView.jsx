@@ -36,7 +36,7 @@ export default function LibraryView({
   }, [games, selectedConsole, searchQuery]);
 
   return (
-    <div className="flex-1 flex flex-col min-h-screen bg-[#070a12] p-8 overflow-y-auto">
+    <div className="flex-1 flex flex-col bg-[#070a12] p-6 sm:p-8">
       {/* Top Header Row */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
@@ -74,7 +74,7 @@ export default function LibraryView({
           <button
             onClick={onScanDrive}
             disabled={isScanning}
-            className="btn-secondary !py-2 !px-3.5 text-xs"
+            className="btn btn-secondary btn-sm"
             title="Scan Google Drive for new games"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin text-purple-400' : ''}`} />
@@ -87,11 +87,7 @@ export default function LibraryView({
       <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-6 scrollbar-none">
         <button
           onClick={() => setSelectedConsole('all')}
-          className={`px-4 py-2 rounded-xl text-xs font-heading font-bold uppercase tracking-wider transition-all whitespace-nowrap ${
-            selectedConsole === 'all'
-              ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30 border border-purple-400/30'
-              : 'bg-slate-900/60 hover:bg-slate-800 text-slate-400 hover:text-white border border-white/5'
-          }`}
+          className={`filter-chip ${selectedConsole === 'all' ? 'active' : ''}`}
         >
           All Consoles ({games.length})
         </button>
@@ -102,14 +98,10 @@ export default function LibraryView({
             <button
               key={consoleKey}
               onClick={() => setSelectedConsole(consoleKey)}
-              className={`px-3.5 py-2 rounded-xl text-xs font-heading font-bold uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-2 ${
-                isSelected
-                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30 border border-purple-400/30'
-                  : 'bg-slate-900/60 hover:bg-slate-800 text-slate-400 hover:text-white border border-white/5'
-              }`}
+              className={`filter-chip ${isSelected ? 'active' : ''}`}
             >
               <span>{consoleKey}</span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isSelected ? 'bg-purple-800 text-purple-200' : 'bg-slate-800 text-slate-400'}`}>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isSelected ? 'bg-purple-500/30 text-purple-200' : 'bg-white/10 text-slate-400'}`}>
                 {count}
               </span>
             </button>
@@ -145,7 +137,7 @@ export default function LibraryView({
           {games.length === 0 ? (
             <button
               onClick={user?.gamesFolderName ? onScanDrive : onOpenSettings}
-              className="btn-primary"
+              className="btn btn-primary"
             >
               {user?.gamesFolderName ? <RefreshCw className="w-4 h-4" /> : <HardDrive className="w-4 h-4" />}
               <span>{user?.gamesFolderName ? 'Scan Drive Folder' : 'Configure Games Folder'}</span>
@@ -153,22 +145,22 @@ export default function LibraryView({
           ) : (
             <button
               onClick={() => { setSelectedConsole('all'); setSearchQuery(''); }}
-              className="btn-secondary"
+              className="btn btn-secondary"
             >
               Reset Filters
             </button>
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
+        <div className="games-grid">
           {filteredGames.map((game) => (
             <div
               key={game.id}
-              className="game-card group flex flex-col cursor-pointer"
+              className="game-card group"
               onClick={() => onPlayGame(game)}
             >
-              {/* Box Art Container */}
-              <div className="relative aspect-[3/4] bg-slate-900 overflow-hidden flex items-center justify-center">
+              {/* Poster Container */}
+              <div className="game-card-poster">
                 {game.coverUrl ? (
                   <img
                     src={game.coverUrl}
@@ -177,62 +169,56 @@ export default function LibraryView({
                     loading="lazy"
                   />
                 ) : (
-                  <div className="flex flex-col items-center justify-center p-4 text-center">
-                    <Gamepad2 className="w-10 h-10 text-purple-400/60 mb-2 group-hover:scale-110 transition-transform" />
-                    <span className="text-[11px] font-bold text-slate-400 uppercase font-heading">
+                  <div className="flex flex-col items-center justify-center p-3 text-center">
+                    <Gamepad2 className="w-8 h-8 text-purple-400/60 mb-1 group-hover:scale-110 transition-transform" />
+                    <span className="text-[10px] font-bold text-slate-400 uppercase font-heading">
                       {game.console || 'RETRO'}
                     </span>
                   </div>
                 )}
 
                 {/* Console Badge in Top-Right */}
-                <div className="absolute top-2.5 right-2.5 z-10">
-                  <span className={`badge-console badge-${(game.console || '').toLowerCase()}`}>
-                    {game.console || 'GAME'}
-                  </span>
-                </div>
+                <span className={`badge-console badge-${(game.console || '').toLowerCase()} badge-top-right`}>
+                  {game.console || 'GAME'}
+                </span>
 
-                {/* Favorite Star in Top-Left */}
+                {/* Favorite Toggle in Top-Left */}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     onToggleFavorite(game.id);
                   }}
-                  className={`absolute top-2.5 left-2.5 z-10 p-1.5 rounded-lg backdrop-blur-md transition ${
-                    game.isFavorite
-                      ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
-                      : 'bg-black/40 text-slate-400 hover:text-white border border-white/10 opacity-0 group-hover:opacity-100'
+                  className={`game-card-fav-btn ${
+                    game.isFavorite ? '!opacity-100' : 'opacity-0 group-hover:opacity-100'
                   }`}
                   title={game.isFavorite ? 'Remove Favorite' : 'Add to Favorites'}
                 >
-                  <Star className={`w-3.5 h-3.5 ${game.isFavorite ? 'fill-amber-400' : ''}`} />
+                  <Star className={`w-3.5 h-3.5 ${game.isFavorite ? 'fill-amber-400' : 'text-slate-300'}`} />
                 </button>
 
-                {/* Hover Action Overlay */}
-                <div className="game-card-overlay absolute inset-0 flex items-center justify-center p-4">
-                  <div className="w-12 h-12 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-lg shadow-purple-600/50 transform translate-y-2 group-hover:translate-y-0 transition-transform">
+                {/* Hover Play Overlay */}
+                <div className="game-card-overlay absolute inset-0 flex items-center justify-center p-2">
+                  <div className="w-10 h-10 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-lg shadow-purple-600/50 transform translate-y-1 group-hover:translate-y-0 transition-transform">
                     {game.console === 'pc' || game.isPcGame ? (
-                      <Download className="w-5 h-5" />
+                      <Download className="w-4 h-4" />
                     ) : game.console === 'web' ? (
-                      <Globe className="w-5 h-5" />
+                      <Globe className="w-4 h-4" />
                     ) : (
-                      <Play className="w-5 h-5 ml-0.5 fill-white" />
+                      <Play className="w-4 h-4 ml-0.5 fill-white" />
                     )}
                   </div>
                 </div>
               </div>
 
               {/* Game Metadata Footer */}
-              <div className="p-3 bg-slate-900/90 flex-1 flex flex-col justify-between border-t border-white/5">
-                <div>
-                  <h3 className="text-xs font-bold text-slate-200 group-hover:text-purple-300 transition-colors line-clamp-2 leading-tight">
-                    {game.title}
-                  </h3>
+              <div className="game-card-meta">
+                <div className="game-card-title" title={game.title}>
+                  {game.title}
                 </div>
-                <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/5 text-[10px] text-slate-500">
-                  <span>{game.sizeFormatted || (game.size ? `${(game.size / 1024 / 1024).toFixed(1)} MB` : 'ROM')}</span>
-                  <span className="text-purple-400 font-semibold group-hover:underline">
-                    {game.console === 'pc' || game.isPcGame ? 'Files ↓' : game.console === 'web' ? 'Web Play →' : 'Play Now →'}
+                <div className="game-card-sub">
+                  <span className="truncate">{game.sizeFormatted || (game.size ? `${(game.size / 1024 / 1024).toFixed(1)} MB` : 'ROM')}</span>
+                  <span className="text-purple-400 font-semibold group-hover:underline shrink-0">
+                    {game.console === 'pc' || game.isPcGame ? 'Files ↓' : game.console === 'web' ? 'Web Play →' : 'Play →'}
                   </span>
                 </div>
               </div>

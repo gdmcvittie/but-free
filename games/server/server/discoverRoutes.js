@@ -221,6 +221,75 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
     }
   });
 
+  // POST /api/pc/add-batch { items: [{ source, title, filename, hoster, console, subfolder }], title }
+  app.post('/api/pc/add-batch', async (req, res) => {
+    if (!requireUser(req, res)) return;
+    const { items: batchItems, title: commonTitle } = req.body || {};
+    if (!Array.isArray(batchItems) || batchItems.length === 0) {
+      return res.status(400).json({ success: false, error: 'No items provided in batch' });
+    }
+
+    const ctx = buildDispatchContext(req);
+    const queued = [];
+    const errors = [];
+
+    for (const item of batchItems) {
+      const { source, url: altUrl, title: itemTitle, filename, console: consoleKey, subfolder, selectedFiles } = item || {};
+      let target = String(source || altUrl || '').trim().replace(/&#038;/g, '&').replace(/&amp;/gi, '&');
+      if (!target) continue;
+
+      const titleForGame = cleanPcGameTitle(commonTitle || itemTitle || '') || commonTitle || itemTitle || 'PC Game';
+      const isMagnet = target.toLowerCase().startsWith('magnet:');
+      const isTorrentFile = /\.torrent(\?|#|$)/i.test(target) || /ia[0-9]+_archive\.torrent/i.test(target);
+      const isDirect = !isMagnet && !isTorrentFile;
+
+      try {
+        if (isDirect && isFuckingFastLandingPage(target)) {
+          target = await resolveFuckingFastUrl(target);
+        } else if (isDirect && isDataNodesLandingPage(target)) {
+          errors.push({ target, error: 'DataNodes requires interactive browser Turnstile' });
+          continue;
+        }
+
+        let job;
+        if (isMagnet || isTorrentFile) {
+          job = await GameDownloaderClient.addGameTorrent(req.user, {
+            source: target,
+            title: titleForGame,
+            console: consoleKey || 'pc',
+            subfolder: subfolder || `PC Games/${sanitizeFolderName(titleForGame)}`,
+            selectedFiles: Array.isArray(selectedFiles) && selectedFiles.length > 0 ? selectedFiles : null,
+            webhookUrl: ctx.webhookUrl,
+            tokenRefreshUrl: ctx.tokenRefreshUrl
+          });
+        } else {
+          const rawHashPart = (target.split('#')[1] || '').split('?')[0];
+          const chosenFileName = filename || (rawHashPart && rawHashPart.length > 3 ? rawHashPart : undefined);
+          job = await GameDownloaderClient.addDirectDownload(req.user, {
+            url: target,
+            title: titleForGame,
+            console: consoleKey || 'pc',
+            fileName: chosenFileName,
+            subfolder: subfolder || `PC Games/${sanitizeFolderName(titleForGame)}`,
+            webhookUrl: ctx.webhookUrl,
+            tokenRefreshUrl: ctx.tokenRefreshUrl
+          });
+        }
+        queued.push({ title: titleForGame, job });
+      } catch (err) {
+        errors.push({ target, error: err.message });
+      }
+    }
+
+    res.json({
+      success: queued.length > 0,
+      count: queued.length,
+      queued,
+      errors: errors.length > 0 ? errors : undefined,
+      message: `Queued ${queued.length} download(s) on the downloader node`
+    });
+  });
+
   // ===========================================================================
   // ITCH.IO
   // ===========================================================================

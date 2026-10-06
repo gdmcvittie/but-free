@@ -588,11 +588,19 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {onToggleFavorite && (
-              <button onClick={() => onToggleFavorite(game.id)} className={`p-2 rounded-lg transition ${isFav ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-800 text-slate-400 hover:text-white'}`} title="Favorite">
+              <button
+                onClick={() => onToggleFavorite(game.id)}
+                className={`icon-btn icon-btn-sm ${isFav ? 'active' : ''}`}
+                title="Favorite"
+              >
                 <Heart className={`w-4 h-4 ${isFav ? 'fill-amber-400' : ''}`} />
               </button>
             )}
-            <button onClick={onClose} className="p-2 rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 transition" title="Exit">
+            <button
+              onClick={onClose}
+              className="icon-btn icon-btn-sm danger"
+              title="Exit"
+            >
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -617,7 +625,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
         <div className="glass-panel max-w-md w-full p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="font-heading font-bold text-lg text-white">{game.title}</h2>
-            <button onClick={onClose} className="p-2 rounded-lg bg-red-600/20 text-red-300 border border-red-500/30 hover:bg-red-600/30 transition">
+            <button onClick={onClose} className="icon-btn icon-btn-sm danger" title="Close">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -631,7 +639,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
           </div>
           <div className="space-y-2 pt-2">
             {pcDriveInfo?.directUrl && !pcDriveInfo?.links?.length && (
-              <a href={pcDriveInfo.directUrl} target="_blank" rel="noreferrer" className="btn-primary w-full justify-center">
+              <a href={pcDriveInfo.directUrl} target="_blank" rel="noreferrer" className="btn btn-primary w-full">
                 <Download className="w-4 h-4" />
                 <span>Download from Drive</span>
               </a>
@@ -653,7 +661,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
               </div>
             )}
             {pcDriveInfo?.folderViewUrl && (
-              <a href={pcDriveInfo.folderViewUrl} target="_blank" rel="noreferrer" className="btn-secondary w-full justify-center">
+              <a href={pcDriveInfo.folderViewUrl} target="_blank" rel="noreferrer" className="btn btn-secondary w-full">
                 <FolderInput className="w-4 h-4" />
                 <span>Open folder in Google Drive</span>
               </a>
@@ -719,26 +727,58 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
 
       <div className="flex items-center gap-1.5 shrink-0">
         {onToggleFavorite && (
-          <button onClick={() => onToggleFavorite(game.id)} className={`p-2 rounded-lg transition ${isFav ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-800 text-slate-400 hover:text-white'}`} title="Favorite">
+          <button
+            onClick={() => onToggleFavorite(game.id)}
+            className={`icon-btn icon-btn-sm ${isFav ? 'active' : ''}`}
+            title="Favorite"
+          >
             <Heart className={`w-4 h-4 ${isFav ? 'fill-amber-400' : ''}`} />
           </button>
         )}
-        <button onClick={handleTogglePause} disabled={isLoading} className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition" title={isPaused ? 'Resume' : 'Pause'}>
+        <button
+          onClick={handleTogglePause}
+          disabled={isLoading}
+          className="icon-btn icon-btn-sm"
+          title={isPaused ? 'Resume' : 'Pause'}
+        >
           {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
         </button>
-        <button onClick={handleReset} disabled={isLoading} className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition" title="Reset">
+        <button
+          onClick={handleReset}
+          disabled={isLoading}
+          className="icon-btn icon-btn-sm"
+          title="Reset"
+        >
           <RotateCcw className="w-4 h-4" />
         </button>
-        <button onClick={handleSaveState} disabled={isLoading} className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition" title="Save State">
+        <button
+          onClick={handleSaveState}
+          disabled={isLoading}
+          className="icon-btn icon-btn-sm"
+          title="Save State"
+        >
           <Save className="w-4 h-4" />
         </button>
-        <button onClick={handleLoadState} disabled={isLoading} className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition" title="Load State">
+        <button
+          onClick={handleLoadState}
+          disabled={isLoading}
+          className="icon-btn icon-btn-sm"
+          title="Load State"
+        >
           <FolderInput className="w-4 h-4" />
         </button>
-        <button onClick={toggleFullscreen} className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition" title="Fullscreen">
+        <button
+          onClick={toggleFullscreen}
+          className="icon-btn icon-btn-sm"
+          title="Fullscreen"
+        >
           {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
         </button>
-        <button onClick={onClose} className="p-2 rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 transition" title="Exit Game">
+        <button
+          onClick={onClose}
+          className="icon-btn icon-btn-sm danger"
+          title="Exit Game"
+        >
           <X className="w-4 h-4" />
         </button>
       </div>
@@ -761,7 +801,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
           <div className="text-center max-w-sm">
             <h3 className="font-heading font-bold text-base text-red-400 mb-2">Emulation Error</h3>
             <p className="text-xs text-slate-400 mb-4 leading-relaxed">{error}</p>
-            <button onClick={onClose} className="btn-secondary text-xs">Close Game</button>
+            <button onClick={onClose} className="btn btn-secondary btn-sm">Close Game</button>
           </div>
         </div>
       )}

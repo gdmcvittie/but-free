@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Loader2, Check, Search, Download, RefreshCw, ExternalLink,
-  Link2, X, Package
+  Link2, X, Package, BookMarked
 } from 'lucide-react';
 import { fetchJson } from '../../utils/api';
 import { JobStatusBanner, Grid } from './shared';
@@ -122,7 +122,7 @@ export default function GogTab({ onDownloadDispatched, onLibraryUpdated }) {
   const actionFor = (g) => {
     if (g.inLibrary) {
       return (
-        <span className="px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 bg-emerald-600/15 text-emerald-400 border border-emerald-500/25">
+        <span className="btn btn-xs w-full bg-emerald-600/15 text-emerald-400 border border-emerald-500/25 cursor-default justify-center">
           <Check className="w-3.5 h-3.5" /><span>In Library</span>
         </span>
       );
@@ -131,7 +131,7 @@ export default function GogTab({ onDownloadDispatched, onLibraryUpdated }) {
       return (
         <button
           onClick={() => openDetails(g)}
-          className="px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 bg-purple-600 hover:bg-purple-500 text-white transition"
+          className="btn btn-primary btn-xs w-full"
         >
           <Package className="w-3.5 h-3.5" />
           <span>Installers</span>
@@ -143,10 +143,11 @@ export default function GogTab({ onDownloadDispatched, onLibraryUpdated }) {
         href={g.url}
         target="_blank"
         rel="noreferrer"
-        className="px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/10 transition"
+        onClick={(e) => e.stopPropagation()}
+        className="btn btn-secondary btn-xs w-full justify-center"
       >
         <ExternalLink className="w-3.5 h-3.5" />
-        <span>Store Page</span>
+        <span>Check it out</span>
       </a>
     );
   };
@@ -173,7 +174,7 @@ export default function GogTab({ onDownloadDispatched, onLibraryUpdated }) {
                 href={account.loginUrl || 'https://login.gog.com/auth?client_id=46899977096215655&layout=galaxy&redirect_uri=https%3A%2F%2Fembed.gog.com%2Fon_login_success%3Forigin%3Dclient&response_type=code'}
                 target="_blank"
                 rel="noreferrer"
-                className="btn-secondary !py-2 text-xs whitespace-nowrap justify-center"
+                className="btn btn-secondary btn-sm whitespace-nowrap justify-center"
               >
                 <ExternalLink className="w-3.5 h-3.5" />
                 <span>Open GOG Login</span>
@@ -186,7 +187,7 @@ export default function GogTab({ onDownloadDispatched, onLibraryUpdated }) {
                   onChange={(e) => setAuthInput(e.target.value)}
                   className="flex-1 px-3.5 py-2 bg-slate-900 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 min-w-0"
                 />
-                <button type="submit" disabled={connecting || !authInput.trim()} className="btn-primary !py-2 text-xs whitespace-nowrap">
+                <button type="submit" disabled={connecting || !authInput.trim()} className="btn btn-primary btn-sm whitespace-nowrap">
                   {connecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
                   <span>Connect</span>
                 </button>
@@ -201,40 +202,59 @@ export default function GogTab({ onDownloadDispatched, onLibraryUpdated }) {
               </div>
               <div className="min-w-0">
                 <div className="text-sm font-bold text-white truncate">{account.user?.username || 'GOG Gamer'}</div>
-                <div className="text-[11px] text-emerald-400">Connected via GOG Galaxy API</div>
+                <div className="text-[11px] text-emerald-400">GOG account connected</div>
               </div>
             </div>
-            <button onClick={disconnectAccount} className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition shrink-0">
-              Disconnect
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => {
+                  setTab(tab === 'purchased' ? 'new' : 'purchased');
+                  setPage(1);
+                }}
+                className="btn btn-secondary btn-sm"
+              >
+                <BookMarked className="w-3.5 h-3.5" />
+                <span>{tab === 'purchased' ? 'Browse Catalog' : 'My Purchases'}</span>
+              </button>
+              <button onClick={disconnectAccount} className="btn btn-danger btn-sm">
+                Disconnect
+              </button>
+            </div>
           </div>
         ) : null}
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto scrollbar-none">
-        {[
-          { key: 'new', label: 'New Releases' },
-          { key: 'sales', label: 'Deals' },
-          { key: 'purchased', label: `Purchased (${account.connected ? '' : '—'})`, disabled: !account.connected }
-        ].map((t) => (
-          <button
-            key={t.key}
-            onClick={() => { if (!t.disabled) { setTab(t.key); setPage(1); } }}
-            disabled={t.disabled}
-            className={`px-4 py-2 rounded-xl text-[11px] font-heading font-bold uppercase tracking-wider whitespace-nowrap transition ${
-              tab === t.key
-                ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30 border border-purple-400/30'
-                : 'bg-slate-900/60 hover:bg-slate-800 text-slate-400 border border-white/5 disabled:opacity-40 disabled:cursor-not-allowed'
-            }`}
-          >
-            {t.label}
+      {tab !== 'purchased' ? (
+        <div className="flex items-center gap-2 overflow-x-auto scrollbar-none">
+          {[
+            { key: 'new', label: 'New Releases' },
+            { key: 'sales', label: 'Deals' }
+          ].map((t) => (
+            <button
+              key={t.key}
+              onClick={() => { setTab(t.key); setPage(1); }}
+              className={`filter-chip ${tab === t.key ? 'active' : ''}`}
+            >
+              {t.label}
+            </button>
+          ))}
+          <button onClick={() => loadCatalog(tab, page)} disabled={loading} className="icon-btn ml-auto shrink-0" title="Refresh">
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
-        ))}
-        <button onClick={() => loadCatalog(tab, page)} disabled={loading} className="ml-auto p-2 rounded-lg bg-slate-900 border border-white/10 text-slate-400 hover:text-white transition shrink-0" title="Refresh">
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-        </button>
-      </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <BookMarked className="w-4 h-4 text-purple-400" />
+            <span className="font-bold text-white">Your GOG Library</span>
+            <span>• {games.length} owned games ready for Drive download</span>
+          </div>
+          <button onClick={() => loadCatalog('purchased', 1)} disabled={loading} className="icon-btn" title="Refresh Library">
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      )}
 
       <JobStatusBanner status={status} onClear={() => setStatus(null)} />
       {error && <JobStatusBanner status={{ type: 'err', message: error }} onClear={() => setError(null)} />}
@@ -247,27 +267,35 @@ export default function GogTab({ onDownloadDispatched, onLibraryUpdated }) {
       ) : (
         <Grid empty={games.length === 0 ? 'Nothing here right now.' : ''}>
           {games.map((g) => (
-            <div key={`${tab}_${g.id}`} className="glass-panel overflow-hidden flex flex-col hover:border-purple-500/25 transition group">
-              <div className="h-[120px] bg-slate-900 overflow-hidden relative">
+            <div key={`${tab}_${g.id}`} className="game-card group">
+              <div className="game-card-poster">
                 {g.coverUrl && (
                   <img src={g.coverUrl} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" loading="lazy" />
                 )}
-                <span className="badge-console badge-pc absolute top-2 right-2">GOG</span>
-                {(g.price || g.discount) && (
-                  <span className="absolute bottom-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/25 border border-amber-500/40 text-amber-300 flex items-center gap-1.5">
-                    {g.discount && <span className="text-emerald-300">{g.discount}</span>}
-                    {g.price}
+                <span className="badge-console badge-pc badge-top-left">GOG</span>
+                {(!g.price || (typeof g.price === 'string' && g.price.toUpperCase() === 'FREE')) ? (
+                  <span className="badge-price-free badge-top-right">FREE</span>
+                ) : (
+                  <span className="badge-price-paid badge-top-right">
+                    {g.discount && (
+                      <span className="badge-discount">
+                        {g.discount}
+                      </span>
+                    )}
+                    <span>{g.price}</span>
                   </span>
                 )}
               </div>
-              <div className="p-4 flex-1 flex flex-col">
-                <h3 className="font-heading font-bold text-[13px] text-white leading-snug line-clamp-2">{g.title}</h3>
-                <p className="text-[11px] text-slate-500 mt-1">{g.category || 'PC Game'}{g.rating ? ` • ★ ${g.rating}` : ''}</p>
-                <div className="mt-auto pt-3 flex items-center gap-2">
-                  {actionFor(g)}
-                  <a href={g.url} target="_blank" rel="noreferrer" className="ml-auto text-[11px] text-slate-500 hover:text-purple-300 font-semibold transition">
-                    gog.com ↗
+              <div className="game-card-meta">
+                <div className="game-card-title" title={g.title}>{g.title}</div>
+                <div className="game-card-sub">
+                  <span className="truncate">{g.category || 'PC Game'}{g.rating ? ` • ★${g.rating}` : ''}</span>
+                  <a href={g.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-[10px] text-purple-400 hover:text-purple-300 font-semibold transition shrink-0">
+                    gog ↗
                   </a>
+                </div>
+                <div className="pt-1 mt-auto">
+                  {actionFor(g)}
                 </div>
               </div>
             </div>
@@ -277,9 +305,9 @@ export default function GogTab({ onDownloadDispatched, onLibraryUpdated }) {
 
       {!loading && tab !== 'purchased' && totalPages > 1 && (
         <div className="flex items-center justify-center gap-4 pt-2">
-          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="px-3 py-1.5 rounded-lg bg-slate-900 border border-white/10 text-xs text-slate-300 hover:text-white disabled:opacity-40 transition">← Prev</button>
+          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="btn btn-secondary btn-sm">← Prev</button>
           <span className="text-xs text-slate-500 font-semibold">Page {page} / {totalPages}</span>
-          <button onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages} className="px-3 py-1.5 rounded-lg bg-slate-900 border border-white/10 text-xs text-slate-300 hover:text-white disabled:opacity-40 transition">Next →</button>
+          <button onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages} className="btn btn-secondary btn-sm">Next →</button>
         </div>
       )}
 
@@ -295,7 +323,7 @@ export default function GogTab({ onDownloadDispatched, onLibraryUpdated }) {
                 </h3>
                 <p className="text-[11px] text-slate-500 mt-1">Offline installers (DRM-free)</p>
               </div>
-              <button onClick={() => setDetailsModal(null)} className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 shrink-0">
+              <button onClick={() => setDetailsModal(null)} className="icon-btn icon-btn-sm shrink-0">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -322,10 +350,10 @@ export default function GogTab({ onDownloadDispatched, onLibraryUpdated }) {
                     <button
                       onClick={() => downloadInstaller(inst)}
                       disabled={busyId === key || doneIds.has(key)}
-                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition shrink-0 ${
+                      className={`btn btn-xs shrink-0 ${
                         doneIds.has(key)
-                          ? 'bg-emerald-600/20 text-emerald-400 cursor-default'
-                          : 'bg-purple-600 hover:bg-purple-500 text-white'
+                          ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 cursor-default'
+                          : 'btn-primary'
                       }`}
                     >
                       {busyId === key ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : doneIds.has(key) ? <Check className="w-3.5 h-3.5" /> : <Download className="w-3.5 h-3.5" />}

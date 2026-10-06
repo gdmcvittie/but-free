@@ -9,11 +9,12 @@ export default function PopularTab({ onDownloadDispatched }) {
   const [error, setError] = useState(null);
   const [checking, setChecking] = useState(false);
   const [filter, setFilter] = useState('');
+  const [onlyRepacks, setOnlyRepacks] = useState(false);
 
   const [linksModal, setLinksModal] = useState(null);
   const [repackBusyId, setRepackBusyId] = useState(null);
 
-  const { add, busyId, doneIds, status, setStatus } = useAddJob(onDownloadDispatched);
+  const { add, addBatch, busyId, doneIds, status, setStatus } = useAddJob(onDownloadDispatched);
 
   const loadPopular = useCallback(async (force = false) => {
     setLoading(true);
@@ -85,8 +86,7 @@ export default function PopularTab({ onDownloadDispatched }) {
       const scrape = await fetchJson(`/api/pc/scrape-links?url=${encodeURIComponent(link)}`);
       setLinksModal({
         pageUrl: link,
-        links: (scrape.links || []).map(l => ({ ...l, title }),
-        ),
+        links: (scrape.links || []).map(l => ({ ...l, title: l.title || item.title })),
         item: { cleanTitle: item.title }
       });
     } catch (err) {
@@ -105,7 +105,13 @@ export default function PopularTab({ onDownloadDispatched }) {
     if (ok) setLinksModal(null);
   };
 
-  const filtered = items.filter(i => !filter || i.title.toLowerCase().includes(filter.toLowerCase()));
+  const repackCount = items.filter(i => i.fitgirlAvailable === true).length;
+
+  const filtered = items.filter(i => {
+    if (onlyRepacks && i.fitgirlAvailable !== true) return false;
+    if (filter && !i.title.toLowerCase().includes(filter.toLowerCase())) return false;
+    return true;
+  });
 
   return (
     <div className="space-y-6">
@@ -117,6 +123,25 @@ export default function PopularTab({ onDownloadDispatched }) {
             {checking && <span className="text-amber-300 ml-2">Checking repack availability...</span>}
           </span>
         </div>
+
+        {/* Repack Availability Filter Toggle */}
+        <button
+          type="button"
+          onClick={() => setOnlyRepacks((prev) => !prev)}
+          className={`steam-repack-filter-btn ${onlyRepacks ? 'active' : ''}`}
+          title="Only show games with an available FitGirl repack"
+        >
+          <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-all ${
+            onlyRepacks ? 'bg-emerald-500 border-emerald-400 text-white' : 'border-slate-500 bg-transparent'
+          }`}>
+            {onlyRepacks && <Check className="w-3 h-3 stroke-[3.5]" />}
+          </span>
+          <span>Repack Available Only</span>
+          {repackCount > 0 && (
+            <span className="steam-repack-count-badge">{repackCount}</span>
+          )}
+        </button>
+
         <div className="relative">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
@@ -127,7 +152,7 @@ export default function PopularTab({ onDownloadDispatched }) {
             className="pl-9 pr-3 py-2 bg-slate-900 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 w-48"
           />
         </div>
-        <button onClick={() => loadPopular(true)} disabled={loading} className="btn-secondary !py-2 text-xs whitespace-nowrap">
+        <button onClick={() => loadPopular(true)} disabled={loading} className="btn btn-secondary btn-sm whitespace-nowrap">
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           <span>Reload</span>
         </button>
@@ -142,54 +167,75 @@ export default function PopularTab({ onDownloadDispatched }) {
           <p className="text-sm">Scanning Steam for popular & new releases...</p>
         </div>
       ) : (
-        <Grid empty={filtered.length === 0 ? 'Nothing came back — try reloading.' : ''}>
-          {filtered.map((item) => (
-            <div key={item.appId} className="glass-panel overflow-hidden flex flex-col hover:border-purple-500/25 transition">
-              <div className="h-[110px] bg-slate-900 overflow-hidden relative">
-                {item.thumbnail && (
-                  <img src={item.thumbnail} alt="" className="w-full h-full object-cover" loading="lazy" />
-                )}
-                {item.fitgirlAvailable === true && (
-                  <span className="absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 flex items-center gap-1">
-                    <Check className="w-3 h-3" /> Repack available
-                  </span>
-                )}
-                {item.fitgirlAvailable === false && (
-                  <span className="absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800/80 border border-white/10 text-slate-400">
-                    No repack yet
-                  </span>
-                )}
-              </div>
-              <div className="p-4 flex-1 flex flex-col">
-                <h3 className="font-heading font-bold text-[13px] text-white leading-snug line-clamp-2">{item.title}</h3>
-                <div className="mt-auto pt-3 flex items-center gap-2">
+        <Grid empty={
+          filtered.length === 0
+            ? (onlyRepacks
+                ? 'No Steam games with available repacks match your criteria.'
+                : 'Nothing came back — try reloading.')
+            : ''
+        }>
+          {filtered.map((item) => {
+            const hasRepack = item.fitgirlAvailable === true;
+            return (
+              <div
+                key={item.appId}
+                className={`game-card group ${hasRepack ? 'has-fitgirl' : ''}`}
+              >
+                <div className="game-card-poster">
+                  {item.thumbnail && (
+                    <img
+                      src={item.thumbnail}
+                      alt=""
+                      loading="lazy"
+                    />
+                  )}
+                  {hasRepack && (
+                    <span className="badge-mint badge-top-right">
+                      <Check className="w-3 h-3 stroke-[3.5]" />
+                      <span>Repack</span>
+                    </span>
+                  )}
+                  {item.fitgirlAvailable === false && (
+                    <span className="badge-no-repack badge-top-right">
+                      No repack
+                    </span>
+                  )}
+                </div>
+              <div className="game-card-meta">
+                <div className="game-card-title" title={item.title}>{item.title}</div>
+                <div className="game-card-sub">
+                  <span>Steam Release</span>
+                  <a
+                    href={item.link}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-[10px] text-purple-400 hover:text-purple-300 transition font-semibold"
+                  >
+                    Steam ↗
+                  </a>
+                </div>
+                <div className="pt-1 mt-auto">
                   <button
                     onClick={() => findRepack(item)}
                     disabled={repackBusyId === item.appId || doneIds.has(item.appId)}
-                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition ${
+                    className={`btn btn-xs w-full ${
                       doneIds.has(item.appId)
                         ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 cursor-default'
-                        : 'bg-purple-600 hover:bg-purple-500 text-white'
+                        : 'btn-primary'
                     }`}
                   >
                     {repackBusyId === item.appId
                       ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       : <Download className="w-3.5 h-3.5" />}
-                    <span>{item.fitgirlAvailable === false ? 'Re-check repack' : 'Get Repack'}</span>
+                    <span>{item.fitgirlAvailable === false ? 'Re-check' : 'Get Repack'}</span>
                   </button>
-                  <a
-                    href={item.link}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[11px] text-slate-500 hover:text-purple-300 transition font-semibold ml-auto"
-                  >
-                    Steam ↗
-                  </a>
                 </div>
               </div>
             </div>
-          ))}
-        </Grid>
+          );
+        })}
+      </Grid>
       )}
 
       {linksModal && (
@@ -197,9 +243,12 @@ export default function PopularTab({ onDownloadDispatched }) {
           open
           onClose={() => setLinksModal(null)}
           pageUrl={linksModal.pageUrl}
+          itemTitle={linksModal.item?.cleanTitle || linksModal.item?.title}
           links={linksModal.links}
           busyId={busyId}
+          doneIds={doneIds}
           onPick={pickLink}
+          onAddBatch={(batchItems, title) => addBatch(batchItems, title || linksModal.item?.cleanTitle)}
         />
       )}
     </div>

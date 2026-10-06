@@ -112,7 +112,7 @@ export default function SettingsView({
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-screen bg-[#070a12] p-8 overflow-y-auto">
+    <div className="flex-1 flex flex-col bg-[#070a12] p-6 sm:p-8">
       {/* Header */}
       <div className="mb-8">
         <h1 className="font-heading font-extrabold text-3xl text-white tracking-tight flex items-center gap-3">
@@ -127,7 +127,7 @@ export default function SettingsView({
       {statusMessage && (
         <div className="mb-6 p-4 rounded-xl bg-purple-600/15 border border-purple-500/30 text-purple-200 text-xs flex items-center justify-between animate-in fade-in">
           <span>{statusMessage}</span>
-          <button onClick={() => setStatusMessage(null)} className="text-purple-400 hover:text-white">✕</button>
+          <button onClick={() => setStatusMessage(null)} className="icon-btn icon-btn-sm">✕</button>
         </div>
       )}
 
@@ -167,7 +167,7 @@ export default function SettingsView({
                 <button
                   type="button"
                   onClick={handleLogout}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-medium border border-red-500/20 transition"
+                  className="btn btn-danger btn-sm"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                   <span>Sign Out</span>
@@ -182,7 +182,7 @@ export default function SettingsView({
               <button
                 type="button"
                 onClick={onOpenAuthModal}
-                className="btn-primary"
+                className="btn btn-primary"
               >
                 Sign In with Google
               </button>
@@ -219,7 +219,7 @@ export default function SettingsView({
             <button
               type="button"
               onClick={onOpenDrivePicker}
-              className="btn-primary !py-2 !px-3.5 text-xs"
+              className="btn btn-primary btn-sm"
             >
               <FolderPlus className="w-3.5 h-3.5" />
               <span>{user?.gamesFolderId ? 'Change Games Folder' : 'Select Games Folder'}</span>
@@ -229,7 +229,7 @@ export default function SettingsView({
               type="button"
               onClick={handleManualScan}
               disabled={scanning || !user?.gamesFolderId}
-              className="btn-secondary !py-2 !px-3.5 text-xs"
+              className="btn btn-secondary btn-sm"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${scanning ? 'animate-spin text-purple-400' : ''}`} />
               <span>{scanning ? 'Scanning...' : 'Scan Library Now'}</span>
@@ -264,7 +264,7 @@ export default function SettingsView({
             </div>
             <button
               onClick={checkDownloader}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition"
+              className="icon-btn icon-btn-sm"
               title="Refresh status"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${downloaderStatus.checking ? 'animate-spin' : ''}`} />

@@ -25,7 +25,7 @@ export default function FavoritesView({
   }, [favoriteGames, searchQuery]);
 
   return (
-    <div className="flex-1 flex flex-col min-h-screen bg-[#070a12] p-8 overflow-y-auto">
+    <div className="flex-1 flex flex-col bg-[#070a12] p-6 sm:p-8">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
@@ -64,7 +64,7 @@ export default function FavoritesView({
           <p className="text-slate-400 text-sm max-w-md mb-6 leading-relaxed">
             Click the star icon on any game in your library to pin it here for instant one-click play.
           </p>
-          <button onClick={onNavigateToLibrary} className="btn-primary">
+          <button onClick={onNavigateToLibrary} className="btn btn-primary">
             <Gamepad2 className="w-4 h-4" />
             <span>Browse Game Library</span>
           </button>
@@ -74,21 +74,21 @@ export default function FavoritesView({
           <p className="text-slate-400 text-sm">No starred games match "{searchQuery}"</p>
           <button
             onClick={() => setSearchQuery('')}
-            className="btn-secondary mt-3 text-xs"
+            className="btn btn-secondary btn-sm mt-3"
           >
             Clear Search
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-5">
+        <div className="games-grid">
           {filteredGames.map((game) => (
             <div
               key={game.id}
-              className="game-card group flex flex-col cursor-pointer"
+              className="game-card group"
               onClick={() => onPlayGame(game)}
             >
-              {/* Box Art Container */}
-              <div className="relative aspect-[3/4] bg-slate-900 overflow-hidden flex items-center justify-center">
+              {/* Poster Container */}
+              <div className="game-card-poster">
                 {game.coverUrl ? (
                   <img
                     src={game.coverUrl}
@@ -97,20 +97,18 @@ export default function FavoritesView({
                     loading="lazy"
                   />
                 ) : (
-                  <div className="flex flex-col items-center justify-center p-4 text-center">
-                    <Gamepad2 className="w-10 h-10 text-purple-400/60 mb-2 group-hover:scale-110 transition-transform" />
-                    <span className="text-[11px] font-bold text-slate-400 uppercase font-heading">
+                  <div className="flex flex-col items-center justify-center p-3 text-center">
+                    <Gamepad2 className="w-8 h-8 text-purple-400/60 mb-1 group-hover:scale-110 transition-transform" />
+                    <span className="text-[10px] font-bold text-slate-400 uppercase font-heading">
                       {game.console || 'RETRO'}
                     </span>
                   </div>
                 )}
 
                 {/* Console Badge in Top-Right */}
-                <div className="absolute top-2.5 right-2.5 z-10">
-                  <span className={`badge-console badge-${(game.console || '').toLowerCase()}`}>
-                    {game.console || 'GAME'}
-                  </span>
-                </div>
+                <span className={`badge-console badge-${(game.console || '').toLowerCase()} badge-top-right`}>
+                  {game.console || 'GAME'}
+                </span>
 
                 {/* Star Button in Top-Left */}
                 <button
@@ -118,26 +116,26 @@ export default function FavoritesView({
                     e.stopPropagation();
                     onToggleFavorite(game.id);
                   }}
-                  className="absolute top-2.5 left-2.5 z-10 p-1.5 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/40 backdrop-blur-md transition hover:scale-110"
+                  className="game-card-fav-btn"
                   title="Remove from favorites"
                 >
                   <Star className="w-3.5 h-3.5 fill-amber-400" />
                 </button>
 
                 {/* Hover Play Overlay */}
-                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-xs">
-                  <div className="w-12 h-12 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-lg shadow-purple-600/50 group-hover:scale-110 transition-transform">
-                    <Play className="w-5 h-5 ml-0.5 fill-white" />
+                <div className="game-card-overlay absolute inset-0 flex items-center justify-center p-2">
+                  <div className="w-10 h-10 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-lg shadow-purple-600/50 transform translate-y-1 group-hover:translate-y-0 transition-transform">
+                    <Play className="w-4 h-4 ml-0.5 fill-white" />
                   </div>
                 </div>
               </div>
 
               {/* Game Metadata Footer */}
-              <div className="p-3 bg-slate-900/60 flex-1 flex flex-col justify-between border-t border-white/5">
-                <h4 className="font-heading font-semibold text-xs text-white truncate group-hover:text-purple-300 transition-colors">
+              <div className="game-card-meta">
+                <div className="game-card-title" title={game.title}>
                   {game.title}
-                </h4>
-                <div className="flex items-center justify-between text-[11px] text-slate-500 mt-1">
+                </div>
+                <div className="game-card-sub">
                   <span className="uppercase font-semibold tracking-wider">{game.console}</span>
                   <span>{game.sizeFormatted || ''}</span>
                 </div>

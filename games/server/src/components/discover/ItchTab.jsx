@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Loader2, Check, Search, Download, Heart, KeyRound, RefreshCw,
-  BookMarked, ChevronLeft, ChevronRight, Gamepad2, User
+  BookMarked, ChevronLeft, ChevronRight, Gamepad2, User, ExternalLink
 } from 'lucide-react';
 import { fetchJson } from '../../utils/api';
 import { JobStatusBanner, Grid } from './shared';
@@ -199,21 +199,39 @@ export default function ItchTab({ user, onDownloadDispatched, onLibraryUpdated }
     const busy = busyId === key;
     if (inLib) {
       return (
-        <span className="px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 bg-emerald-600/15 text-emerald-400 border border-emerald-500/25">
+        <span className="btn btn-xs w-full bg-emerald-600/15 text-emerald-400 border border-emerald-500/25 cursor-default justify-center">
           <Check className="w-3.5 h-3.5" /><span>In Library</span>
         </span>
       );
     }
-    const label = g.console === 'web' ? 'Add to Library' : 'Download to Drive';
+
+    // If game is not free, render a "Check it out" button that opens the game page in a new window
+    const isFree = prefix === 'own' || (!g.isPaid && (!g.price || ['free', '$0', '$0.00', '0', '0.00'].includes(String(g.price).trim().toLowerCase())));
+    if (!isFree) {
+      return (
+        <a
+          href={g.url || g.webUrl}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="btn btn-secondary btn-xs w-full justify-center"
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+          <span>Check it out</span>
+        </a>
+      );
+    }
+
+    const label = g.console === 'web' ? 'Add' : 'Download';
     const Icon = g.console === 'web' ? Heart : Download;
     return (
       <button
         onClick={onClick}
         disabled={busy || done}
-        className={`px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition ${
+        className={`btn btn-xs w-full ${
           done
             ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 cursor-default'
-            : 'bg-purple-600 hover:bg-purple-500 text-white'
+            : 'btn-primary'
         }`}
       >
         {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : done ? <Check className="w-3.5 h-3.5" /> : <Icon className="w-3.5 h-3.5" />}
@@ -223,39 +241,56 @@ export default function ItchTab({ user, onDownloadDispatched, onLibraryUpdated }
   };
 
   const cardFor = (prefix, g, onClick) => (
-    <div key={`${prefix}_${g.id}`} className="glass-panel overflow-hidden flex flex-col hover:border-purple-500/25 transition group">
-      <div className="h-[130px] bg-slate-900 overflow-hidden relative">
-        {g.coverUrl && (
+    <div key={`${prefix}_${g.id}`} className="game-card group">
+      {/* Poster Container */}
+      <div className="game-card-poster">
+        {g.coverUrl ? (
           <img
             src={g.rawCoverUrl ? `/api/proxy-image?url=${encodeURIComponent(g.rawCoverUrl)}` : g.coverUrl}
             alt=""
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             loading="lazy"
           />
+        ) : (
+          <div className="flex flex-col items-center justify-center p-3 text-center">
+            <Gamepad2 className="w-8 h-8 text-purple-400/60 mb-1 group-hover:scale-110 transition-transform" />
+            <span className="text-[10px] font-bold text-slate-400 uppercase font-heading">
+              {g.console === 'web' ? 'HTML5' : (g.console || '').toUpperCase()}
+            </span>
+          </div>
         )}
-        <span className={`badge-console badge-${(g.console || 'gb').toLowerCase()} absolute top-2 right-2`}>
+        <span className={`badge-console badge-${(g.console || 'gb').toLowerCase()} badge-top-left`}>
           {g.console === 'web' ? 'HTML5' : (g.console || '').toUpperCase()}
         </span>
         {!g.isPaid && g.price && prefix === 'store' && (
-          <span className="absolute bottom-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/25 border border-emerald-500/40 text-emerald-300">
+          <span className="badge-price-free badge-top-right">
             FREE
           </span>
         )}
         {g.isPaid && (
-          <span className="absolute bottom-2 left-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/25 border border-amber-500/40 text-amber-300">
+          <span className="badge-price-paid badge-top-right">
             {g.price}
           </span>
         )}
       </div>
-      <div className="p-4 flex-1 flex flex-col">
-        <h3 className="font-heading font-bold text-[13px] text-white leading-snug line-clamp-2">{g.title}</h3>
-        <p className="text-[11px] text-slate-500 mt-1">by {g.author}</p>
-        {g.description && <p className="text-[11px] text-slate-400 mt-1.5 line-clamp-2">{g.description}</p>}
-        <div className="mt-auto pt-3 flex items-center gap-2">
-          {actionButton(prefix, g, () => onClick(g))}
-          <a href={g.url} target="_blank" rel="noreferrer" className="ml-auto text-[11px] text-slate-500 hover:text-purple-300 font-semibold transition">
-            itch.io ↗
+
+      {/* Metadata & Actions */}
+      <div className="game-card-meta">
+        <div className="game-card-title" title={g.title}>{g.title}</div>
+        <div className="game-card-sub">
+          <span className="truncate">{g.author ? `by ${g.author}` : (g.console || '').toUpperCase()}</span>
+          <a
+            href={g.url}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="text-[10px] text-purple-400 hover:text-purple-300 font-semibold transition shrink-0"
+          >
+            itch ↗
           </a>
+        </div>
+        <div className="pt-1 mt-auto">
+          {actionButton(prefix, g, () => onClick(g))}
         </div>
       </div>
     </div>
@@ -282,7 +317,7 @@ export default function ItchTab({ user, onDownloadDispatched, onLibraryUpdated }
                 onChange={(e) => setApiKeyInput(e.target.value)}
                 className="px-3.5 py-2 bg-slate-900 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 w-56"
               />
-              <button type="submit" disabled={connecting || !apiKeyInput.trim()} className="btn-primary !py-2 text-xs whitespace-nowrap">
+              <button type="submit" disabled={connecting || !apiKeyInput.trim()} className="btn btn-primary btn-sm whitespace-nowrap">
                 {connecting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <User className="w-3.5 h-3.5" />}
                 <span>Connect</span>
               </button>
@@ -302,12 +337,12 @@ export default function ItchTab({ user, onDownloadDispatched, onLibraryUpdated }
             <div className="flex items-center gap-2 shrink-0">
               <button
                 onClick={() => { setSubTab(subTab === 'library' ? 'store' : 'library'); if (subTab !== 'library') loadLibrary(); }}
-                className="btn-secondary !py-1.5 text-xs"
+                className="btn btn-secondary btn-sm"
               >
                 <BookMarked className="w-3.5 h-3.5" />
                 <span>{subTab === 'library' ? 'Browse Store' : 'My Purchases'}</span>
               </button>
-              <button onClick={disconnectAccount} className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition">
+              <button onClick={disconnectAccount} className="btn btn-danger btn-sm">
                 Disconnect
               </button>
             </div>
@@ -323,11 +358,7 @@ export default function ItchTab({ user, onDownloadDispatched, onLibraryUpdated }
               <button
                 key={p.key}
                 onClick={() => { setPlatform(p.key); setPage(1); }}
-                className={`px-3 py-1.5 rounded-xl text-[11px] font-heading font-bold uppercase tracking-wider whitespace-nowrap transition ${
-                  platform === p.key
-                    ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30 border border-purple-400/30'
-                    : 'bg-slate-900/60 hover:bg-slate-800 text-slate-400 border border-white/5'
-                }`}
+                className={`filter-chip ${platform === p.key ? 'active' : ''}`}
               >
                 {p.label}
               </button>
@@ -355,7 +386,7 @@ export default function ItchTab({ user, onDownloadDispatched, onLibraryUpdated }
                 className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-white/10 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 transition-colors"
               />
             </div>
-            <button type="submit" className="btn-primary !py-2.5 text-sm">Search</button>
+            <button type="submit" className="btn btn-primary">Search</button>
           </form>
         </>
       )}
@@ -381,7 +412,7 @@ export default function ItchTab({ user, onDownloadDispatched, onLibraryUpdated }
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page <= 1}
-                className="p-2 rounded-lg bg-slate-900 border border-white/10 text-slate-300 hover:text-white disabled:opacity-40 transition"
+                className="icon-btn icon-btn-sm"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
@@ -389,7 +420,7 @@ export default function ItchTab({ user, onDownloadDispatched, onLibraryUpdated }
               <button
                 onClick={() => setPage((p) => p + 1)}
                 disabled={games.length === 0}
-                className="p-2 rounded-lg bg-slate-900 border border-white/10 text-slate-300 hover:text-white disabled:opacity-40 transition"
+                className="icon-btn icon-btn-sm"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -403,7 +434,7 @@ export default function ItchTab({ user, onDownloadDispatched, onLibraryUpdated }
               <Gamepad2 className="w-4 h-4 text-purple-400" />
               <span>{libraryGames.length} purchased game(s) on itch.io</span>
             </div>
-            <button onClick={loadLibrary} disabled={libraryLoading} className="btn-secondary !py-1.5 text-xs">
+            <button onClick={loadLibrary} disabled={libraryLoading} className="btn btn-secondary btn-sm">
               <RefreshCw className={`w-3.5 h-3.5 ${libraryLoading ? 'animate-spin' : ''}`} />
               <span>Refresh</span>
             </button>

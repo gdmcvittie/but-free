@@ -13,8 +13,8 @@ import GogTab from './discover/GogTab';
 // =============================================================================
 
 const TABS = [
-  { key: 'fitgirl', label: 'FitGirl Repacks', icon: Layers },
-  { key: 'popular', label: 'Popular on Steam', icon: Flame },
+  { key: 'fitgirl', label: 'Latest Repacks', icon: Layers },
+  { key: 'popular', label: 'Popular', icon: Flame },
   { key: 'itch', label: 'itch.io', icon: Gamepad2 },
   { key: 'gog', label: 'GOG.com', icon: ShoppingBag }
 ];
@@ -34,7 +34,7 @@ export default function DiscoverView({ user, onOpenSettings, onDownloadDispatche
             Repacks, itch.io and GOG downloads are fetched by the cloud Downloader node and saved straight into
             your Google Drive Games folder. Pick that folder to get started.
           </p>
-          <button onClick={onOpenSettings} className="btn-primary">
+          <button onClick={onOpenSettings} className="btn btn-primary">
             <span>Open Settings</span>
           </button>
         </div>
@@ -43,37 +43,37 @@ export default function DiscoverView({ user, onOpenSettings, onDownloadDispatche
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-screen bg-[#070a12] p-8 overflow-y-auto">
-      {/* Header */}
-      <div className="mb-6">
-        <div className="flex items-center gap-2 text-xs uppercase font-bold text-pink-400 font-heading tracking-wider mb-1">
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>PC &amp; Homebrew Download Hub</span>
+    <div className="flex-1 flex flex-col bg-[#070a12] p-6 sm:p-8">
+      {/* Sticky Section Nav Header */}
+      <div className="sticky top-0 z-20 bg-[#070a12]/95 backdrop-blur-md pt-2 pb-3 border-b border-white/5 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+          <div>
+            <div className="flex items-center gap-2 text-xs uppercase font-bold text-pink-400 font-heading tracking-wider">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>PC &amp; Homebrew Download Hub</span>
+            </div>
+            <h1 className="font-heading font-extrabold text-2xl sm:text-3xl text-white tracking-tight mt-0.5">
+              Discover &amp; Download to Drive
+            </h1>
+          </div>
         </div>
-        <h1 className="font-heading font-extrabold text-3xl text-white tracking-tight">
-          Discover &amp; Download to Drive
-        </h1>
-        <p className="text-sm text-slate-400 mt-1 max-w-2xl">
-          FitGirl repacks via RSS, new Steam releases with automatic repack matching, itch.io homebrew &amp; purchases,
-          and GOG DRM-free installers — queued on the cloud downloader and uploaded into your Google Drive.
-        </p>
-      </div>
 
-      {/* Tabs */}
-      <div className="discover-tabs mb-6">
-        {TABS.map((t) => {
-          const Icon = t.icon;
-          return (
-            <button
-              key={t.key}
-              onClick={() => setActiveTab(t.key)}
-              className={`discover-tab-btn ${activeTab === t.key ? 'active' : ''}`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              <span>{t.label}</span>
-            </button>
-          );
-        })}
+        {/* Section Tabs */}
+        <div className="discover-tabs">
+          {TABS.map((t) => {
+            const Icon = t.icon;
+            return (
+              <button
+                key={t.key}
+                onClick={() => setActiveTab(t.key)}
+                className={`discover-tab-btn ${activeTab === t.key ? 'active' : ''}`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                <span>{t.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {activeTab === 'fitgirl' && <FitgirlTab onDownloadDispatched={onDownloadDispatched} />}

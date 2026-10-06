@@ -159,9 +159,9 @@ export function registerLibraryRoutes(app, { Database }) {
   });
 
   // -------------------------------------------------------------
-  // Cover image proxy (bypasses itch.io hotlink protection)
+  // Cover media proxy (bypasses itch.io/FitGirl hotlink protection, supports images & webm video clips)
   // -------------------------------------------------------------
-  app.get('/api/proxy-image', async (req, res) => {
+  app.get(['/api/proxy-image', '/api/proxy-media'], async (req, res) => {
     try {
       let imageUrl = req.query.url;
       if (!imageUrl || typeof imageUrl !== 'string') {
@@ -172,26 +172,52 @@ export function registerLibraryRoutes(app, { Database }) {
         return res.status(400).send('Invalid url');
       }
 
+      let parsedOrigin = '';
+      try {
+        parsedOrigin = new URL(imageUrl).origin;
+      } catch (_) {}
+
+      const isWebm = imageUrl.toLowerCase().includes('.webm');
+      const fetchHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Referer': parsedOrigin ? `${parsedOrigin}/` : 'https://fitgirl-repacks.site/',
+        'Accept': isWebm ? 'video/webm,video/*,*/*;q=0.9' : 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+      };
+
+      if (req.headers.range) {
+        fetchHeaders['Range'] = req.headers.range;
+      }
+
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
+      const timeout = setTimeout(() => controller.abort(), 15000);
 
       const proxyRes = await fetch(imageUrl, {
         signal: controller.signal,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Referer': 'https://itch.io/',
-          'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
-        }
+        headers: fetchHeaders
       });
       clearTimeout(timeout);
 
-      if (!proxyRes.ok) {
-        return res.status(proxyRes.status).send(`Failed to fetch image: ${proxyRes.statusText}`);
+      if (!proxyRes.ok && proxyRes.status !== 206) {
+        return res.status(proxyRes.status).send(`Failed to fetch media: ${proxyRes.statusText}`);
       }
 
-      const contentType = proxyRes.headers.get('content-type') || 'image/jpeg';
+      let contentType = proxyRes.headers.get('content-type') || (isWebm ? 'video/webm' : 'image/jpeg');
+      if (isWebm && (!contentType || contentType === 'application/octet-stream')) {
+        contentType = 'video/webm';
+      }
+
+      res.status(proxyRes.status);
       res.setHeader('Content-Type', contentType);
       res.setHeader('Cache-Control', 'public, max-age=604800');
+      res.setHeader('Accept-Ranges', 'bytes');
+
+      if (proxyRes.headers.get('content-range')) {
+        res.setHeader('Content-Range', proxyRes.headers.get('content-range'));
+      }
+      if (proxyRes.headers.get('content-length')) {
+        res.setHeader('Content-Length', proxyRes.headers.get('content-length'));
+      }
+
       const arrayBuffer = await proxyRes.arrayBuffer();
       res.send(Buffer.from(arrayBuffer));
     } catch (err) {

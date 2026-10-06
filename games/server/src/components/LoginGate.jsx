@@ -59,7 +59,7 @@ export default function LoginGate({ authError, onClearAuthError }) {
                 setLocalError(null);
                 if (onClearAuthError) onClearAuthError();
               }}
-              className="text-red-400 hover:text-white"
+              className="icon-btn icon-btn-sm"
             >
               ✕
             </button>
@@ -72,7 +72,7 @@ export default function LoginGate({ authError, onClearAuthError }) {
             type="button"
             onClick={handleGoogleSignIn}
             disabled={loading}
-            className="w-full flex items-center justify-center gap-3 py-3.5 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-900 font-semibold text-sm shadow-xl transition-all hover:scale-[1.01]"
+            className="btn-google"
           >
             {loading ? (
               <Loader2 className="w-5 h-5 animate-spin text-purple-600" />

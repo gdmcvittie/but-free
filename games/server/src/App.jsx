@@ -142,7 +142,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-[#070a12] text-slate-200 overflow-hidden">
+    <div className="flex flex-col md:flex-row h-screen bg-[#070a12] text-slate-200 overflow-hidden">
       {/* Sleek Sidebar Navigation */}
       <Sidebar
         currentView={currentView}
@@ -153,7 +153,7 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 ml-64 flex flex-col h-screen overflow-y-auto relative">
+      <main className="flex-1 min-w-0 flex flex-col h-screen overflow-y-auto relative">
         {currentView === 'library' && (
           <LibraryView
             games={games}

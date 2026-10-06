@@ -67,7 +67,7 @@ export default function DownloadsView({ user, onOpenSettings }) {
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-screen bg-[#070a12] p-8 overflow-y-auto">
+    <div className="flex-1 flex flex-col bg-[#070a12] p-6 sm:p-8">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
@@ -82,17 +82,17 @@ export default function DownloadsView({ user, onOpenSettings }) {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <button
             onClick={handleClearHistory}
-            className="btn-secondary !py-2 !px-3 text-xs"
+            className="btn btn-secondary btn-sm"
             title="Clear completed and cancelled jobs"
           >
             Clear History
           </button>
           <button
             onClick={fetchDownloads}
-            className="btn-secondary !py-2 !px-3 text-xs"
+            className="icon-btn"
             title="Refresh queue"
           >
             <RefreshCw className="w-3.5 h-3.5" />
@@ -124,7 +124,7 @@ export default function DownloadsView({ user, onOpenSettings }) {
           <button
             type="submit"
             disabled={submitting || !inputMagnet.trim()}
-            className="btn-primary whitespace-nowrap text-xs"
+            className="btn btn-primary whitespace-nowrap text-xs"
           >
             {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
             <span>Send to Downloader</span>
@@ -209,7 +209,7 @@ export default function DownloadsView({ user, onOpenSettings }) {
                   {!isCompleted && !isError && (
                     <button
                       onClick={() => handleCancel(item.id)}
-                      className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition"
+                      className="icon-btn icon-btn-sm danger"
                       title="Cancel download"
                     >
                       <XCircle className="w-4 h-4" />

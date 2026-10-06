@@ -1055,7 +1055,7 @@ export async function scrapeLinksFromPage(pageUrl) {
   if (!pageUrl) throw new Error('Webpage URL is required');
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 12000);
+  const timeout = setTimeout(() => controller.abort(), 14000);
 
   const response = await fetch(pageUrl, {
     signal: controller.signal,
@@ -1073,9 +1073,87 @@ export async function scrapeLinksFromPage(pageUrl) {
   const html = await response.text();
   const result = scrapeDownloadLinksFromHtml(html, pageUrl);
 
+  const seenUrls = new Set(result.links.map(l => l.url));
+
+  // 1. Scan raw HTML for direct FuckingFast URLs (including outside <a> tags)
+  const ffRegex = /https?:\/\/(?:[a-zA-Z0-9.-]+\.)?fuckingfast\.co\/[^\s"'<>\\]+/gi;
+  const rawFfMatches = html.match(ffRegex) || [];
+  for (const rawFf of rawFfMatches) {
+    const cleanFf = rawFf.replace(/&amp;/g, '&').replace(/[),.;]+$/, '');
+    if (!seenUrls.has(cleanFf)) {
+      seenUrls.add(cleanFf);
+      const classification = classifyDownloadUrl(cleanFf, '');
+      result.links.push({
+        id: 'dl-ff-' + Math.random().toString(36).substring(2, 9),
+        url: cleanFf,
+        filename: classification.filename || 'FuckingFast Download',
+        extension: classification.extension || 'RAR',
+        category: classification.category || 'archive',
+        hoster: 'FuckingFast',
+        isMagnet: false,
+        source: 'page-scraper'
+      });
+    }
+  }
+
+  // 2. Deep-scrape paste.fitgirl-repacks.site links where multi-part FuckingFast mirrors are often hosted
+  const pasteLinks = result.links.filter(l => l.url && (l.url.includes('paste.fitgirl-repacks.site') || l.hoster === 'FitGirl Paste'));
+  for (const pl of pasteLinks.slice(0, 5)) {
+    try {
+      const pasteController = new AbortController();
+      const pasteTimeout = setTimeout(() => pasteController.abort(), 6000);
+      const pasteRes = await fetch(pl.url, {
+        signal: pasteController.signal,
+        headers: {
+          'User-Agent': UA_BROWSER,
+          'Accept': 'text/html,application/xhtml+xml,application/xml,text/plain,*/*'
+        }
+      });
+      clearTimeout(pasteTimeout);
+
+      if (pasteRes.ok) {
+        const pasteBody = await pasteRes.text();
+        const pasteFfMatches = pasteBody.match(ffRegex) || [];
+        for (const rawFf of pasteFfMatches) {
+          const cleanFf = rawFf.replace(/&amp;/g, '&').replace(/[),.;]+$/, '');
+          if (!seenUrls.has(cleanFf)) {
+            seenUrls.add(cleanFf);
+            const classification = classifyDownloadUrl(cleanFf, '');
+            result.links.push({
+              id: 'dl-ff-' + Math.random().toString(36).substring(2, 9),
+              url: cleanFf,
+              filename: classification.filename || 'FuckingFast Part',
+              extension: classification.extension || 'RAR',
+              category: 'archive',
+              hoster: 'FuckingFast',
+              isMagnet: false,
+              source: 'paste-scraper'
+            });
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  // Sort: Magnets first, Torrents second, FuckingFast direct mirrors third, followed by other hosters
+  const magnetLinks = result.links.filter(l => l.isMagnet || (l.url && l.url.startsWith('magnet:')));
+  const torrentLinks = result.links.filter(l => !l.isMagnet && l.extension === 'TORRENT');
+  const ffLinks = result.links.filter(l => !l.isMagnet && l.extension !== 'TORRENT' && l.hoster === 'FuckingFast');
+  const otherMirrors = result.links.filter(l => !l.isMagnet && l.extension !== 'TORRENT' && l.hoster !== 'FuckingFast');
+  const sortedLinks = [...magnetLinks, ...torrentLinks, ...ffLinks, ...otherMirrors];
+
   return {
     pageUrl,
-    ...result
+    hasMagnet: magnetLinks.length > 0,
+    hasTorrents: torrentLinks.length > 0,
+    hasMirrors: (ffLinks.length + otherMirrors.length) > 0,
+    hasFuckingFast: ffLinks.length > 0,
+    magnetCount: magnetLinks.length,
+    torrentCount: torrentLinks.length,
+    fuckingFastCount: ffLinks.length,
+    mirrorCount: ffLinks.length + otherMirrors.length,
+    links: sortedLinks,
+    totalFound: sortedLinks.length
   };
 }
 

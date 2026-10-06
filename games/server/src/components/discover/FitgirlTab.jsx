@@ -19,7 +19,7 @@ export default function FitgirlTab({ onDownloadDispatched }) {
   const [filesModal, setFilesModal] = useState(null); // {inspect, item, source}
   const [inspectingId, setInspectingId] = useState(null);
 
-  const { add, busyId, doneIds, status, setStatus } = useAddJob(onDownloadDispatched);
+  const { add, addBatch, busyId, doneIds, status, setStatus } = useAddJob(onDownloadDispatched);
 
   const loadFeed = useCallback(async (url) => {
     setLoading(true);
@@ -51,18 +51,45 @@ export default function FitgirlTab({ onDownloadDispatched }) {
     loadFeed(url);
   };
 
-  const openMirrors = (item) => {
-    setLinksModal({ pageUrl: item.link, links: item.downloads || [], item });
+  const openMirrors = async (item) => {
+    setLinksModal({
+      pageUrl: item.link,
+      itemTitle: item.cleanTitle || item.title,
+      links: item.downloads || [],
+      loading: true,
+      item
+    });
+
+    try {
+      const data = await fetchJson(`/api/pc/scrape-links?url=${encodeURIComponent(item.link)}`);
+      setLinksModal((prev) => {
+        if (!prev || prev.item?.id !== item.id) return prev;
+        return {
+          ...prev,
+          links: data.links || [],
+          loading: false
+        };
+      });
+    } catch (err) {
+      setLinksModal((prev) => {
+        if (!prev || prev.item?.id !== item.id) return prev;
+        return {
+          ...prev,
+          loading: false,
+          error: err.message
+        };
+      });
+    }
   };
 
   const pickLink = async (l) => {
     const item = linksModal?.item;
-    const ok = await add(l.id || l.url, {
+    await add(l.id || l.url, {
       source: l.url,
       title: item?.cleanTitle || item?.title || l.filename || 'PC Game',
+      filename: l.filename,
       console: 'pc'
     });
-    if (ok) setLinksModal(null);
   };
 
   const inspectMagnet = async (item) => {
@@ -109,12 +136,12 @@ export default function FitgirlTab({ onDownloadDispatched }) {
               className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-white/10 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 transition-colors"
             />
           </div>
-          <button type="submit" className="btn-primary !py-2.5 text-sm">Search</button>
+          <button type="submit" className="btn btn-primary">Search</button>
         </form>
         <button
           onClick={() => loadFeed(activeFeedUrl)}
           disabled={loading}
-          className="btn-secondary !py-2.5 text-sm whitespace-nowrap"
+          className="btn btn-secondary whitespace-nowrap"
           title="Refresh feed"
         >
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -145,79 +172,98 @@ export default function FitgirlTab({ onDownloadDispatched }) {
         <Grid empty={!loading && (!feed || feed.items.length === 0) ? 'No releases found for this feed/search.' : ''}>
           {(feed?.items || []).map((item) => {
             const key = item.id;
-            const queued = doneIds.has(key) || doneIds.has(`files_${key}`) || busyId === key;
             return (
-              <div key={item.id} className="glass-panel p-4 flex flex-col gap-3 hover:border-purple-500/25 transition">
-                <div className="flex gap-3.5">
-                  <div className="w-[84px] h-[118px] rounded-lg bg-slate-900 border border-white/5 overflow-hidden flex items-center justify-center shrink-0">
-                    {item.thumbnail && !item.isVideoThumbnail ? (
-                      <img src={`/api/proxy-image?url=${encodeURIComponent(item.thumbnail)}`} alt="" className="w-full h-full object-cover" loading="lazy" />
-                    ) : (
-                      <Layers className="w-7 h-7 text-slate-700" />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                      <span className="badge-fitgirl">FitGirl</span>
-                      {item.isUpdate && (
-                        <span className="badge-console" style={{ background: 'rgba(245,158,11,0.2)', color: '#fcd34d', border: '1px solid rgba(245,158,11,0.35)' }}>UPDATE</span>
-                      )}
-                      {item.hasMagnet && <span className="text-[10px] text-slate-500 font-semibold">MAGNET</span>}
-                    </div>
-                    <h3 className="font-heading font-bold text-[13px] text-white leading-snug line-clamp-2">
-                      {item.cleanTitle || item.title}
-                    </h3>
-                    <p className="text-[10px] text-slate-500 mt-1">{(item.pubDate || '').replace(/GMT.*/, '').trim()}</p>
-                    <p className="text-[11px] text-slate-400 mt-1.5 line-clamp-3 leading-relaxed">{item.excerpt}</p>
-                  </div>
+              <div key={item.id} className="game-card group">
+                <div className="game-card-poster">
+                  {item.isVideoThumbnail || (item.thumbnail && item.thumbnail.toLowerCase().includes('.webm')) ? (
+                    <video
+                      src={`/api/proxy-image?url=${encodeURIComponent(item.thumbnail)}`}
+                      autoPlay
+                      loop
+                      muted
+                      playsInline
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      onError={(e) => {
+                        if (!e.currentTarget.dataset.fallback && item.thumbnail) {
+                          e.currentTarget.dataset.fallback = '1';
+                          e.currentTarget.src = item.thumbnail;
+                        }
+                      }}
+                    />
+                  ) : item.thumbnail ? (
+                    <img
+                      src={`/api/proxy-image?url=${encodeURIComponent(item.thumbnail)}`}
+                      alt=""
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      loading="lazy"
+                      onError={(e) => {
+                        if (!e.currentTarget.dataset.fallback && item.thumbnail) {
+                          e.currentTarget.dataset.fallback = '1';
+                          e.currentTarget.src = item.thumbnail;
+                        }
+                      }}
+                    />
+                  ) : (
+                    <Layers className="w-8 h-8 text-slate-700" />
+                  )}
+                  <span className="badge-mint badge-top-right">FitGirl</span>
+                  {item.isUpdate && (
+                    <span className="badge-update badge-top-left">UPDATE</span>
+                  )}
                 </div>
 
-                <div className="flex items-center gap-2 pt-1 border-t border-white/5">
-                  {item.hasMagnet ? (
-                    <>
-                      <button
-                        onClick={() => add(key, { source: item.magnetUrl, title: item.cleanTitle || item.title, console: 'pc' })}
-                        disabled={busyId === key || doneIds.has(key)}
-                        className={`px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition ${
-                          doneIds.has(key)
-                            ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 cursor-default'
-                            : 'bg-purple-600 hover:bg-purple-500 text-white'
-                        }`}
-                      >
-                        {busyId === key ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : doneIds.has(key) ? <Check className="w-3.5 h-3.5" /> : <Magnet className="w-3.5 h-3.5" />}
-                        <span>{doneIds.has(key) ? 'Queued' : 'Magnet → Drive'}</span>
-                      </button>
-                      <button
-                        onClick={() => inspectMagnet(item)}
-                        disabled={inspectingId === item.id}
-                        className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/10 transition flex items-center gap-1.5"
-                        title="Pick files inside the torrent"
-                      >
-                        {inspectingId === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ListChecks className="w-3.5 h-3.5" />}
-                        <span>Files</span>
-                      </button>
-                    </>
-                  ) : null}
+                <div className="game-card-meta">
+                  <div className="game-card-title" title={item.cleanTitle || item.title}>
+                    {item.cleanTitle || item.title}
+                  </div>
+                  <div className="game-card-sub">
+                    <span className="truncate">{(item.pubDate || '').replace(/GMT.*/, '').trim()}</span>
+                    <a
+                      href={item.link}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-[10px] text-pink-400 hover:text-pink-300 transition font-semibold"
+                    >
+                      Post ↗
+                    </a>
+                  </div>
 
-                  {item.downloads?.length > 0 && (
+                  <div className="pt-1 mt-auto flex flex-col gap-1.5">
+                    {item.hasMagnet ? (
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={() => add(key, { source: item.magnetUrl, title: item.cleanTitle || item.title, console: 'pc' })}
+                          disabled={busyId === key || doneIds.has(key)}
+                          className={`btn btn-xs flex-1 ${
+                            doneIds.has(key)
+                              ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 cursor-default'
+                              : 'btn-primary'
+                          }`}
+                        >
+                          {busyId === key ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : doneIds.has(key) ? <Check className="w-3.5 h-3.5" /> : <Magnet className="w-3.5 h-3.5" />}
+                          <span>{doneIds.has(key) ? 'Queued' : 'Magnet'}</span>
+                        </button>
+                        <button
+                          onClick={() => inspectMagnet(item)}
+                          disabled={inspectingId === item.id}
+                          className="btn btn-secondary btn-xs"
+                          title="Pick files inside torrent"
+                        >
+                          {inspectingId === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ListChecks className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    ) : null}
+
                     <button
                       onClick={() => openMirrors(item)}
-                      className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 transition flex items-center gap-1.5"
+                      className="btn btn-secondary btn-xs w-full"
+                      title="Deep scan webpage for all download mirrors, FuckingFast links & magnets"
                     >
-                      <FileArchive className="w-3.5 h-3.5" />
-                      <span>Mirrors ({item.downloads.length})</span>
+                      <FileArchive className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Mirrors & Links</span>
                     </button>
-                  )}
-
-                  <a
-                    href={item.link}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="ml-auto p-1.5 rounded-lg text-slate-500 hover:text-white transition"
-                    title="Open original post"
-                  >
-                    <ArrowRight className="w-4 h-4" />
-                  </a>
+                  </div>
                 </div>
               </div>
             );
@@ -230,9 +276,13 @@ export default function FitgirlTab({ onDownloadDispatched }) {
           open
           onClose={() => setLinksModal(null)}
           pageUrl={linksModal.pageUrl}
+          itemTitle={linksModal.itemTitle || linksModal.item?.cleanTitle || linksModal.item?.title}
           links={linksModal.links}
+          loading={linksModal.loading}
           busyId={busyId}
+          doneIds={doneIds}
           onPick={pickLink}
+          onAddBatch={(batchItems, title) => addBatch(batchItems, title || linksModal.itemTitle)}
         />
       )}
 
