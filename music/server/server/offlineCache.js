@@ -22,42 +22,90 @@ function cachePathFor(itemId, fileName) {
   return path.join(OFFLINE_DIR, `${itemId}.${ext}`);
 }
 
+let cacheMap = null;
+let cacheMapTimestamp = 0;
+const CACHE_TTL_MS = 5000;
+
+export function invalidateOfflineCache() {
+  cacheMap = null;
+  cacheMapTimestamp = 0;
+}
+
+function ensureCacheMap() {
+  const now = Date.now();
+  if (cacheMap && (now - cacheMapTimestamp < CACHE_TTL_MS)) {
+    return cacheMap;
+  }
+  const nextMap = new Map();
+  if (fs.existsSync(OFFLINE_DIR)) {
+    try {
+      const names = fs.readdirSync(OFFLINE_DIR);
+      for (const name of names) {
+        if (name.endsWith('.part')) continue;
+        const dotIndex = name.indexOf('.');
+        if (dotIndex > 0) {
+          const id = name.slice(0, dotIndex);
+          const full = path.join(OFFLINE_DIR, name);
+          try {
+            const stat = fs.statSync(full);
+            if (stat.isFile() && stat.size > 0) {
+              nextMap.set(id, { full, size: stat.size });
+            }
+          } catch {
+            /* ignore stat errors */
+          }
+        }
+      }
+    } catch {
+      /* ignore readdir errors */
+    }
+  }
+  cacheMap = nextMap;
+  cacheMapTimestamp = now;
+  return cacheMap;
+}
+
+export function getOfflineItemIds() {
+  const map = ensureCacheMap();
+  return new Set(map.keys());
+}
+
 export function localFileFor(itemId) {
-  if (!fs.existsSync(OFFLINE_DIR)) return null;
-  const prefix = `${itemId}.`;
-  const match = fs.readdirSync(OFFLINE_DIR).find((name) => name.startsWith(prefix));
-  if (!match) return null;
-  const full = path.join(OFFLINE_DIR, match);
-  return fs.existsSync(full) && fs.statSync(full).size > 0 ? full : null;
+  if (!itemId) return null;
+  const map = ensureCacheMap();
+  const entry = map.get(String(itemId));
+  return entry ? entry.full : null;
 }
 
 export function isOffline(itemId) {
-  return Boolean(localFileFor(itemId));
+  if (!itemId) return false;
+  const map = ensureCacheMap();
+  return map.has(String(itemId));
 }
 
 /** Total bytes used by the offline cache. */
 export function cacheUsage() {
-  if (!fs.existsSync(OFFLINE_DIR)) return { bytes: 0, files: 0 };
+  const map = ensureCacheMap();
   let bytes = 0;
-  let files = 0;
-  for (const name of fs.readdirSync(OFFLINE_DIR)) {
-    try {
-      const stat = fs.statSync(path.join(OFFLINE_DIR, name));
-      if (stat.isFile()) { bytes += stat.size; files += 1; }
-    } catch { /* ignore */ }
+  for (const entry of map.values()) {
+    bytes += entry.size;
   }
-  return { bytes, files };
+  return { bytes, files: map.size };
 }
 
 export const offlineCache = {
+  getOfflineItemIds,
+  invalidateOfflineCache,
+
   list(userId) {
+    const map = ensureCacheMap();
     return db.getOffline(userId).map((record) => {
-      const exists = localFileFor(record.itemId);
-      let bytes = record.bytes || 0;
-      if (exists) {
-        try { bytes = fs.statSync(exists).size; } catch { /* ignore */ }
-      }
-      return { ...record, exists: Boolean(exists), bytes };
+      const entry = map.get(String(record.itemId));
+      return {
+        ...record,
+        exists: Boolean(entry),
+        bytes: entry ? entry.size : (record.bytes || 0)
+      };
     });
   },
 
@@ -121,6 +169,7 @@ export const offlineCache = {
       }
 
       fs.renameSync(temp, target);
+      invalidateOfflineCache();
       const bytes = fs.statSync(target).size;
       db.setOffline(user.id, item.id, { fileName: path.basename(target), bytes });
       broadcast('offline_progress', { itemId: item.id, status: 'done', percent: 100, bytes });
@@ -140,6 +189,7 @@ export const offlineCache = {
     const existing = localFileFor(itemId);
     if (existing) fs.rmSync(existing, { force: true });
     fs.rmSync(`${cachePathFor(itemId, 'x.m4b')}.part`, { force: true });
+    invalidateOfflineCache();
     db.removeOffline(userId, itemId);
     broadcast('offline_progress', { itemId, status: 'removed', percent: 0 });
     return true;
@@ -165,7 +215,10 @@ export const offlineCache = {
       removed.push(record.itemId);
     }
 
-    if (removed.length) broadcast('offline_changed', { userId, removed });
+    if (removed.length) {
+      invalidateOfflineCache();
+      broadcast('offline_changed', { userId, removed });
+    }
     return { freed, removed };
   },
 
@@ -221,6 +274,7 @@ export const offlineCache = {
         removed.push(record.itemId);
       }
     }
+    if (removed.length) invalidateOfflineCache();
     return removed;
   }
 };

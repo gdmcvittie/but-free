@@ -18,7 +18,7 @@ import youtubeApi from './youtubeApi.js';
 import torrentNode from './torrentNode.js';
 import downloadManager from './downloadManager.js';
 import metaStore from './metaStore.js';
-import offlineCache, { cacheUsage, localFileFor } from './offlineCache.js';
+import offlineCache, { cacheUsage, localFileFor, getOfflineItemIds } from './offlineCache.js';
 import binManager from './binManager.js';
 import { attachClient, broadcast, clientCount, recentEvents } from './events.js';
 import { formatDuration, inferGenreFromText } from './libraryParser.js';
@@ -707,7 +707,9 @@ app.get('/api/items/:id/cover', async (req, res) => {
   if (!item) return res.status(404).json({ error: 'Item not found.' });
 
   try {
-    const built = await googleDrive.buildCover(req.user, item.googleFileId);
+    const built = await googleDrive.buildCover(req.user, item.googleFileId, {
+      hintCoverUrl: item.coverImage || null
+    });
     if (!built?.file || !fs.existsSync(built.file)) {
       throw new Error('Cover build produced no file.');
     }

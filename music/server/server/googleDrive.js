@@ -480,11 +480,11 @@ export const googleDrive = {
   // ------------------------------------------------------------------
   // Covers
   // ------------------------------------------------------------------
-  async buildCover(user, googleFileId, { width = 600 } = {}) {
+  async buildCover(user, googleFileId, { width = 600, hintCoverUrl = null } = {}) {
     // Drive returns sibling/image covers in the order Author / Series / Book, so a
     // "Book Title.jpg" typically sits next to "Book Title.m4b" rather than beside the
     // first file of the book. Search outward from the item's own folder.
-    const cover = await this.resolveCover(user, googleFileId, width);
+    const cover = await this.resolveCover(user, googleFileId, width, hintCoverUrl);
     if (cover) return cover;
 
     // Nothing in Drive at all: synthesise the same branded placeholder the API
@@ -533,7 +533,7 @@ export const googleDrive = {
    * Resolves a cover image for one Drive file and caches it on disk.
    * Returns null when Drive has no usable art, so the caller can fall back.
    */
-  async resolveCover(user, googleFileId, width) {
+  async resolveCover(user, googleFileId, width, hintCoverUrl = null) {
     const buildKey = `${googleFileId}-${width}`;
     if (activeCoverBuilds.has(buildKey)) return activeCoverBuilds.get(buildKey);
 
@@ -544,6 +544,16 @@ export const googleDrive = {
         .find((file) => fs.existsSync(file) && fs.statSync(file).size > 0);
       if (cached) return { file: cached, cached: true };
       const outPath = path.join(COVERS_DIR, `${key}.jpg`);
+
+      // 0. Hint cover URL (e.g. from YouTube Music, thumbnailLink, or known art)
+      if (hintCoverUrl && (hintCoverUrl.startsWith('http://') || hintCoverUrl.startsWith('https://'))) {
+        try {
+          const hinted = await this.cacheRemoteCover(hintCoverUrl, key, outPath, user);
+          if (hinted) return hinted;
+        } catch {
+          // fallback to Drive methods
+        }
+      }
 
       // `parents` is required: findSiblingCover walks the item's folder.
       const meta = await this.getFileMetadata(

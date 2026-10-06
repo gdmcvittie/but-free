@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Play, Heart, HardDriveDownload, HardDrive, ListPlus } from 'lucide-react';
 import { api } from './api';
 import { formatLengthShort, percentOf, stripTrackNumber } from './format';
@@ -9,7 +10,7 @@ import { formatLengthShort, percentOf, stripTrackNumber } from './format';
  * `context` is the full list the user is browsing, so starting playback queues
  * everything they can see rather than just this card.
  */
-export default function MediaCard({
+function MediaCard({
   item,
   context,
   onPlay,
@@ -127,3 +128,5 @@ export default function MediaCard({
     </div>
   );
 }
+
+export default memo(MediaCard);

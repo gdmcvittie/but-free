@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useDeferredValue, useRef } from 'react';
 import {
   Search,
   RefreshCw,
@@ -211,12 +211,51 @@ export default function Library({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [query, setQuery] = useState('');
+  const deferredQuery = useDeferredValue(query);
+  const [displayLimit, setDisplayLimit] = useState(80);
+  const loadMoreRef = useRef(null);
+  const groupLoadMoreRef = useRef(null);
+
   const [grouping, setGrouping] = useState('all');
   const [drill, setDrill] = useState(null);
   const [playlistTarget, setPlaylistTarget] = useState(null);
   const [busyIds, setBusyIds] = useState(() => new Set());
   const [playlists, setPlaylists] = useState([]);
   const [selectedGenre, setSelectedGenre] = useState('');
+
+  useEffect(() => {
+    setDisplayLimit(80);
+  }, [kind, grouping, drill, favoritesOnly, selectedGenre, deferredQuery]);
+
+  useEffect(() => {
+    const el = loadMoreRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setDisplayLimit((prev) => prev + 60);
+        }
+      },
+      { rootMargin: '400px' }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [displayLimit]);
+
+  useEffect(() => {
+    const el = groupLoadMoreRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setDisplayLimit((prev) => prev + 60);
+        }
+      },
+      { rootMargin: '400px' }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [displayLimit]);
 
   // Right-edge swipe unwinds drill-downs (album, artist, book chapters...)
   // the same way the Back button does.
@@ -450,7 +489,7 @@ export default function Library({
   }, [favoritesOnly, data, isMusic, books, favNames, items, favAlbums]);
 
   const visibleItems = useMemo(() => {
-    const needle = query.trim().toLowerCase();
+    const needle = deferredQuery.trim().toLowerCase();
 
     // 1. Inside a multi-part book drill-down
     if (drill?.type === 'book') {
@@ -573,7 +612,11 @@ export default function Library({
         offline: offlineIds.has(i.id) || (i.parts?.length ? i.parts.every((p) => offlineIds.has(p.id)) : false) || Boolean(i.offline)
       }))
       .sort(compareBy(sortGetter, sort.dir, ITEM_TIEBREAKS[sortField]));
-  }, [drill, isMusic, favoritesOnly, books, items, query, selectedGenre, sortGetter, sort.dir, sortField, offlineIds]);
+  }, [drill, isMusic, favoritesOnly, books, items, deferredQuery, selectedGenre, sortGetter, sort.dir, sortField, offlineIds]);
+
+  const displayedItems = useMemo(() => {
+    return visibleItems.slice(0, displayLimit);
+  }, [visibleItems, displayLimit]);
 
   const favesListToPlay = useMemo(() => {
     return allFavoriteItems.length > 0 ? allFavoriteItems : visibleItems;
@@ -582,16 +625,16 @@ export default function Library({
   const sortedGroups = useMemo(() => {
     if (grouping === 'playlist') {
       let list = playlists;
-      if (query.trim()) {
-        const needle = query.trim().toLowerCase();
+      if (deferredQuery.trim()) {
+        const needle = deferredQuery.trim().toLowerCase();
         list = list.filter((p) => p.name.toLowerCase().includes(needle));
       }
       return [...(list || [])].sort(compareBy(GROUP_FIELDS[sortField] || GROUP_FIELDS.name, sort.dir, GROUP_TIEBREAKS[sortField]));
     }
     if (grouping === 'genre') {
       let list = genres;
-      if (query.trim()) {
-        const needle = query.trim().toLowerCase();
+      if (deferredQuery.trim()) {
+        const needle = deferredQuery.trim().toLowerCase();
         list = list.filter((g) => g.name.toLowerCase().includes(needle));
       }
       return [...(list || [])].sort(compareBy(GROUP_FIELDS[sortField] || GROUP_FIELDS.name, sort.dir, GROUP_TIEBREAKS[sortField]));
@@ -603,13 +646,17 @@ export default function Library({
           : grouping === 'series' ? data.series
             : [];
     return [...(list || [])].sort(compareBy(GROUP_FIELDS[sortField] || GROUP_FIELDS.name, sort.dir, GROUP_TIEBREAKS[sortField]));
-  }, [data, playlists, genres, grouping, query, sortField, sort.dir]);
+  }, [data, playlists, genres, grouping, deferredQuery, sortField, sort.dir]);
+
+  const displayedGroups = useMemo(() => {
+    return sortedGroups.slice(0, displayLimit);
+  }, [sortedGroups, displayLimit]);
 
   const matchingPlaylists = useMemo(() => {
-    if (!query.trim() || grouping !== 'all' || drill || favoritesOnly || !playlists.length) return [];
-    const needle = query.trim().toLowerCase();
+    if (!deferredQuery.trim() || grouping !== 'all' || drill || favoritesOnly || !playlists.length) return [];
+    const needle = deferredQuery.trim().toLowerCase();
     return playlists.filter((p) => p.name.toLowerCase().includes(needle));
-  }, [query, grouping, drill, favoritesOnly, playlists]);
+  }, [deferredQuery, grouping, drill, favoritesOnly, playlists]);
 
   const markBusy = useCallback((id, busy) => {
     setBusyIds((prev) => {
@@ -1473,7 +1520,7 @@ export default function Library({
                     )}
                   </div>
                   <div className={`media-grid ${isMusic ? 'dense' : ''}`}>
-                    {visibleItems.map((item) => (
+                    {displayedItems.map((item) => (
                       <MediaCard
                         key={item.id}
                         item={item}
@@ -1487,6 +1534,17 @@ export default function Library({
                       />
                     ))}
                   </div>
+                  {visibleItems.length > displayLimit && (
+                    <div ref={loadMoreRef} className="library-load-more" style={{ textAlign: 'center', padding: '1.25rem 0' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setDisplayLimit((prev) => prev + 60)}
+                      >
+                        Show more ({visibleItems.length - displayLimit} remaining)
+                      </button>
+                    </div>
+                  )}
                 </>
               )}
             </>
@@ -1681,80 +1739,106 @@ export default function Library({
           ))}
         </div>
       ) : grouping === 'album' ? (
-        <div className="row-list">
-          {sortedGroups.map((album) => {
-            const key = albumKey(album.artist, album.album);
-            const faved = favAlbums.has(key);
-            return (
-              <div key={album.key} className="row-item" onClick={() => setDrill({ type: 'album', key: album.key, name: album.album, label: album.album })}>
-                <img className="row-thumb" src={album.coverUrl} alt="" loading="lazy" />
-                <div className="row-meta">
-                  <div className="row-title">{album.album}</div>
-                  <div className="row-subtitle">
-                    {album.artist} · {pluralize(album.tracks.length, 'track')}
+        <>
+          <div className="row-list">
+            {displayedGroups.map((album) => {
+              const key = albumKey(album.artist, album.album);
+              const faved = favAlbums.has(key);
+              return (
+                <div key={album.key} className="row-item" onClick={() => setDrill({ type: 'album', key: album.key, name: album.album, label: album.album })}>
+                  <img className="row-thumb" src={album.coverUrl} alt="" loading="lazy" />
+                  <div className="row-meta">
+                    <div className="row-title">{album.album}</div>
+                    <div className="row-subtitle">
+                      {album.artist} · {pluralize(album.tracks.length, 'track')}
+                    </div>
                   </div>
+                  <div className="row-aside">
+                    <button
+                      type="button"
+                      className={`icon-btn ${faved ? 'active' : ''}`}
+                      title={faved ? 'Remove from favourites' : 'Favourite album'}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleAlbumFavorite(album.artist, album.album, !faved);
+                      }}
+                    >
+                      <Heart size={15} fill={faved ? 'currentColor' : 'none'} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      title="Add whole album to a playlist"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPlaylistTarget(album.tracks);
+                      }}
+                    >
+                      <ListPlus size={15} />
+                    </button>
+                    <span>{formatLengthShort(album.tracks.reduce((s, t) => s + (t.durationSec || 0), 0))}</span>
+                  </div>
+                  <ChevronLeft size={15} style={{ transform: 'rotate(180deg)' }} />
                 </div>
-                <div className="row-aside">
-                  <button
-                    type="button"
-                    className={`icon-btn ${faved ? 'active' : ''}`}
-                    title={faved ? 'Remove from favourites' : 'Favourite album'}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleAlbumFavorite(album.artist, album.album, !faved);
-                    }}
-                  >
-                    <Heart size={15} fill={faved ? 'currentColor' : 'none'} />
-                  </button>
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    title="Add whole album to a playlist"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setPlaylistTarget(album.tracks);
-                    }}
-                  >
-                    <ListPlus size={15} />
-                  </button>
-                  <span>{formatLengthShort(album.tracks.reduce((s, t) => s + (t.durationSec || 0), 0))}</span>
-                </div>
-                <ChevronLeft size={15} style={{ transform: 'rotate(180deg)' }} />
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+          {sortedGroups.length > displayLimit && (
+            <div ref={groupLoadMoreRef} className="library-load-more" style={{ textAlign: 'center', padding: '1.25rem 0' }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setDisplayLimit((prev) => prev + 60)}
+              >
+                Show more ({sortedGroups.length - displayLimit} remaining)
+              </button>
+            </div>
+          )}
+        </>
       ) : (
-        <div className="row-list">
-          {sortedGroups.map((artist) => {
-            const faved = favNames.has(artist.name);
-            return (
-              <div key={artist.name} className="row-item" onClick={() => setDrill({ type: 'artist', name: artist.name, label: artist.name })}>
-                <div className="row-thumb-placeholder"><Mic2 size={16} /></div>
-                <div className="row-meta">
-                  <div className="row-title">{artist.name}</div>
-                  <div className="row-subtitle">
-                    {pluralize(artist.albumCount, 'album')} · {pluralize(artist.trackCount, 'track')}
+        <>
+          <div className="row-list">
+            {displayedGroups.map((artist) => {
+              const faved = favNames.has(artist.name);
+              return (
+                <div key={artist.name} className="row-item" onClick={() => setDrill({ type: 'artist', name: artist.name, label: artist.name })}>
+                  <div className="row-thumb-placeholder"><Mic2 size={16} /></div>
+                  <div className="row-meta">
+                    <div className="row-title">{artist.name}</div>
+                    <div className="row-subtitle">
+                      {pluralize(artist.albumCount, 'album')} · {pluralize(artist.trackCount, 'track')}
+                    </div>
                   </div>
+                  <div className="row-aside">
+                    <button
+                      type="button"
+                      className={`icon-btn ${faved ? 'active' : ''}`}
+                      title={faved ? 'Remove favourite' : 'Favourite this artist'}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleNameFavorite(artist.name, !faved);
+                      }}
+                    >
+                      <Heart size={15} fill={faved ? 'currentColor' : 'none'} />
+                    </button>
+                  </div>
+                  <ChevronLeft size={15} style={{ transform: 'rotate(180deg)', color: 'var(--text-muted)' }} />
                 </div>
-                <div className="row-aside">
-                  <button
-                    type="button"
-                    className={`icon-btn ${faved ? 'active' : ''}`}
-                    title={faved ? 'Remove favourite' : 'Favourite this artist'}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleNameFavorite(artist.name, !faved);
-                    }}
-                  >
-                    <Heart size={15} fill={faved ? 'currentColor' : 'none'} />
-                  </button>
-                </div>
-                <ChevronLeft size={15} style={{ transform: 'rotate(180deg)', color: 'var(--text-muted)' }} />
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+          {sortedGroups.length > displayLimit && (
+            <div ref={groupLoadMoreRef} className="library-load-more" style={{ textAlign: 'center', padding: '1.25rem 0' }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setDisplayLimit((prev) => prev + 60)}
+              >
+                Show more ({sortedGroups.length - displayLimit} remaining)
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       <AddToPlaylistModal

@@ -271,6 +271,14 @@ const handleFolderSelected = useCallback((folderKind, folderId, folderName) => {
   // should never look stale right after launch.
   useEffect(() => {
     if (!user || authChecking || autoScannedRef.current) return undefined;
+    const sessionKey = `fraudio.autoScanned.${user.id || 'me'}`;
+    try {
+      if (sessionStorage.getItem(sessionKey)) {
+        autoScannedRef.current = true;
+        return undefined;
+      }
+    } catch {}
+
     const connected = [];
     if (user.audiobooksFolderId) connected.push('audiobooks');
     if (user.musicFolderId) connected.push('music');
@@ -285,6 +293,7 @@ const handleFolderSelected = useCallback((folderKind, folderId, folderName) => {
         if (settings?.autoScanOnLaunch === false) return;
       } catch { /* unknown setting: scan anyway, it is the safe default */ }
       if (cancelled) return;
+      try { sessionStorage.setItem(sessionKey, 'true'); } catch {}
       for (const scanKind of connected) {
         if (cancelled) return;
         await runScanRef.current?.(scanKind);

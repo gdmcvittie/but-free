@@ -1,9 +1,11 @@
 import fs from 'fs';
 import path from 'path';
+import http from 'http';
+import https from 'https';
 import WebTorrent from 'webtorrent';
 import { isVideoFile, cleanMediaFilename, resolveMediaMeta } from './util.js';
 import { transcodeMediaFile } from './transcoder.js';
-import { resolveTargetFolderId, uploadFileToGoogleDrive } from './driveUploader.js';
+import { resolveTargetFolderId, uploadFileToGoogleDrive, findOrCreateFolder } from './driveUploader.js';
 
 const DOWNLOADS_DIR = path.join(process.cwd(), 'downloads');
 const HISTORY_FILE = path.join(process.cwd(), 'download_history_tv.json');
@@ -24,6 +26,8 @@ function getTorrentClient() {
 // Dual Independent Queues:
 // - Max 1 concurrent torrent download to protect bandwidth & disk IOPS
 // - Max 1 concurrent video transcode to protect CPU & prevent throttling
+// - Separate single-slot queues for PC game torrents & direct HTTP downloads
+//   (games are huge multi-file repacks; they must never starve TV downloads)
 // -------------------------------------------------------------
 const jobs = new Map();
 
@@ -32,6 +36,12 @@ let activeDownloadJob = null;
 
 const transcodeQueue = [];
 let activeTranscodeJob = null;
+
+const gameQueue = [];
+let activeGameJob = null;
+
+const directQueue = [];
+let activeDirectJob = null;
 
 function loadHistory() {
   try {
@@ -69,6 +79,18 @@ export function getJobs(userId = null) {
       if (idx >= 0) {
         queuePosition = idx + 1;
         queueType = 'download';
+      } else {
+        const gIdx = gameQueue.findIndex(q => q.id === j.id);
+        if (gIdx >= 0) {
+          queuePosition = gIdx + 1;
+          queueType = 'game';
+        } else {
+          const dIdx = directQueue.findIndex(q => q.id === j.id);
+          if (dIdx >= 0) {
+            queuePosition = dIdx + 1;
+            queueType = 'direct';
+          }
+        }
       }
     } else if (j.stage === 'queued_transcode') {
       const idx = transcodeQueue.findIndex(q => q.id === j.id);
@@ -104,6 +126,12 @@ export function cancelJob(id) {
   const dlIdx = downloadQueue.findIndex(q => q.id === id);
   if (dlIdx >= 0) downloadQueue.splice(dlIdx, 1);
 
+  const gIdx = gameQueue.findIndex(q => q.id === id);
+  if (gIdx >= 0) gameQueue.splice(gIdx, 1);
+
+  const drIdx = directQueue.findIndex(q => q.id === id);
+  if (drIdx >= 0) directQueue.splice(drIdx, 1);
+
   // 2. Stop active torrent swarm if currently downloading
   if (activeDownloadJob && activeDownloadJob.id === id) {
     if (job.torrent) {
@@ -111,6 +139,22 @@ export function cancelJob(id) {
     }
     activeDownloadJob = null;
     setImmediate(pumpDownloadQueue);
+  }
+
+  // 2b. Stop active game torrent / direct HTTP download
+  if (activeGameJob && activeGameJob.id === id) {
+    if (job.torrent) {
+      try { job.torrent.destroy(); } catch (_) {}
+    }
+    activeGameJob = null;
+    setImmediate(pumpGameQueue);
+  }
+  if (activeDirectJob && activeDirectJob.id === id) {
+    if (job.abortController) {
+      try { job.abortController.abort(); } catch (_) {}
+    }
+    activeDirectJob = null;
+    setImmediate(pumpDirectQueue);
   }
 
   // 3. Remove from transcode queue if pending
@@ -174,35 +218,59 @@ export function deleteJob(id) {
 
 export function addDownloadJob(options) {
   const id = options.id || `dl_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const kind = options.kind || 'movie';
   const job = {
     id,
     userId: options.userId || 'default',
-    magnet: options.magnet,
+    magnet: options.magnet || options.url || null,
+    directUrl: options.directUrl || (/^https?:\/\//i.test(options.url || '') && kind === 'game-direct' ? options.url : null),
+    headers: options.headers || null,
+    fileNameHint: options.fileName || null,
+    selectedFiles: Array.isArray(options.selectedFiles) && options.selectedFiles.length > 0 ? options.selectedFiles : null,
+    subfolder: options.subfolder || options.meta?.subfolder || options.driveConfig?.subfolder || null,
     title: options.title || 'Torrent Download',
-    kind: options.kind || 'movie',
+    kind,
     meta: options.meta || {},
     driveConfig: options.driveConfig || null,
-    transcodeConfig: options.transcodeConfig || { enabled: true, targetHeight: '480', codec: 'h265', preset: 'veryfast', crf: '20' },
+    transcodeConfig: options.transcodeConfig || (kind === 'game' || kind === 'game-direct'
+      ? { enabled: false }
+      : { enabled: true, targetHeight: '480', codec: 'h265', preset: 'veryfast', crf: '20' }),
     webhookUrl: options.webhookUrl || null,
     status: 'queued',
     stage: 'queued_download',
     downloadPercent: 0,
     downloadSpeed: 0,
     numPeers: 0,
+    downloadedBytes: 0,
+    totalBytes: 0,
     transcodePercent: 0,
     uploadPercent: 0,
     driveFileId: null,
+    driveFolderId: null,
+    uploadedFiles: null,
     error: null,
     createdAt: Date.now(),
     updatedAt: Date.now()
   };
 
   jobs.set(id, job);
-  downloadQueue.push(job);
-  saveHistory();
 
-  console.log(`[TvDownloadManager] Enqueued job ${id} into download queue (Queue length: ${downloadQueue.length})`);
-  pumpDownloadQueue();
+  if (kind === 'game') {
+    gameQueue.push(job);
+    saveHistory();
+    console.log(`[TvDownloadManager] Enqueued game torrent job ${id}: "${job.title}" (Queue length: ${gameQueue.length})`);
+    pumpGameQueue();
+  } else if (kind === 'game-direct') {
+    directQueue.push(job);
+    saveHistory();
+    console.log(`[TvDownloadManager] Enqueued direct download job ${id}: "${job.title}" (Queue length: ${directQueue.length})`);
+    pumpDirectQueue();
+  } else {
+    downloadQueue.push(job);
+    saveHistory();
+    console.log(`[TvDownloadManager] Enqueued job ${id} into download queue (Queue length: ${downloadQueue.length})`);
+    pumpDownloadQueue();
+  }
   return job;
 }
 
