@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Play, Star, Gamepad2, History, ArrowRight } from 'lucide-react';
+import { Play, Heart, Gamepad2, History, ArrowRight } from 'lucide-react';
 import { fetchJson } from '../utils/api';
 
 function formatAgo(timestamp) {
@@ -144,7 +144,7 @@ export default function RecentlyPlayedView({
                   }`}
                   title={game.isFavorite ? 'Remove Favorite' : 'Add to Favorites'}
                 >
-                  <Star className={`w-3.5 h-3.5 ${game.isFavorite ? 'fill-amber-400' : 'text-slate-300'}`} />
+                  <Heart className={`w-3.5 h-3.5 ${game.isFavorite ? 'fill-amber-400' : 'text-slate-300'}`} />
                 </button>
 
                 {/* Hover Play Overlay */}

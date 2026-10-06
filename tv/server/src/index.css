@@ -657,3 +657,74 @@ body {
     bottom: max(12px, env(safe-area-inset-bottom));
   }
 }
+
+/* ---------------- Mobile Portrait Footer Nav ---------------- */
+.mobile-footer-nav {
+  display: none;
+}
+
+@media (max-width: 768px) and (orientation: portrait) {
+  .mobile-footer-nav {
+    display: flex;
+    align-items: stretch;
+    justify-content: space-around;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 96;
+    height: 58px;
+    padding-bottom: env(safe-area-inset-bottom);
+    background: rgba(9, 9, 11, 0.97);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid var(--border-color);
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.75);
+  }
+
+  .mobile-footer-nav-item {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin: 0;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: var(--transition-smooth);
+  }
+
+  .mobile-footer-nav-item:hover {
+    color: var(--text-primary);
+  }
+
+  .mobile-footer-nav-item.active {
+    color: var(--primary);
+  }
+
+  .mobile-footer-nav-item.active svg {
+    filter: drop-shadow(0 0 8px rgba(139, 92, 246, 0.55));
+  }
+
+  /* Keep scrollable content clear of the fixed footer */
+  main {
+    padding-bottom: calc(24px + 58px + env(safe-area-inset-bottom)) !important;
+  }
+
+  /* The sticky category filter bar (Whats's On / Services / Faves / Drive)
+     floats above the footer nav instead of overlapping it */
+  .sticky-mobile-filter {
+    bottom: calc(58px + env(safe-area-inset-bottom));
+  }
+
+  .page-with-sticky-filter {
+    padding-bottom: calc(74px + 58px + env(safe-area-inset-bottom)) !important;
+  }
+
+  /* Install banner floats above the footer nav too */
+  .install-banner {
+    bottom: calc(70px + env(safe-area-inset-bottom));
+  }
+}

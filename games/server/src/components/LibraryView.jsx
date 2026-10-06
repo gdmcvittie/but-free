@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Play, Star, Search, RefreshCw, HardDrive, Globe, Download, Gamepad2 } from 'lucide-react';
+import { Play, Heart, Search, RefreshCw, HardDrive, Globe, Download, Gamepad2 } from 'lucide-react';
 
 export default function LibraryView({
   games = [],
@@ -190,7 +190,7 @@ export default function LibraryView({
                   }`}
                   title={game.isFavorite ? 'Remove Favorite' : 'Add to Favorites'}
                 >
-                  <Star className={`w-3.5 h-3.5 ${game.isFavorite ? 'fill-amber-400' : 'text-slate-300'}`} />
+                  <Heart className={`w-3.5 h-3.5 ${game.isFavorite ? 'fill-amber-400' : 'text-slate-300'}`} />
                 </button>
 
                 {/* Hover Play Overlay */}

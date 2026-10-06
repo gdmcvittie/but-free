@@ -17,6 +17,8 @@ import {
   sanitizeFolderName,
   isFuckingFastLandingPage,
   resolveFuckingFastUrl,
+  isFuckingFastBlockedError,
+  resetFuckingFastCooldown,
   isDataNodesLandingPage
 } from './rssDiscovery.js';
 
@@ -183,6 +185,7 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
       const ctx = buildDispatchContext(req);
 
       if (isDirect && isFuckingFastLandingPage(target)) {
+        resetFuckingFastCooldown();
         target = await resolveFuckingFastUrl(target);
       } else if (isDirect && isDataNodesLandingPage(target)) {
         return res.status(400).json({
@@ -217,6 +220,14 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
 
       res.json({ success: true, job, message: `"${cleanTitle}" queued on the downloader node` });
     } catch (err) {
+      if (isFuckingFastBlockedError(err)) {
+        return res.status(400).json({
+          success: false,
+          code: err.code,
+          fileId: err.fileId,
+          error: err.message
+        });
+      }
       res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -232,6 +243,13 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
     const ctx = buildDispatchContext(req);
     const queued = [];
     const errors = [];
+
+    let hasFuckingFast = false;
+    for (const item of Array.isArray(batchItems) ? batchItems : []) {
+      const src = String(item?.source || item?.url || '').trim();
+      if (src && isFuckingFastLandingPage(src)) hasFuckingFast = true;
+    }
+    if (hasFuckingFast) resetFuckingFastCooldown();
 
     for (const item of batchItems) {
       const { source, url: altUrl, title: itemTitle, filename, console: consoleKey, subfolder, selectedFiles } = item || {};
@@ -277,15 +295,23 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
         }
         queued.push({ title: titleForGame, job });
       } catch (err) {
-        errors.push({ target, error: err.message });
+        errors.push({
+          target,
+          error: err.message,
+          code: err.code || 'resolve-failed',
+          fileId: err.fileId || null
+        });
       }
     }
 
+    const ffBlocked = errors.filter((e) => e.code === 'ff-captcha');
     res.json({
       success: queued.length > 0,
       count: queued.length,
       queued,
       errors: errors.length > 0 ? errors : undefined,
+      blocked: ffBlocked.length > 0,
+      ffFileIds: [...new Set(ffBlocked.map((e) => e.fileId).filter(Boolean))],
       message: `Queued ${queued.length} download(s) on the downloader node`
     });
   });

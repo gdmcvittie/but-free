@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Loader2, Check, Search, RefreshCw, Flame, Download } from 'lucide-react';
 import { fetchJson } from '../../utils/api';
-import { useAddJob, JobStatusBanner, LinksModal, Grid } from './shared';
+import { useAddJob, JobStatusBanner, LinksModal, FuckingFastAssistModal, Grid } from './shared';
 
 export default function PopularTab({ onDownloadDispatched }) {
   const [items, setItems] = useState([]);
@@ -14,7 +14,7 @@ export default function PopularTab({ onDownloadDispatched }) {
   const [linksModal, setLinksModal] = useState(null);
   const [repackBusyId, setRepackBusyId] = useState(null);
 
-  const { add, addBatch, busyId, doneIds, status, setStatus } = useAddJob(onDownloadDispatched);
+  const { add, addBatch, busyId, doneIds, status, setStatus, ffAssist, setFfAssist } = useAddJob(onDownloadDispatched);
 
   const loadPopular = useCallback(async (force = false) => {
     setLoading(true);
@@ -251,6 +251,8 @@ export default function PopularTab({ onDownloadDispatched }) {
           onAddBatch={(batchItems, title) => addBatch(batchItems, title || linksModal.item?.cleanTitle)}
         />
       )}
+
+      <FuckingFastAssistModal assist={ffAssist} onClose={() => setFfAssist(null)} />
     </div>
   );
 }

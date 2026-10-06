@@ -775,6 +775,31 @@ function CloudAppContent() {
         />
       )}
 
+      {/* Mobile Portrait Footer Nav (icon-only) — complements the hamburger drawer */}
+      <nav className="mobile-footer-nav" aria-label="Primary navigation">
+        {[
+          { id: 'whatson', label: "What's On", icon: <Tv size={20} /> },
+          { id: 'services', label: 'Services', icon: <Layers size={20} /> },
+          { id: 'channels', label: 'Channels', icon: <Radio size={20} /> },
+          { id: 'faves', label: 'Faves', icon: <Heart size={20} fill={activeTab === 'faves' ? 'currentColor' : 'none'} /> },
+          { id: 'ondemand', label: 'Drive', icon: <HardDrive size={20} /> }
+        ].map(tab => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              className={`mobile-footer-nav-item ${isActive ? 'active' : ''}`}
+              onClick={() => handleNavTab(tab.id)}
+              title={tab.label}
+              aria-label={tab.label}
+              aria-current={isActive ? 'page' : undefined}
+            >
+              {tab.icon}
+            </button>
+          );
+        })}
+      </nav>
+
       <InstallBanner />
 
       {/* Cloud Loader / Downloads Modal */}

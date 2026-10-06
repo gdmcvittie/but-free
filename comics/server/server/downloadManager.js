@@ -343,6 +343,50 @@ const DownloadManager = {
     return true;
   },
 
+  /**
+   * Admin "restart downloader": stops any live download worker processes,
+   * requeues every in-flight job so a fresh worker restarts them from the
+   * beginning, then spawns that fresh worker immediately.
+   * Returns counts for the admin UI.
+   */
+  restartWorker() {
+    let killed = 0;
+    let requeued = 0;
+    const dir = getJobsDir();
+    if (fs.existsSync(dir)) {
+      for (const file of fs.readdirSync(dir)) {
+        if (!file.endsWith('.json')) continue;
+        const filePath = path.join(dir, file);
+        try {
+          const job = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+          if (!job || !job.id) continue;
+          const inProgress = ['downloading', 'compressing', 'uploading'].includes(job.status);
+          if (inProgress && job.ownerPid && job.ownerPid !== process.pid) {
+            try {
+              process.kill(job.ownerPid, 'SIGKILL');
+              killed++;
+            } catch (e) {}
+          }
+          if (inProgress) {
+            job.status = 'queued';
+            job.phase = 'Queued';
+            job.percent = 0;
+            job.message = 'Queued for download...';
+            job.ownerPid = null;
+            job.ownerHost = null;
+            job.updatedAt = Date.now();
+            fs.writeFileSync(filePath, JSON.stringify(job, null, 2), 'utf8');
+            jobs.delete(job.id);
+            requeued++;
+          }
+        } catch (e) {}
+      }
+    }
+    lastSpawnAt = 0;
+    try { ensureWorker(); } catch (e) {}
+    return { killed, requeued };
+  },
+
   // Internals shared with downloadWorker.js
   _getJobsDir: getJobsDir,
   _isProcessAlive: isProcessAlive,

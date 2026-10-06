@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Star, Play, Gamepad2, Search, ArrowRight } from 'lucide-react';
+import { Heart, Play, Gamepad2, Search, ArrowRight } from 'lucide-react';
 
 export default function FavoritesView({
   games = [],
@@ -30,7 +30,7 @@ export default function FavoritesView({
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="font-heading font-extrabold text-3xl text-white tracking-tight flex items-center gap-3">
-            <span>Starred Favorites</span>
+            <span>Favorite Games</span>
             <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
               {favoriteGames.length} {favoriteGames.length === 1 ? 'Game' : 'Games'}
             </span>
@@ -58,11 +58,11 @@ export default function FavoritesView({
       {favoriteGames.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center py-24 text-center glass-panel p-8 rounded-2xl border border-white/5 max-w-xl mx-auto">
           <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-4">
-            <Star className="w-8 h-8" />
+            <Heart className="w-8 h-8" />
           </div>
           <h3 className="font-heading font-bold text-xl text-white mb-2">No Favorites Yet</h3>
           <p className="text-slate-400 text-sm max-w-md mb-6 leading-relaxed">
-            Click the star icon on any game in your library to pin it here for instant one-click play.
+            Click the heart icon on any game in your library to pin it here for instant one-click play.
           </p>
           <button onClick={onNavigateToLibrary} className="btn btn-primary">
             <Gamepad2 className="w-4 h-4" />
@@ -71,7 +71,7 @@ export default function FavoritesView({
         </div>
       ) : filteredGames.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center py-24 text-center">
-          <p className="text-slate-400 text-sm">No starred games match "{searchQuery}"</p>
+          <p className="text-slate-400 text-sm">No favorite games match "{searchQuery}"</p>
           <button
             onClick={() => setSearchQuery('')}
             className="btn btn-secondary btn-sm mt-3"
@@ -110,7 +110,7 @@ export default function FavoritesView({
                   {game.console || 'GAME'}
                 </span>
 
-                {/* Star Button in Top-Left */}
+                {/* Heart Button in Top-Left */}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -119,7 +119,7 @@ export default function FavoritesView({
                   className="game-card-fav-btn"
                   title="Remove from favorites"
                 >
-                  <Star className="w-3.5 h-3.5 fill-amber-400" />
+                  <Heart className="w-3.5 h-3.5 fill-amber-400" />
                 </button>
 
                 {/* Hover Play Overlay */}

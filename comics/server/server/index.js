@@ -840,6 +840,44 @@ app.post('/api/settings', requireLogin, (req, res) => {
   });
 });
 
+// =========================================================================
+// Admin Endpoints (restricted to gdmcvittie@gmail.com)
+// =========================================================================
+
+const ADMIN_EMAIL = 'gdmcvittie@gmail.com';
+
+function requireAdmin(req, res, next) {
+  if (!req.user || String(req.user.email || '').toLowerCase().trim() !== ADMIN_EMAIL) {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+}
+
+// Requeue in-flight downloads and restart the detached download worker.
+app.post('/api/admin/restart-downloader', requireAdmin, (req, res) => {
+  try {
+    const result = DownloadManager.restartWorker();
+    logger.log('INFO', `[Admin] Download worker restarted: ${JSON.stringify(result)}`);
+    res.json({
+      success: true,
+      message: 'Download worker restarted.',
+      ...result
+    });
+  } catch (err) {
+    logger.log('ERROR', `[Admin] Restart downloader failed: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Soft-restart this app server. Passenger respawns the worker when it exits.
+app.post('/api/admin/restart-app', requireAdmin, (req, res) => {
+  logger.log('INFO', '[Admin] App server restart requested by admin.');
+  res.json({ success: true, message: 'COMIXOLOFREE server is restarting…' });
+  setTimeout(() => {
+    try { process.exit(0); } catch (e) {}
+  }, 600);
+});
+
 // Lightweight liveness probe (no dependencies): confirms the Node app is running.
 app.get('/api/ping', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');

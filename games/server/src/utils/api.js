@@ -22,7 +22,10 @@ export async function fetchJson(path, options = {}) {
     data = { error: text };
   }
   if (!res.ok) {
-    throw new Error(data.error || `HTTP ${res.status}`);
+    const err = new Error(data.error || `HTTP ${res.status}`);
+    if (data.code) err.code = data.code;
+    if (data.fileId) err.fileId = data.fileId;
+    throw err;
   }
   return data;
 }

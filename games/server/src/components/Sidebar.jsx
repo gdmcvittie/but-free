@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Gamepad2, Compass, Download, Star, Settings, ChevronDown, History } from 'lucide-react';
+import { Gamepad2, Compass, Download, Heart, Settings, ChevronDown, History } from 'lucide-react';
 
 export default function Sidebar({
   currentView,
@@ -20,7 +20,7 @@ export default function Sidebar({
     { id: 'library', label: 'Library', icon: Gamepad2, hasConsoles: consoles.length > 0 },
     { id: 'recent', label: 'Recently played', icon: History },
     { id: 'downloads', label: 'Downloads', icon: Download },
-    { id: 'favorites', label: 'Favorites', icon: Star },
+    { id: 'favorites', label: 'Favorites', icon: Heart },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 

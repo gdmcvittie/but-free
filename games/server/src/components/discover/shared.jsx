@@ -11,6 +11,7 @@ export function useAddJob(onDownloadDispatched) {
   const [busyId, setBusyId] = useState(null);
   const [doneIds, setDoneIds] = useState(new Set());
   const [status, setStatus] = useState(null); // {type:'ok'|'err', message}
+  const [ffAssist, setFfAssist] = useState(null); // {fileIds, links, totalBlocked, totalFailed, onRetry, batchTitle}
 
   const add = useCallback(async (key, { source, title, console: consoleKey, selectedFiles, subfolder }) => {
     setBusyId(key);
@@ -32,6 +33,16 @@ export function useAddJob(onDownloadDispatched) {
       return true;
     } catch (err) {
       setStatus({ type: 'err', message: err.message || 'Failed to queue download' });
+      if (err.code === 'ff-captcha') {
+        setFfAssist({
+          fileIds: [err.fileId].filter(Boolean),
+          links: [{ url: source, note: err.message }],
+          totalBlocked: 1,
+          totalFailed: 1,
+          batchTitle: title,
+          onRetry: () => add(key, { source, title, console: consoleKey, selectedFiles, subfolder })
+        });
+      }
       return false;
     } finally {
       setBusyId(null);
@@ -54,18 +65,52 @@ export function useAddJob(onDownloadDispatched) {
         method: 'POST',
         body: JSON.stringify({ items: payload, title: defaultTitle })
       });
-      const count = res.count || payload.length;
+      const count = res.count || 0;
+      const errors = Array.isArray(res.errors) ? res.errors : [];
+      const blocked = res.blocked || errors.some((e) => e.code === 'ff-captcha');
+
+      // Only mark links that actually reached the downloader as queued.
+      const failedTargets = new Set(errors.map((e) => e.target));
       setDoneIds((prev) => {
         const next = new Set(prev);
-        batchItems.forEach(l => next.add(l.id || l.url));
+        batchItems.forEach(l => {
+          if (!failedTargets.has(l.url)) next.add(l.id || l.url);
+        });
         return next;
       });
-      setStatus({
-        type: 'ok',
-        message: `Queued ${count} download(s) for "${defaultTitle || 'PC Game'}" on the Downloader node — files will land in your Google Drive.`
-      });
-      if (onDownloadDispatched) onDownloadDispatched();
-      return true;
+
+      if (count > 0) {
+        setStatus({
+          type: 'ok',
+          message: `Queued ${count} download(s) for "${defaultTitle || 'PC Game'}" on the Downloader node — files will land in your Google Drive.`
+        });
+        if (onDownloadDispatched) onDownloadDispatched();
+        return true;
+      }
+
+      if (blocked) {
+        const ffErrors = errors.filter((e) => e.code === 'ff-captcha');
+        setFfAssist({
+          fileIds: [...new Set((res.ffFileIds || []).concat(ffErrors.map((e) => e.fileId)).filter(Boolean))],
+          links: ffErrors.map((e) => ({ url: e.target, note: e.error })).slice(0, 12),
+          totalBlocked: ffErrors.length,
+          totalFailed: errors.length,
+          batchTitle: defaultTitle || 'PC Game',
+          onRetry: () => addBatch(batchItems, defaultTitle)
+        });
+        setStatus({
+          type: 'err',
+          message: `FuckingFast blocked ${ffErrors.length} of ${batchItems.length} link(s) with a Cloudflare check. Pass the check in a popup, then retry — or queue another mirror.`
+        });
+      } else if (errors.length > 0) {
+        setStatus({
+          type: 'err',
+          message: `Queued 0 — ${errors.length} link(s) failed (${errors[0]?.error || 'unknown error'}).`
+        });
+      } else {
+        setStatus({ type: 'err', message: 'Queued 0 — the downloader did not accept any of the links.' });
+      }
+      return false;
     } catch (err) {
       setStatus({ type: 'err', message: err.message || 'Failed to queue batch downloads' });
       return false;
@@ -74,7 +119,7 @@ export function useAddJob(onDownloadDispatched) {
     }
   }, [onDownloadDispatched]);
 
-  return { add, addBatch, busyId, doneIds, status, setStatus };
+  return { add, addBatch, busyId, doneIds, status, setStatus, ffAssist, setFfAssist };
 }
 
 export function JobStatusBanner({ status, onClear }) {
@@ -499,6 +544,112 @@ export function Grid({ children, empty }) {
         </div>
       )}
     </>
+  );
+}
+
+// -------------------------------------------------------------
+// FuckingFast Cloudflare / Turnstile assist modal.
+// The download host now challenges automation (and datacenter IPs) with a
+// Cloudflare captcha that only the user's browser can pass. Direct downloads
+// from dl.fuckingfast.co are NOT blocked, so once the user passes the check we
+// can't read the page cross-origin — the reliable path back is a server retry
+// (the block is often rate-based/transient) or pasting the direct file URL.
+// -------------------------------------------------------------
+
+export function FuckingFastAssistModal({ assist, onClose }) {
+  const [retrying, setRetrying] = useState(false);
+
+  if (!assist) return null;
+
+  const fileIds = Array.isArray(assist.fileIds) ? assist.fileIds : [];
+  const links = Array.isArray(assist.links) ? assist.links : [];
+  const totalBlocked = assist.totalBlocked || links.length || fileIds.length;
+
+  const openPopup = () => {
+    const fileId = fileIds[0];
+    const url = fileId ? `https://fuckingfast.co/${fileId}` : (links[0]?.url || 'https://fuckingfast.co/');
+    window.open(url, '_ff_popup', 'popup=yes,width=640,height=780,top=80,left=160');
+  };
+
+  const handleRetry = async () => {
+    setRetrying(true);
+    try {
+      const ok = await assist.onRetry?.();
+      if (ok) onClose();
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  return (
+    <div className="pc-rss-modal-backdrop" onClick={onClose}>
+      <div className="pc-rss-modal-content" style={{ maxWidth: '520px' }} onClick={(e) => e.stopPropagation()}>
+        <div className="pc-modal-header">
+          <div className="min-w-0">
+            <h3 className="font-heading font-bold text-sm text-white flex items-center gap-2">
+              <Zap className="w-4 h-4 text-emerald-400" />
+              <span>FuckingFast needs a human check</span>
+            </h3>
+            <p className="text-[11px] text-slate-400 mt-1">
+              {totalBlocked} of {assist.totalFailed || totalBlocked} link(s) blocked by a Cloudflare captcha for “{assist.batchTitle || 'PC Game'}”.
+            </p>
+          </div>
+          <button onClick={onClose} className="icon-btn icon-btn-sm shrink-0">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-3">
+          <div className="rounded-lg bg-slate-900/60 border border-white/5 p-3 text-[11px] text-slate-400 leading-relaxed">
+            The download host now runs a Cloudflare/Turnstile captcha before issuing direct
+            file links, and it refuses automated requests from the server. Your browser can
+            pass it easily:
+            <ol className="mt-2 space-y-1 list-decimal list-inside">
+              <li>Open a popup to the file page.</li>
+              <li>Tick the “I’m not a robot” box if it appears.</li>
+              <li>Come back and press <strong className="text-white">Retry queue</strong>.</li>
+            </ol>
+            If it still can’t extract the link, open the file page directly, then paste the
+            direct <span className="font-mono text-emerald-300">dl.fuckingfast.co/dl/…</span> file URL.
+          </div>
+
+          {links.length > 0 && (
+            <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+              {links.map((l) => (
+                <div key={l.url} className="flex items-center gap-2 rounded-lg bg-slate-900/40 border border-white/5 px-3 py-1.5">
+                  <span className="flex-1 min-w-0 text-[11px] text-slate-300 font-mono truncate">{l.url}</span>
+                  <a
+                    href={l.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="icon-btn icon-btn-sm shrink-0"
+                    title="Open file page in browser"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 pt-1">
+            <button onClick={openPopup} className="btn btn-secondary btn-sm flex-1" title="Opens the file page in a popup so the Cloudflare check can be passed in your browser">
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>Open popup &amp; pass check</span>
+            </button>
+            <button
+              onClick={handleRetry}
+              disabled={retrying || !assist.onRetry}
+              className="btn btn-primary btn-sm flex-1"
+              title="After passing the check, retry queueing these links"
+            >
+              {retrying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+              <span>{retrying ? 'Retrying…' : `Retry (${totalBlocked})`}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

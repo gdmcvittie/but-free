@@ -1192,67 +1192,171 @@ function extractFuckingFastId(url) {
   }
 }
 
-export async function resolveFuckingFastUrl(url) {
+// -------------------------------------------------------------
+// Cloudflare / Turnstile handling.
+//
+// Since Aug 2026 the /f/{id}/go endpoint requires a cf-turnstile-response
+// token (minted by the widget in a real browser) and the landing page is
+// cleared by an edge challenge. A server-side fetch from a datacenter IP
+// cannot pass either, so when a block is detected we throw a structured
+// FuckingFastBlockedError and let the UI offer the "open popup / paste the
+// direct file URL" flow. Direct links on dl.fuckingfast.co are NOT blocked,
+// so the user only ever has to discover them once.
+// -------------------------------------------------------------
+const FF_BLOCK_MARKERS = /Just a moment|__cf_chl|challenges\.cloudflare\.com|cf-turnstile|captcha verification failed|cf-ch[l-]?/i;
+
+export function isFuckingFastBlockedError(err) {
+  return !!err && err.code === 'ff-captcha';
+}
+
+export class FuckingFastBlockedError extends Error {
+  constructor(message, { fileId = null, url = null } = {}) {
+    super(message);
+    this.name = 'FuckingFastBlockedError';
+    this.code = 'ff-captcha';
+    this.fileId = fileId;
+    this.url = url;
+  }
+}
+
+// Negative cache: a brand-wide block means EVERY request to fuckingfast.co
+// fails identically, so short-circuit the remaining links in a batch instead
+// of burning ~7s each. Cleared automatically once a link resolves, and
+// explicitly before a user-driven retry.
+let ffBlockCooldownUntil = 0;
+export function resetFuckingFastCooldown() { ffBlockCooldownUntil = 0; }
+
+function collectCookies(res) {
+  if (typeof res.headers.getSetCookie !== 'function') return null;
+  const jar = [];
+  for (const line of res.headers.getSetCookie()) {
+    const eq = line.indexOf('=');
+    if (eq <= 0) continue;
+    const name = line.slice(0, eq).trim();
+    const value = line.slice(eq + 1).split(';')[0].trim();
+    if (name) jar.push(`${name}=${value}`);
+  }
+  return jar.length ? jar.join('; ') : null;
+}
+
+function ffHeaders(cleanUrl, cookie = null) {
+  const headers = {
+    'User-Agent': UA_BROWSER,
+    'Accept': '*/*',
+    'Referer': cleanUrl,
+    'Origin': 'https://fuckingfast.co',
+    'HX-Request': 'true',
+    'HX-Current-URL': cleanUrl,
+    'Accept-Language': 'en-US,en;q=0.9'
+  };
+  if (cookie) headers['Cookie'] = cookie;
+  return headers;
+}
+
+async function ffFetch(path, { method = 'GET', cleanUrl, cookie = null, body = null, timeoutMs = 7000 } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const headers = ffHeaders(cleanUrl, cookie);
+    if (method === 'POST') headers['Content-Type'] = 'application/x-www-form-urlencoded';
+    return await fetch(`https://fuckingfast.co${path}`, {
+      method,
+      signal: controller.signal,
+      redirect: 'manual',
+      headers,
+      body: method === 'POST' ? (body || '') : undefined
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function resolveFuckingFastUrl(url, opts = {}) {
   if (!isFuckingFastUrl(url)) return url;
   if (isFuckingFastDirectUrl(url)) return url;
 
+  const { turnstileToken } = opts || {};
   const cleanUrl = url.split('#')[0];
   const fileId = extractFuckingFastId(cleanUrl);
   if (!fileId) throw new Error('Could not parse file ID from FuckingFast URL');
 
-  // Strategy 1: HTMX POST to /f/{id}/go
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 7000);
+  const blocked = (message) => {
+    ffBlockCooldownUntil = Date.now() + 10 * 60 * 1000;
+    throw new FuckingFastBlockedError(message, { fileId, url });
+  };
 
-    const postRes = await fetch(`https://fuckingfast.co/f/${fileId}/go`, {
+  if (Date.now() < ffBlockCooldownUntil) {
+    throw new FuckingFastBlockedError(
+      'FuckingFast is blocking automated access (Cloudflare check already detected). Open the link in your browser, pass the check, then paste the direct file URL.',
+      { fileId, url }
+    );
+  }
+
+  // Warm the landing page first: captures a browser-like cookie session and
+  // detects a hard edge challenge quickly, before paying for the /go round-trip.
+  let cookie = null;
+  try {
+    const warmRes = await ffFetch(`/${fileId}`, { cleanUrl, method: 'GET', timeoutMs: 8000 });
+    cookie = collectCookies(warmRes) || cookie;
+    if (warmRes.status === 429) throw blocked('FuckingFast is rate-limiting the server right now. Wait a few minutes and try again.');
+    const warmBody = warmRes.ok ? await warmRes.text().catch(() => '') : '';
+    if (!warmRes.ok || FF_BLOCK_MARKERS.test(warmBody)) {
+      throw blocked('FuckingFast is protected by a Cloudflare check that the server cannot pass (only your browser can). Open the link and paste the direct file URL.');
+    }
+  } catch (err) {
+    if (isFuckingFastBlockedError(err)) throw err;
+  }
+
+  // Strategy 1: HTMX POST to /f/{id}/go. The direct /dl/ URL is only ever
+  // returned in an HX-Redirect response header (the landing page does not embed it).
+  try {
+    const params = new URLSearchParams();
+    if (turnstileToken) params.set('cf-turnstile-response', turnstileToken);
+
+    const postRes = await ffFetch(`/f/${fileId}/go`, {
+      cleanUrl,
       method: 'POST',
-      signal: controller.signal,
-      redirect: 'manual',
-      headers: {
-        'User-Agent': UA_BROWSER,
-        'Accept': '*/*',
-        'Referer': cleanUrl,
-        'Origin': 'https://fuckingfast.co',
-        'HX-Request': 'true',
-        'HX-Current-URL': cleanUrl
-      }
+      cookie,
+      body: params.toString(),
+      timeoutMs: 8000
     });
-    clearTimeout(timeout);
 
     const redirectUrl = postRes.headers.get('hx-redirect') ||
                         postRes.headers.get('hx-location') ||
                         postRes.headers.get('location');
 
     if (redirectUrl) {
-      const fullUrl = new URL(redirectUrl, 'https://fuckingfast.co').href;
-      if (isFuckingFastDirectUrl(fullUrl)) return fullUrl;
+      const fullUrl = new URL(redirectUrl.trim(), 'https://fuckingfast.co').href;
+      if (isFuckingFastDirectUrl(fullUrl)) {
+        ffBlockCooldownUntil = 0;
+        return fullUrl;
+      }
     }
 
     const postBody = await postRes.text().catch(() => '');
+    if (!postRes.ok || postRes.status === 429 || FF_BLOCK_MARKERS.test(postBody)) {
+      throw blocked(turnstileToken
+        ? 'FuckingFast still refused the link (the Cloudflare token was rejected or expired). Re-open the popup, pass the check again, and retry.'
+        : 'FuckingFast requires solving a Cloudflare captcha before it issues a direct link. The server cannot auto-solve it - use the popup flow or paste the direct file URL.');
+    }
+
     const bodyMatch = postBody.match(/https:\/\/[a-zA-Z0-9.-]*fuckingfast\.co\/dl\/[^\s"'<>\\]+/i) ||
                       postBody.match(/window\.open\(\s*["']([^"']+)["']/i) ||
                       postBody.match(/(?:window\.)?location(?:\.href)?\s*=\s*["']([^"']+)["']/i);
     if (bodyMatch && bodyMatch[1]) {
       const candidate = new URL(bodyMatch[1], 'https://fuckingfast.co').href;
-      if (isFuckingFastDirectUrl(candidate)) return candidate;
-    }
-  } catch (_) {}
-
-  // Strategy 2: inspect the landing page HTML
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-
-    const pageRes = await fetch(cleanUrl, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': UA_BROWSER,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+      if (isFuckingFastDirectUrl(candidate)) {
+        ffBlockCooldownUntil = 0;
+        return candidate;
       }
-    });
-    clearTimeout(timeout);
+    }
+  } catch (err) {
+    if (isFuckingFastBlockedError(err)) throw err;
+  }
 
+  // Strategy 2: inspect the landing page HTML (non-blocked fallback).
+  try {
+    const pageRes = await ffFetch(`/${fileId}`, { cleanUrl, method: 'GET', cookie, timeoutMs: 8000 });
     if (pageRes.ok) {
       const html = await pageRes.text();
 
@@ -1261,34 +1365,34 @@ export async function resolveFuckingFastUrl(url) {
                             html.match(/(?:window\.)?location(?:\.href)?\s*=\s*["'](https?:\/\/[^"']+)["']/i);
       if (inlineDlMatch && inlineDlMatch[1]) {
         const fullUrl = new URL(inlineDlMatch[1], 'https://fuckingfast.co').href;
-        if (isFuckingFastDirectUrl(fullUrl)) return fullUrl;
+        if (isFuckingFastDirectUrl(fullUrl)) {
+          ffBlockCooldownUntil = 0;
+          return fullUrl;
+        }
       }
 
       const hxEndpointMatch = html.match(/(?:hx-post|data-hx-post)=["']([^"']+)["']/i) ||
                               html.match(/(?:hx-get|data-hx-get)=["']([^"']+)["']/i);
       if (hxEndpointMatch && hxEndpointMatch[1]) {
-        const endpoint = new URL(hxEndpointMatch[1], 'https://fuckingfast.co').href;
-        const method = html.includes('hx-get') ? 'GET' : 'POST';
+        const endpoint = hxEndpointMatch[1];
+        const method = (html.match(/hx-get/i) ? 'GET' : 'POST');
 
-        const subRes = await fetch(endpoint, {
+        const subRes = await ffFetch(endpoint, {
+          cleanUrl,
           method,
-          redirect: 'manual',
-          headers: {
-            'User-Agent': UA_BROWSER,
-            'Accept': '*/*',
-            'Referer': cleanUrl,
-            'Origin': 'https://fuckingfast.co',
-            'HX-Request': 'true',
-            'HX-Current-URL': cleanUrl
-          }
+          cookie,
+          timeoutMs: 8000
         });
 
         const subRedirect = subRes.headers.get('hx-redirect') ||
                             subRes.headers.get('hx-location') ||
                             subRes.headers.get('location');
         if (subRedirect) {
-          const resolved = new URL(subRedirect, 'https://fuckingfast.co').href;
-          if (isFuckingFastDirectUrl(resolved)) return resolved;
+          const resolved = new URL(subRedirect.trim(), 'https://fuckingfast.co').href;
+          if (isFuckingFastDirectUrl(resolved)) {
+            ffBlockCooldownUntil = 0;
+            return resolved;
+          }
         }
       }
     }

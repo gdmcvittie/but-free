@@ -118,6 +118,20 @@ export const DownloaderClient = {
       headers: getNodeHeaders()
     });
     return res.ok;
+  },
+
+  async restart() {
+    const url = `${getDownloaderUrl()}/api/restart`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: getNodeHeaders(),
+      signal: AbortSignal.timeout(8000)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok && data.error) {
+      throw new Error(data.error || `Restart request failed (HTTP ${res.status})`);
+    }
+    return data;
   }
 };
 

@@ -379,6 +379,39 @@ app.post('/api/settings', (req, res) => {
 });
 
 // -------------------------------------------------------------
+// Admin Controls (restricted to gdmcvittie@gmail.com)
+// -------------------------------------------------------------
+
+const ADMIN_EMAIL = 'gdmcvittie@gmail.com';
+
+function requireAdmin(req, res, next) {
+  if (!req.user || String(req.user.email || '').toLowerCase().trim() !== ADMIN_EMAIL) {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+}
+
+// Reboot the Downloader node (download.butfree.online) — it restarts on /api/restart
+app.post('/api/admin/restart-downloader', requireAdmin, async (req, res) => {
+  try {
+    const result = await DownloaderClient.restart();
+    res.json({ success: true, message: 'Downloader server is restarting…', result });
+  } catch (err) {
+    console.error('[Admin] Downloader restart failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Soft-restart this games app server (supervisor/PMS restarts the process)
+app.post('/api/admin/restart-app', requireAdmin, (req, res) => {
+  res.json({ success: true, message: 'FREEPLAY game server is restarting…' });
+  setTimeout(() => {
+    console.log('[Admin] App server restart requested by admin.');
+    shutdown();
+  }, 600);
+});
+
+// -------------------------------------------------------------
 // Discovery: FitGirl RSS / Steam Popular / itch.io / GOG.com
 // + Library extras: bookmarks, embeds, save states, token refresh
 // -------------------------------------------------------------
@@ -410,7 +443,13 @@ app.use((err, req, res, next) => {
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+function shutdown() {
+  console.log('\n[FREEPLAY] App server shutting down…');
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 3000).unref();
+}
+
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`==================================================================`);
   console.log(`🎮 FREEPLAY Cloud Retro Arcade Server running on :${PORT}`);
   console.log(`   • Google Drive Storage: ACTIVE`);
@@ -418,3 +457,6 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`   • Public Web URL: https://games.butfree.online`);
   console.log(`==================================================================`);
 });
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

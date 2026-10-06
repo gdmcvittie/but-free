@@ -4,7 +4,7 @@ import {
   Rss, RefreshCw, ListChecks, ArrowRight
 } from 'lucide-react';
 import { fetchJson } from '../../utils/api';
-import { useAddJob, JobStatusBanner, LinksModal, TorrentFilesModal, Grid } from './shared';
+import { useAddJob, JobStatusBanner, LinksModal, TorrentFilesModal, FuckingFastAssistModal, Grid } from './shared';
 
 const DEFAULT_FEED = 'https://fitgirl-repacks.site/feed/';
 
@@ -19,7 +19,7 @@ export default function FitgirlTab({ onDownloadDispatched }) {
   const [filesModal, setFilesModal] = useState(null); // {inspect, item, source}
   const [inspectingId, setInspectingId] = useState(null);
 
-  const { add, addBatch, busyId, doneIds, status, setStatus } = useAddJob(onDownloadDispatched);
+  const { add, addBatch, busyId, doneIds, status, setStatus, ffAssist, setFfAssist } = useAddJob(onDownloadDispatched);
 
   const loadFeed = useCallback(async (url) => {
     setLoading(true);
@@ -295,6 +295,8 @@ export default function FitgirlTab({ onDownloadDispatched }) {
           onConfirm={confirmFiles}
         />
       )}
+
+      <FuckingFastAssistModal assist={ffAssist} onClose={() => setFfAssist(null)} />
     </div>
   );
 }

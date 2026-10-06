@@ -11,7 +11,9 @@ import {
   FolderPlus,
   Sliders,
   LogOut,
-  Smartphone
+  Smartphone,
+  Shield,
+  Power
 } from 'lucide-react';
 import { fetchJson } from '../utils/api';
 
@@ -27,6 +29,10 @@ export default function SettingsView({
   const [scanning, setScanning] = useState(false);
   const [statusMessage, setStatusMessage] = useState(null);
   const [downloaderStatus, setDownloaderStatus] = useState({ checking: true, online: false, url: '' });
+  const [adminMessage, setAdminMessage] = useState(null);
+  const [adminBusy, setAdminBusy] = useState(null); // null | 'app' | 'downloader'
+
+  const isAdmin = !!user && String(user.email || '').toLowerCase().trim() === 'gdmcvittie@gmail.com';
 
   useEffect(() => {
     // Check downloader node health
@@ -108,6 +114,19 @@ export default function SettingsView({
       window.location.reload();
     } catch {
       window.location.reload();
+    }
+  };
+
+  const runAdminAction = async (action) => {
+    setAdminBusy(action);
+    setAdminMessage(null);
+    try {
+      const data = await fetchJson(`/api/admin/${action === 'app' ? 'restart-app' : 'restart-downloader'}`, { method: 'POST' });
+      setAdminMessage(data.message || (action === 'app' ? 'App server restarting…' : 'Downloader server restarting…'));
+    } catch (err) {
+      setAdminMessage(`Admin action failed: ${err.message}`);
+    } finally {
+      setAdminBusy(null);
     }
   };
 
@@ -319,9 +338,57 @@ export default function SettingsView({
             </div>
           </div>
         </div>
-
-
       </div>
+
+      {/* Admin Server Controls (owner only) */}
+      {isAdmin && (
+        <div className="glass-panel p-6 rounded-2xl border border-red-500/25 space-y-4 max-w-5xl mt-6">
+          <div className="flex items-center justify-between pb-3 border-b border-red-500/15">
+            <h3 className="font-heading font-bold text-base text-white flex items-center gap-2">
+              <Shield className="w-4 h-4 text-red-400" />
+              <span>Admin Server Controls</span>
+            </h3>
+            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/30">
+              Owner
+            </span>
+          </div>
+
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Reboot the FREEPLAY app server or the shared Downloader node (download.butfree.online — PM2
+            restarts it). Both drain gracefully; the Downloader keeps monitored jobs and finishes uploads
+            to Google Drive after coming back.
+          </p>
+
+          {adminMessage && (
+            <div className="p-3 rounded-xl bg-purple-600/15 border border-purple-500/30 text-purple-200 text-xs flex items-center justify-between">
+              <span>{adminMessage}</span>
+              <button onClick={() => setAdminMessage(null)} className="icon-btn icon-btn-sm">✕</button>
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2.5">
+            <button
+              type="button"
+              onClick={() => runAdminAction('app')}
+              disabled={adminBusy !== null}
+              className="btn btn-danger btn-sm"
+            >
+              {adminBusy === 'app' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Power className="w-3.5 h-3.5" />}
+              <span>{adminBusy === 'app' ? 'Restarting…' : 'Restart App Server'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => runAdminAction('downloader')}
+              disabled={adminBusy !== null}
+              className="btn btn-secondary btn-sm"
+            >
+              {adminBusy === 'downloader' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Server className="w-3.5 h-3.5" />}
+              <span>{adminBusy === 'downloader' ? 'Restarting…' : 'Restart Downloader Server'}</span>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

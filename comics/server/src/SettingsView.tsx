@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, User, Folder, FolderOpen, Loader2, RefreshCw, BookOpen, Cloud, Smartphone, Package } from 'lucide-react';
+import { Settings, User, Folder, FolderOpen, Loader2, RefreshCw, BookOpen, Cloud, Smartphone, Package, Shield, Power } from 'lucide-react';
 import { apiUrl } from './api';
 import type { GoogleUserProfile } from './AuthModal';
 
@@ -34,6 +34,10 @@ export default function SettingsView({
   const [saving, setSaving] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [adminBusy, setAdminBusy] = useState<string | null>(null); // null | 'app' | 'downloader'
+  const [adminMessage, setAdminMessage] = useState<string | null>(null);
+
+  const isAdmin = !!user && user.email.toLowerCase().trim() === 'gdmcvittie@gmail.com';
 
   useEffect(() => {
     if (!user) return;
@@ -97,6 +101,24 @@ export default function SettingsView({
       setStatusMessage(`Scan error: ${err.message}`);
     } finally {
       setScanning(false);
+    }
+  };
+
+  const runAdminAction = async (action: 'app' | 'downloader') => {
+    setAdminBusy(action);
+    setAdminMessage(null);
+    try {
+      const res = await fetch(apiUrl(`/api/admin/restart-${action === 'app' ? 'app' : 'downloader'}`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) throw new Error(data.error || 'Admin action failed');
+      setAdminMessage(data.message || 'Done.');
+    } catch (err: any) {
+      setAdminMessage(`Admin action failed: ${err.message}`);
+    } finally {
+      setAdminBusy(null);
     }
   };
 
@@ -350,6 +372,55 @@ export default function SettingsView({
             </p>
           </div>
         </div>
+
+        {/* Card 6: Admin Server Controls (owner only) */}
+        {isAdmin && (
+          <div className="settings-card" style={{ border: '1px solid rgba(255,77,77,0.35)' }}>
+            <div className="settings-card-header">
+              <h3><Shield size={16} style={{ marginRight: '0.4rem' }} /> Admin Server Controls</h3>
+              <span className="badge" style={{ background: 'rgba(255, 77, 77, 0.15)', border: '1px solid rgba(255, 77, 77, 0.35)', color: '#ff7a7a' }}>Owner</span>
+            </div>
+
+            <div className="settings-card-body">
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginBottom: '1rem' }}>
+                Restart this app server (Passenger respawns it) or the detached download worker.
+                Restarting the worker stops any in-flight download, requeues it, and a fresh worker
+                picks it up again from the start.
+              </p>
+
+              {adminMessage && (
+                <div
+                  className="info-banner"
+                  style={{ marginBottom: '1rem' }}
+                >
+                  {adminMessage}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  onClick={() => runAdminAction('app')}
+                  disabled={adminBusy !== null}
+                >
+                  {adminBusy === 'app' ? <Loader2 size={15} className="animate-spin" /> : <Power size={15} />}{' '}
+                  {adminBusy === 'app' ? 'Restarting...' : 'Restart App Server'}
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => runAdminAction('downloader')}
+                  disabled={adminBusy !== null}
+                >
+                  {adminBusy === 'downloader' ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}{' '}
+                  {adminBusy === 'downloader' ? 'Restarting...' : 'Restart Download Worker'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
