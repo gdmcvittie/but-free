@@ -115,7 +115,7 @@ export default function SearchResults({ query, scope = 'unified', onClose, onPla
             year: item.year || undefined,
             cleanTitle: item.title || undefined
           },
-          transcodeConfig: { enabled: true, targetHeight: '480', codec: 'h265', preset: 'veryfast', crf: '20' }
+          transcodeConfig: { enabled: true, targetHeight: '720', codec: 'h264', preset: 'veryfast', crf: '22' }
         })
       });
       const data = await res.json();

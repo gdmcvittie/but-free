@@ -433,14 +433,28 @@ async function runUploadPhase(job) {
 
       // Dynamic token refresh helper function
       const refreshToken = async () => {
-        if (!job.driveConfig?.tokenRefreshUrl || !job.userId) return null;
+        let refreshUrl = job.driveConfig?.tokenRefreshUrl || 'https://tv.butfree.online/api/downloads/token-refresh';
+        if (!job.userId) return null;
+        if (refreshUrl.includes('butfree.online') && !refreshUrl.includes('tv.butfree.online')) {
+          refreshUrl = refreshUrl.replace('://butfree.online', '://tv.butfree.online');
+        }
         try {
-          console.log(`[TvDownloadManager] Requesting fresh Drive access token from ${job.driveConfig.tokenRefreshUrl}...`);
-          const rfRes = await fetch(job.driveConfig.tokenRefreshUrl, {
+          console.log(`[TvDownloadManager] Requesting fresh Drive access token from ${refreshUrl}...`);
+          let rfRes = await fetch(refreshUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ userId: job.userId })
           });
+          // If the configured URL returned 404, fallback to tv.butfree.online
+          if (rfRes.status === 404 && !refreshUrl.includes('tv.butfree.online')) {
+            const fallbackUrl = 'https://tv.butfree.online/api/downloads/token-refresh';
+            console.log(`[TvDownloadManager] Retrying token refresh via fallback: ${fallbackUrl}`);
+            rfRes = await fetch(fallbackUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: job.userId })
+            });
+          }
           if (rfRes.ok) {
             const rfData = await rfRes.json();
             if (rfData.accessToken) {

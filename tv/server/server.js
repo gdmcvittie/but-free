@@ -273,10 +273,11 @@ function checkFfmpegAvailability() {
 
 const PORT = process.env.PORT || process.env.PORT_TV || 3001;
 const BASE_URL = process.env.BASE_URL || (process.env.PORT ? `http://localhost:${process.env.PORT}` : `http://localhost:${PORT}`);
+const TV_PUBLIC_URL = (process.env.TV_URL || (process.env.DOMAIN ? `https://tv.${process.env.DOMAIN}` : null) || BASE_URL).replace(/\/+$/, '');
 const SESSION_SECRET = process.env.SESSION_SECRET || 'FREEVEE_cloud_secret_jwt_key_2026';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
-const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || process.env.GOOGLE_REDIRECT_URI_TV || `${BASE_URL}/auth/google/callback`;
+const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || process.env.GOOGLE_REDIRECT_URI_TV || `${TV_PUBLIC_URL}/auth/google/callback`;
 const TORRENT_STREAM_SERVER = (process.env.TORRENT_STREAM_SERVER || process.env.DOWNLOADER_URL || 'http://download.butfree.online').replace(/\/+$/, '');
 
 // Hard-locked resource guardrails for Cloud VPS
@@ -5329,10 +5330,10 @@ app.head('/api/torrent/serve/:streamId/:fileIndex', handleTorrentServe);
 // -------------------------------------------------------------
 const DEFAULT_TRANSCODE_SETTINGS = {
   enabled: true,
-  targetHeight: '480',
-  codec: 'h265',
+  targetHeight: '720',
+  codec: 'h264',
   preset: 'veryfast',
-  crf: '20',
+  crf: '22',
   audioCodec: 'aac',
   audioBitrate: '128k',
   force: false
@@ -5504,7 +5505,7 @@ async function dispatchTorrentDownload({ userId, magnet, title, kind, meta = {},
   };
 
   const targetServer = await getActiveTorrentServer();
-  const webhookUrl = `${BASE_URL}/api/downloads/webhook`;
+  const webhookUrl = `${TV_PUBLIC_URL}/api/downloads/webhook`;
 
   try {
     const vpsRes = await fetch(`${targetServer}/api/torrent/download`, {
@@ -5518,7 +5519,7 @@ async function dispatchTorrentDownload({ userId, magnet, title, kind, meta = {},
         driveConfig: {
           accessToken,
           rootFolderId: rootFolder.id,
-          tokenRefreshUrl: `${BASE_URL}/api/downloads/token-refresh`
+          tokenRefreshUrl: `${TV_PUBLIC_URL}/api/downloads/token-refresh`
         },
         transcodeConfig: effectiveTranscodeConfig,
         webhookUrl,

@@ -64,10 +64,10 @@ export default function CloudLoaderModal({ isOpen, onClose, folders, onJobAdded,
 
   // Transcoding State
   const [enableTranscode, setEnableTranscode] = useState(true);
-  const [targetHeight, setTargetHeight] = useState('480'); // '480' | '720' | '1080' | 'original'
-  const [codec, setCodec] = useState('h265');
+  const [targetHeight, setTargetHeight] = useState('720'); // '480' | '720' | '1080' | 'original'
+  const [codec, setCodec] = useState('h264');
   const [preset, setPreset] = useState('veryfast');
-  const [crf, setCrf] = useState('20');
+  const [crf, setCrf] = useState('22');
   const [audioCodec, setAudioCodec] = useState('aac');
   const [audioBitrate, setAudioBitrate] = useState('128k');
   const [saveAsDefault, setSaveAsDefault] = useState(false);
