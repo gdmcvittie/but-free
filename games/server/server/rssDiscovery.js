@@ -9,6 +9,9 @@
 // =============================================================================
 
 import crypto from 'crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
 
 const UA_BROWSER = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
@@ -1271,6 +1274,71 @@ async function ffFetch(path, { method = 'GET', cleanUrl, cookie = null, body = n
   }
 }
 
+// -------------------------------------------------------------
+// Chrome-TLS impersonation via ffResolver.py (curl_cffi).
+// Cloudflare's edge fingerprints plain Node/undici TLS handshakes (JA3/JA4)
+// and 403s them with "Just a moment". curl_cffi presents a full Chrome
+// TLS/HTTP2 profile, so the landing page loads and the HTMX POST /go returns
+// the signed dl.fuckingfast.co direct URL in its HX-Redirect header.
+// This is the only path that works from a server IP without a real browser.
+// -------------------------------------------------------------
+const execFileAsync = promisify(execFile);
+const FF_RESOLVER_PY = fileURLToPath(new URL('./ffResolver.py', import.meta.url));
+
+// null = unprobed, string = python path to use, false = none available
+let ffPythonProbe = null;
+
+async function findFuckingFastPython() {
+  if (ffPythonProbe !== null) return ffPythonProbe;
+  const candidates = process.env.FF_PYTHON
+    ? [process.env.FF_PYTHON]
+    : ['python3', 'python'];
+  for (const cand of candidates) {
+    if (!cand) continue;
+    try {
+      await execFileAsync(cand, ['-c', 'import curl_cffi'], { timeout: 8000, windowsHide: true });
+      ffPythonProbe = cand;
+      console.log(`[FuckingFast] using "${cand}" (curl_cffi) for direct-link resolution`);
+      return cand;
+    } catch (_) { /* try next candidate */ }
+  }
+  ffPythonProbe = false;
+  return false;
+}
+
+/** Resolves via curl_cffi impersonation. Never throws; returns { ok, url?, blocked?, message? }. */
+export async function resolveFuckingFastUrlViaPython(url) {
+  const py = await findFuckingFastPython();
+  if (!py) return { ok: false };
+  const cleanUrl = url.split('#')[0];
+  const fileId = extractFuckingFastId(cleanUrl);
+  try {
+    const { stdout } = await execFileAsync(py, [FF_RESOLVER_PY, cleanUrl], {
+      timeout: 35000,
+      windowsHide: true,
+      maxBuffer: 4 * 1024 * 1024
+    });
+    const line = String(stdout || '')
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .find((l) => /^(DIRECT|BLOCKED|ERROR):/.test(l));
+    if (line && line.startsWith('DIRECT:')) {
+      const direct = line.slice(line.indexOf(':') + 1).trim();
+      ffBlockCooldownUntil = 0;
+      console.log(`[FuckingFast] resolved ${fileId} -> direct link`);
+      return { ok: true, url: direct };
+    }
+    if (line && line.startsWith('BLOCKED:')) {
+      return { ok: false, blocked: true, message: line.slice(line.indexOf(':') + 1).trim() };
+    }
+    return { ok: false, message: line ? line.slice(line.indexOf(':') + 1).trim() : 'resolver produced no output' };
+  } catch (err) {
+    const reason = String(err?.message || err?.code || 'spawn failed').replace(/\s+/g, ' ').slice(0, 300);
+    console.warn(`[FuckingFast] python resolver error: ${reason}`);
+    return { ok: false, message: reason };
+  }
+}
+
 export async function resolveFuckingFastUrl(url, opts = {}) {
   if (!isFuckingFastUrl(url)) return url;
   if (isFuckingFastDirectUrl(url)) return url;
@@ -1284,6 +1352,16 @@ export async function resolveFuckingFastUrl(url, opts = {}) {
     ffBlockCooldownUntil = Date.now() + 10 * 60 * 1000;
     throw new FuckingFastBlockedError(message, { fileId, url });
   };
+
+  // Strategy 0: Chrome-TLS impersonation (curl_cffi via ffResolver.py). This is
+  // the only path that reliably passes Cloudflare's TLS-fingerprint edge check
+  // from a server. Runs before the cooldown short-circuit so a stale negative
+  // cache never suppresses a now-working resolver.
+  const viaPython = await resolveFuckingFastUrlViaPython(url);
+  if (viaPython.ok) return viaPython.url;
+  if (viaPython.blocked) {
+    throw blocked(`FuckingFast ${viaPython.message || 'is blocking automated access'}. Open the link in your browser, pass the check, then paste the direct file URL.`);
+  }
 
   if (Date.now() < ffBlockCooldownUntil) {
     throw new FuckingFastBlockedError(

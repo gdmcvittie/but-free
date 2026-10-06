@@ -343,10 +343,36 @@ if (!only || only === 'games') {
   console.log(' [4/5] Building FREEPLAY (Cloud Retro Games)');
   console.log('==================================================================');
   const gamesServerDir = path.join(root, 'games', 'server');
+  const gamesAndroidDir = path.join(root, 'games', 'android');
 
   if (fs.existsSync(gamesServerDir)) {
+    if (fs.existsSync(gamesAndroidDir)) {
+      console.log('[Games] Preparing the cloud web bundle for the Android offline library...');
+      if (!runCommand('npx', ['vite', 'build'], gamesServerDir)) {
+        throw new Error('Games web bundle preparation failed; Android app was not built.');
+      }
+
+      console.log('[Games] Compiling Android APK with bundled web assets and emulator cores...');
+      const androidBuildSucceeded = fs.existsSync(gradleBat)
+        ? runCommand(gradleBat, ['assembleDebug'], gamesAndroidDir)
+        : runCommand('cmd.exe', ['/c', 'build.bat'], gamesAndroidDir);
+      if (!androidBuildSucceeded) {
+        throw new Error('Games Android APK build failed.');
+      }
+
+      const apkOut = path.join(gamesAndroidDir, 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk');
+      if (!fs.existsSync(apkOut)) throw new Error(`Games Android APK was not produced: ${apkOut}`);
+      const serverPublicApk = path.join(gamesServerDir, 'public', 'freeplay.apk');
+      fs.mkdirSync(path.dirname(serverPublicApk), { recursive: true });
+      fs.copyFileSync(apkOut, serverPublicApk);
+      fs.copyFileSync(apkOut, path.join(apksDistDir, 'freeplay.apk'));
+      console.log('✓ Copied freeplay.apk into games/server/public and dist/apks/');
+    }
+
     console.log('[Games] Compiling Web App (vite build)...');
-    runCommand('npx', ['vite', 'build'], gamesServerDir);
+    if (!runCommand('npx', ['vite', 'build'], gamesServerDir)) {
+      throw new Error('Games server web build failed.');
+    }
 
     console.log(`[Games] Exporting to ${gamesDist}...`);
     copyClean(gamesServerDir, gamesDist, ['src', 'tmp']);
@@ -390,4 +416,3 @@ if (fs.existsSync(apksDistDir)) {
   }
 }
 console.log('──────────────────────────────────────────────────────────────────\n');
-

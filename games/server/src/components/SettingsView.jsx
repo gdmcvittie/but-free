@@ -12,6 +12,7 @@ import {
   Sliders,
   LogOut,
   Smartphone,
+  Download,
   Shield,
   Power
 } from 'lucide-react';
@@ -362,6 +363,23 @@ export default function SettingsView({
               />
             </div>
           </div>
+        </div>
+
+        {/* Android app download */}
+        <div className="glass-panel p-6 rounded-2xl border border-white/5 space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-white/5">
+            <h3 className="font-heading font-bold text-base text-white flex items-center gap-2">
+              <Smartphone className="w-4 h-4 text-emerald-400" />
+              <span>FREEPLAY for Android</span>
+            </h3>
+          </div>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Install the Android app to connect to your cloud library and play games you have favorited or played offline. Emulator cores are included in the app.
+          </p>
+          <a href="/freeplay.apk" download="freeplay.apk" className="btn btn-primary btn-sm self-start">
+            <Download className="w-3.5 h-3.5" />
+            <span>Download Android APK</span>
+          </a>
         </div>
       </div>
 

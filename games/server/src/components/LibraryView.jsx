@@ -185,12 +185,11 @@ export default function LibraryView({
                     e.stopPropagation();
                     onToggleFavorite(game.id);
                   }}
-                  className={`game-card-fav-btn ${
-                    game.isFavorite ? '!opacity-100' : 'opacity-0 group-hover:opacity-100'
-                  }`}
+                  className="game-card-fav-btn"
                   title={game.isFavorite ? 'Remove Favorite' : 'Add to Favorites'}
+                  aria-label={game.isFavorite ? `Remove ${game.title} from favorites` : `Add ${game.title} to favorites`}
                 >
-                  <Heart className={`w-3.5 h-3.5 ${game.isFavorite ? 'fill-amber-400' : 'text-slate-300'}`} />
+                  <Heart className={`w-3.5 h-3.5 ${game.isFavorite ? 'fill-amber-400 text-amber-400' : 'fill-transparent text-white'}`} />
                 </button>
 
                 {/* Hover Play Overlay */}

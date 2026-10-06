@@ -251,7 +251,40 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
     }
     if (hasFuckingFast) resetFuckingFastCooldown();
 
-    for (const item of batchItems) {
+    // Pre-resolve FuckingFast landing links concurrently (each resolution spawns
+    // a ~1s curl_cffi subprocess) so a long multi-part repack batch doesn't
+    // serialize dozens of them before the dispatch loop starts.
+    const ffIndexes = [];
+    for (let i = 0; i < batchItems.length; i++) {
+      const ffSrc = String(batchItems[i]?.source || batchItems[i]?.url || '').trim();
+      if (ffSrc && isFuckingFastLandingPage(ffSrc)) ffIndexes.push(i);
+    }
+    const preResolved = new Map();
+    if (ffIndexes.length) {
+      let cursor = 0;
+      const ffWorker = async () => {
+        while (cursor < ffIndexes.length) {
+          const i = ffIndexes[cursor++];
+          const ffSrc = String(batchItems[i]?.source || batchItems[i]?.url || '').trim();
+          try {
+            const resolved = await resolveFuckingFastUrl(ffSrc);
+            preResolved.set(i, { url: resolved });
+          } catch (err) {
+            preResolved.set(i, {
+              error: {
+                target: ffSrc,
+                error: err.message,
+                code: err.code || 'resolve-failed',
+                fileId: err.fileId || null
+              }
+            });
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(4, ffIndexes.length) }, ffWorker));
+    }
+
+    for (const [idx, item] of batchItems.entries()) {
       const { source, url: altUrl, title: itemTitle, filename, console: consoleKey, subfolder, selectedFiles } = item || {};
       let target = String(source || altUrl || '').trim().replace(/&#038;/g, '&').replace(/&amp;/gi, '&');
       if (!target) continue;
@@ -263,7 +296,15 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
 
       try {
         if (isDirect && isFuckingFastLandingPage(target)) {
-          target = await resolveFuckingFastUrl(target);
+          const prer = preResolved.get(idx);
+          if (prer?.url) {
+            target = prer.url;
+          } else if (prer?.error) {
+            errors.push(prer.error);
+            continue;
+          } else {
+            target = await resolveFuckingFastUrl(target);
+          }
         } else if (isDirect && isDataNodesLandingPage(target)) {
           errors.push({ target, error: 'DataNodes requires interactive browser Turnstile' });
           continue;

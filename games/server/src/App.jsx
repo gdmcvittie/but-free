@@ -11,6 +11,13 @@ import EmulatorModal from './components/EmulatorModal';
 import AuthModal from './components/AuthModal';
 import LoginGate from './components/LoginGate';
 import { fetchJson } from './utils/api';
+import {
+  cacheGameForOffline,
+  isAndroidOfflineMode,
+  loadOfflineLibrary,
+  requestOfflineStorage,
+  saveOfflineLibrary
+} from './utils/offlineGames';
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -60,13 +67,22 @@ export default function App() {
 
   // Fetch current authenticated user
   const fetchUser = useCallback(async () => {
+    if (isAndroidOfflineMode()) {
+      const cached = loadOfflineLibrary();
+      setUser(cached.user);
+      setAuthChecking(false);
+      return cached.user;
+    }
     try {
       const data = await fetchJson('/api/auth/user');
       setUser(data.user || null);
+      if (data.user) saveOfflineLibrary(data.user, null);
       return data.user;
     } catch {
-      setUser(null);
-      return null;
+      const cached = loadOfflineLibrary();
+      const offlineUser = isAndroidOfflineMode() || !navigator.onLine ? cached.user : null;
+      setUser(offlineUser);
+      return offlineUser;
     } finally {
       setAuthChecking(false);
     }
@@ -75,17 +91,27 @@ export default function App() {
   // Fetch games library
   const fetchGames = useCallback(async () => {
     setLoadingGames(true);
+    if (isAndroidOfflineMode()) {
+      const cached = loadOfflineLibrary();
+      setGames(cached.games);
+      setLoadingGames(false);
+      return;
+    }
     try {
       const data = await fetchJson('/api/games');
-      setGames(data.games || []);
+      const nextGames = data.games || [];
+      setGames(nextGames);
+      saveOfflineLibrary(null, nextGames);
     } catch (err) {
       console.warn('[App] Could not load games:', err.message);
+      if (!navigator.onLine) setGames(loadOfflineLibrary().games);
     } finally {
       setLoadingGames(false);
     }
   }, []);
 
   useEffect(() => {
+    requestOfflineStorage();
     fetchUser().then((currentUser) => {
       if (currentUser) {
         fetchGames();
@@ -119,19 +145,28 @@ export default function App() {
 
   // Toggle favorite status
   const handleToggleFavorite = async (gameId) => {
+    const currentGame = games.find((game) => game.id === gameId);
+    const favoritedGame = currentGame ? { ...currentGame, isFavorite: !currentGame.isFavorite } : null;
     // Optimistic UI update
-    setGames((prev) =>
-      prev.map((g) => (g.id === gameId ? { ...g, isFavorite: !g.isFavorite } : g))
-    );
+    setGames((prev) => {
+      const next = prev.map((g) => g.id === gameId && favoritedGame ? favoritedGame : g);
+      saveOfflineLibrary(null, next);
+      return next;
+    });
+
+    if (favoritedGame?.isFavorite) cacheGameForOffline(favoritedGame, user?.id);
+    if (isAndroidOfflineMode()) return;
 
     try {
       await fetchJson(`/api/games/${gameId}/favorite`, { method: 'POST' });
     } catch (err) {
       console.error('[App] Could not toggle favorite:', err);
       // Revert if failed
-      setGames((prev) =>
-        prev.map((g) => (g.id === gameId ? { ...g, isFavorite: !g.isFavorite } : g))
-      );
+      setGames((prev) => {
+        const next = prev.map((g) => (g.id === gameId ? { ...g, isFavorite: !g.isFavorite } : g));
+        saveOfflineLibrary(null, next);
+        return next;
+      });
     }
   };
 
@@ -139,10 +174,12 @@ export default function App() {
   const handlePlayGame = useCallback((game) => {
     if (!game?.id) return;
     setActiveGameToPlay(game);
+    cacheGameForOffline(game, user?.id);
+    if (isAndroidOfflineMode()) return;
     fetchJson(`/api/games/${encodeURIComponent(game.id)}/play`, { method: 'POST' }).catch((err) => {
       console.warn('[App] Could not record play:', err.message);
     });
-  }, []);
+  }, [user]);
 
   // Callback when user picks a folder in DrivePickerModal
   const handleFolderSelected = (folderId, folderName) => {

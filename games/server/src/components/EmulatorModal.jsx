@@ -5,6 +5,7 @@ import {
   Save, FolderInput, Heart, Download, Globe, Loader2
 } from 'lucide-react';
 import { fetchJson } from '../utils/api';
+import { cacheGameForOffline, getCachedRom, isAndroidOfflineMode } from '../utils/offlineGames';
 
 // ---------------------------------------------------------------------------------------------
 // In-browser emulator player using Nostalgist + locally bundled libretro WASM cores
@@ -349,35 +350,24 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
         setIsLoading(true);
         setError(null);
         setLoadProgress(0);
-        setLoadStage('Downloading ROM from Google Drive...');
+        setLoadStage('Checking offline library...');
 
         const targetCore = CORE_FOR_CONSOLE[(game.console || '').toLowerCase()] || 'fceumm';
-        const romUrl = `/api/games/stream/${game.driveId}?filename=${encodeURIComponent(game.filename || 'rom.bin')}`;
 
-        const response = await fetch(romUrl);
-        if (!response.ok) {
-          throw new Error(`Failed to load ROM from Google Drive (HTTP ${response.status})`);
-        }
-
-        let blob;
-        const contentLength = response.headers.get('Content-Length');
-        const totalBytes = contentLength ? parseInt(contentLength, 10) : 0;
-
-        if (totalBytes > 0 && response.body) {
-          const reader = response.body.getReader();
-          let loadedBytes = 0;
-          const chunks = [];
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            chunks.push(value);
-            loadedBytes += value.length;
-            if (isMounted) setLoadProgress(Math.min(98, Math.round((loadedBytes / totalBytes) * 100)));
+        let blob = await getCachedRom(user?.id, game.id);
+        if (blob) {
+          if (isMounted) {
+            setLoadProgress(100);
+            setLoadStage('Loading downloaded game...');
           }
-          blob = new Blob(chunks);
         } else {
-          blob = await response.blob();
-          if (isMounted) setLoadProgress(98);
+          if (isAndroidOfflineMode() || !navigator.onLine) {
+            throw new Error('This game is not saved for offline play yet. Connect to the internet, then favorite or play it once to download it.');
+          }
+          setLoadStage('Downloading ROM from Google Drive...');
+          blob = await cacheGameForOffline(game, user?.id);
+          if (!(blob instanceof Blob)) throw new Error('Could not download this game from Google Drive. Check your connection and try again.');
+          if (isMounted) setLoadProgress(100);
         }
 
         if (!isMounted) return;
