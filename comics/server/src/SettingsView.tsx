@@ -104,6 +104,28 @@ export default function SettingsView({
     }
   };
 
+  const reloadWhenServerBack = (timeoutMs = 20000) => {
+    let sawDown = false;
+    const started = Date.now();
+    const ping = async () => {
+      try {
+        const res = await fetch(apiUrl('/api/ping'), { cache: 'no-store' });
+        if (res.ok) {
+          if (sawDown || Date.now() - started > timeoutMs) {
+            window.location.reload();
+            return;
+          }
+        } else {
+          sawDown = true;
+        }
+      } catch {
+        sawDown = true;
+      }
+      setTimeout(ping, 1200);
+    };
+    ping();
+  };
+
   const runAdminAction = async (action: 'app' | 'downloader') => {
     setAdminBusy(action);
     setAdminMessage(null);
@@ -115,6 +137,9 @@ export default function SettingsView({
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) throw new Error(data.error || 'Admin action failed');
       setAdminMessage(data.message || 'Done.');
+      if (action === 'app') {
+        setTimeout(() => reloadWhenServerBack(), 1500);
+      }
     } catch (err: any) {
       setAdminMessage(`Admin action failed: ${err.message}`);
     } finally {

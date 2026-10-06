@@ -411,6 +411,13 @@ app.post('/api/admin/restart-app', requireAdmin, (req, res) => {
   }, 600);
 });
 
+// Public liveness probe (no auth) — used by the admin UI to detect when the
+// server is back after a restart so the page can reload.
+app.get('/api/ping', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ ok: true, ts: Date.now() });
+});
+
 // -------------------------------------------------------------
 // Discovery: FitGirl RSS / Steam Popular / itch.io / GOG.com
 // + Library extras: bookmarks, embeds, save states, token refresh

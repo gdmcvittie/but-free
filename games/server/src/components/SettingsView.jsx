@@ -117,12 +117,37 @@ export default function SettingsView({
     }
   };
 
+  const reloadWhenServerBack = (timeoutMs = 20000) => {
+    let sawDown = false;
+    const started = Date.now();
+    const ping = async () => {
+      try {
+        const res = await fetch('/api/ping', { cache: 'no-store' });
+        if (res.ok) {
+          if (sawDown || Date.now() - started > timeoutMs) {
+            window.location.reload();
+            return;
+          }
+        } else {
+          sawDown = true;
+        }
+      } catch {
+        sawDown = true;
+      }
+      setTimeout(ping, 1200);
+    };
+    ping();
+  };
+
   const runAdminAction = async (action) => {
     setAdminBusy(action);
     setAdminMessage(null);
     try {
       const data = await fetchJson(`/api/admin/${action === 'app' ? 'restart-app' : 'restart-downloader'}`, { method: 'POST' });
       setAdminMessage(data.message || (action === 'app' ? 'App server restarting…' : 'Downloader server restarting…'));
+      if (action === 'app') {
+        setTimeout(() => reloadWhenServerBack(), 1500);
+      }
     } catch (err) {
       setAdminMessage(`Admin action failed: ${err.message}`);
     } finally {
