@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Settings, User, Folder, FolderOpen, Loader2, RefreshCw, BookOpen, Cloud, Smartphone, Package } from 'lucide-react';
 import { apiUrl } from './api';
 import type { GoogleUserProfile } from './AuthModal';
 
@@ -66,7 +67,7 @@ export default function SettingsView({
         body: JSON.stringify(payload)
       });
       if (res.ok) {
-        setStatusMessage('✅ Settings saved successfully.');
+        setStatusMessage('Settings saved successfully.');
         setTimeout(() => setStatusMessage(null), 3500);
       }
     } catch (err: any) {
@@ -90,7 +91,7 @@ export default function SettingsView({
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'Scan failed');
 
-      setStatusMessage(`✅ Scan complete! Found ${data.count || 0} comic(s) in your Google Drive.`);
+      setStatusMessage(`Scan complete! Found ${data.count || 0} comic(s) in your Google Drive.`);
       if (onLibraryUpdated) onLibraryUpdated();
     } catch (err: any) {
       setStatusMessage(`Scan error: ${err.message}`);
@@ -102,7 +103,7 @@ export default function SettingsView({
   return (
     <div className="settings-view-container">
       <div className="settings-header">
-        <h1>⚙️ Cloud Settings</h1>
+        <h1><Settings size={16} style={{ marginRight: '0.4rem' }} /> Cloud Settings</h1>
         <p className="settings-subtitle">
           Configure Google Drive integration, account profile, and library preferences.
         </p>
@@ -118,7 +119,7 @@ export default function SettingsView({
         {/* Card 1: Google Account Profile */}
         <div className="settings-card">
           <div className="settings-card-header">
-            <h3>👤 Google Account</h3>
+            <h3><User size={16} style={{ marginRight: '0.4rem' }} /> Google Account</h3>
           </div>
 
           <div className="settings-card-body">
@@ -128,7 +129,7 @@ export default function SettingsView({
                   {user.avatar && user.avatar.startsWith('http') ? (
                     <img src={user.avatar} alt={user.name} />
                   ) : (
-                    <span>🦸</span>
+                    <User size={16}/>
                   )}
                 </div>
                 <div className="settings-profile-meta">
@@ -155,7 +156,7 @@ export default function SettingsView({
         {/* Card 2: Google Drive Comic Folder */}
         <div className="settings-card">
           <div className="settings-card-header">
-            <h3>📁 Google Drive Comic Folder</h3>
+            <h3><Folder size={16} style={{ marginRight: '0.4rem' }} /> Google Drive Comic Folder</h3>
           </div>
 
           <div className="settings-card-body">
@@ -164,7 +165,7 @@ export default function SettingsView({
             </p>
 
             <div className="settings-folder-box">
-              <span style={{ fontSize: '1.5rem' }}>📂</span>
+              <FolderOpen size={24}/>
               <div className="settings-folder-text">
                 <span className="settings-folder-label">Selected Folder:</span>
                 <strong className="settings-folder-name">
@@ -179,7 +180,7 @@ export default function SettingsView({
                 className="btn btn-primary"
                 onClick={onOpenDrivePicker}
               >
-                📁 {user?.driveFolderId ? 'Change Drive Folder' : 'Select Drive Folder'}
+                <Folder size={15}/> {user?.driveFolderId ? 'Change Drive Folder' : 'Select Drive Folder'}
               </button>
 
               <button
@@ -188,7 +189,7 @@ export default function SettingsView({
                 onClick={handleManualScan}
                 disabled={scanning || !user?.driveFolderId}
               >
-                {scanning ? '⏳ Scanning...' : '🔄 Scan Library Now'}
+                {scanning ? <><Loader2 size={15}/> Scanning...</> : <><RefreshCw size={15}/> Scan Library Now</>}
               </button>
             </div>
           </div>
@@ -197,7 +198,7 @@ export default function SettingsView({
         {/* Card 3: Library Preferences */}
         <div className="settings-card">
           <div className="settings-card-header">
-            <h3>📚 Library Preferences</h3>
+            <h3><BookOpen size={16} style={{ marginRight: '0.4rem' }} /> Library Preferences</h3>
           </div>
 
           <div className="settings-card-body">
@@ -293,7 +294,7 @@ export default function SettingsView({
         {/* Card 4: Shared Hosting Environment */}
         {/* <div className="settings-card">
           <div className="settings-card-header">
-            <h3>☁️ Namecheap Server Info</h3>
+            <h3><Cloud size={16} style={{ marginRight: '0.4rem' }} /> Namecheap Server Info</h3>
           </div>
 
           <div className="settings-card-body">
@@ -320,7 +321,7 @@ export default function SettingsView({
       {/* Card 5: Mobile App (APK Download) */}
         <div className="settings-card" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
           <div className="settings-card-header">
-            <h3>📱 Android Mobile App</h3>
+            <h3><Smartphone size={16} style={{ marginRight: '0.4rem' }} /> Android Mobile App</h3>
           </div>
 
           <div className="settings-card-body">
@@ -336,7 +337,7 @@ export default function SettingsView({
                 download
                 style={{ textDecoration: 'none', display: 'inline-block' }}
               >
-                📦 Download APK (comix.apk)
+                <Package size={15}/> Download APK (comix.apk)
               </a>
               <span className="badge badge-info" style={{ fontSize: '0.75rem' }}>
                 Android 5.0+

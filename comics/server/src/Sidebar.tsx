@@ -1,4 +1,5 @@
 import React from 'react';
+import { Flame, BookOpen, Clock, BookOpenCheck, Scissors, Search, Download, Heart, Settings, User, Folder } from 'lucide-react';
 import type { GoogleUserProfile } from './AuthModal';
 
 interface SidebarProps {
@@ -9,6 +10,26 @@ interface SidebarProps {
   isReaderActive?: boolean;
 }
 
+const navItems = [
+  { id: 'whats-new', label: "What's New", icon: Flame },
+  { id: 'library', label: 'Library', icon: BookOpen },
+  { id: 'continue-reading', label: 'Continue', icon: Clock },
+  { id: 'omnibus', label: 'Omnibus Creator', icon: BookOpenCheck },
+  { id: 'omnibus-splitter', label: 'Omnibus Splitter', icon: Scissors },
+  { id: 'search', label: 'Search', icon: Search },
+  { id: 'downloads', label: 'Downloads & Pull List', icon: Download },
+  { id: 'favorites', label: 'Favorites', icon: Heart },
+  { id: 'settings', label: 'Settings', icon: Settings }
+];
+
+const mobileNavItems = [
+  { id: 'whats-new', label: 'New', icon: Flame },
+  { id: 'library', label: 'Library', icon: BookOpen },
+  { id: 'omnibus', label: 'Omnibus', icon: BookOpenCheck },
+  { id: 'search', label: 'Search', icon: Search },
+  { id: 'downloads', label: 'Downloads', icon: Download }
+];
+
 export default function Sidebar({
   currentView,
   setCurrentView,
@@ -16,26 +37,6 @@ export default function Sidebar({
   onOpenAuthModal,
   isReaderActive
 }: SidebarProps) {
-  const navItems = [
-    { id: 'whats-new', label: "What's New", icon: '🔥' },
-    { id: 'library', label: 'Library', icon: '📚' },
-    { id: 'continue-reading', label: 'Continue', icon: '⏱️' },
-    { id: 'omnibus', label: 'Omnibus Creator', icon: '📖' },
-    { id: 'omnibus-splitter', label: 'Omnibus Splitter', icon: '✂️' },
-    { id: 'search', label: 'Search', icon: '🔍' },
-    { id: 'downloads', label: 'Downloads & Pull List', icon: '⬇️' },
-    { id: 'favorites', label: 'Favorites', icon: '❤️' },
-    { id: 'settings', label: 'Settings', icon: '⚙️' }
-  ];
-
-  const mobileNavItems = [
-    { id: 'whats-new', label: 'New', icon: '🔥' },
-    { id: 'library', label: 'Library', icon: '📚' },
-    { id: 'omnibus', label: 'Omnibus', icon: '📖' },
-    { id: 'search', label: 'Search', icon: '🔍' },
-    { id: 'downloads', label: 'Downloads', icon: '⬇️' }
-  ];
-
   return (
     <>
       {/* Mobile Top App Bar */}
@@ -54,7 +55,9 @@ export default function Sidebar({
               {user?.avatar && user.avatar.startsWith('http') ? (
                 <img src={user.avatar} alt={user.name} className="mobile-profile-img" />
               ) : (
-                <span className="mobile-profile-avatar">{user ? '🦸' : '👤'}</span>
+                <span className="mobile-profile-avatar">
+                  <User size={18} />
+                </span>
               )}
             </div>
           </div>
@@ -70,16 +73,19 @@ export default function Sidebar({
         </div>
 
         <nav>
-          {navItems.map((item) => (
-            <div
-              key={item.id}
-              className={`nav-item ${currentView === item.id ? 'active' : ''}`}
-              onClick={() => setCurrentView(item.id)}
-            >
-              <span style={{ marginRight: '0.65rem', fontSize: '1.15rem' }}>{item.icon}</span>
-              {item.label}
-            </div>
-          ))}
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <div
+                key={item.id}
+                className={`nav-item ${currentView === item.id ? 'active' : ''}`}
+                onClick={() => setCurrentView(item.id)}
+              >
+                <Icon size={18} style={{ marginRight: '0.75rem', flexShrink: 0 }} />
+                {item.label}
+              </div>
+            );
+          })}
         </nav>
 
         {/* User Account / Google Sign-In Card at Bottom */}
@@ -94,13 +100,14 @@ export default function Sidebar({
                 {user.avatar && user.avatar.startsWith('http') ? (
                   <img src={user.avatar} alt={user.name} />
                 ) : (
-                  <span>🦸</span>
+                  <User size={20} />
                 )}
               </div>
               <div className="sidebar-user-meta">
                 <div className="sidebar-user-name">{user.name}</div>
                 <div className="sidebar-user-folder">
-                  📁 {user.driveFolderName || 'Select folder...'}
+                  <Folder size={13} style={{ flexShrink: 0 }} />
+                  {user.driveFolderName || 'Select folder...'}
                 </div>
               </div>
             </div>
@@ -122,20 +129,26 @@ export default function Sidebar({
         </div>
       </aside>
 
-      {/* Mobile Bottom Navigation Bar */}
+      {/* Mobile Bottom Navigation Bar (icons only) */}
       {!isReaderActive && (
         <nav className="mobile-bottom-nav">
-          {mobileNavItems.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`mobile-nav-btn ${currentView === item.id ? 'active' : ''}`}
-              onClick={() => setCurrentView(item.id)}
-            >
-              <span className="mobile-nav-icon">{item.icon}</span>
-              <span className="mobile-nav-label">{item.label}</span>
-            </button>
-          ))}
+          {mobileNavItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = currentView === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={`mobile-nav-btn ${isActive ? 'active' : ''}`}
+                onClick={() => setCurrentView(item.id)}
+                title={item.label}
+                aria-label={item.label}
+                aria-current={isActive ? 'page' : undefined}
+              >
+                <Icon size={22} className="mobile-nav-icon" />
+              </button>
+            );
+          })}
         </nav>
       )}
     </>

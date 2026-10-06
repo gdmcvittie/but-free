@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { Comic } from './Library';
 import { apiUrl, downloadComic } from './api';
 import type { GoogleUserProfile } from './AuthModal';
+import { Search, Loader2, TriangleAlert, BookOpen, Globe, Save, Calendar } from 'lucide-react';
 
 interface LocalComicResult {
   id: any;
@@ -168,7 +169,7 @@ export default function SearchView({
     }
 
     setDownloadingUrls((prev) => ({ ...prev, [item.chapterUrl]: 'downloading' }));
-    setToastMessage(`⚡ Downloading "${item.title}" to Google Drive... You can keep searching!`);
+    setToastMessage(`Downloading "${item.title}" to Google Drive... You can keep searching!`);
     setDownloadErrors((prev) => {
       const copy = { ...prev };
       delete copy[item.chapterUrl];
@@ -179,7 +180,7 @@ export default function SearchView({
       const result = await downloadComic(item.chapterUrl, undefined, {
         onProgress: (s) => {
           if (s.message) {
-            setToastMessage(`⚡ "${item.title}": ${s.message}`);
+            setToastMessage(`"${item.title}": ${s.message}`);
           }
         }
       });
@@ -209,7 +210,7 @@ export default function SearchView({
         : result.compressionError
           ? ` [Not compressed: ${result.compressionError}]`
           : '';
-      setToastMessage(`✓ "${result.title || item.title}"${compText} saved to Google Drive! Click "Read Now" or find it in your Library.`);
+      setToastMessage(`\u2713 "${result.title || item.title}"${compText} saved to Google Drive! Click "Read Now" or find it in your Library.`);
       setTimeout(() => {
         setToastMessage((cur) => (cur?.includes(item.title) ? null : cur));
       }, 5000);
@@ -217,7 +218,7 @@ export default function SearchView({
       console.error('Download error from search:', err);
       setDownloadingUrls((prev) => ({ ...prev, [item.chapterUrl]: 'error' }));
       setDownloadErrors((prev) => ({ ...prev, [item.chapterUrl]: err.message || 'Download failed' }));
-      setToastMessage(`❌ Download failed: ${err.message || 'Unknown error'}`);
+      setToastMessage(`Download failed: ${err.message || 'Unknown error'}`);
       setTimeout(() => {
         setToastMessage((cur) => (cur?.includes('Download failed') ? null : cur));
       }, 6000);
@@ -270,12 +271,11 @@ export default function SearchView({
             style={{
               position: 'absolute',
               left: '1rem',
-              fontSize: '1.2rem',
               color: 'var(--text-secondary)',
               pointerEvents: 'none'
             }}
           >
-            🔍
+            <Search size={16} />
           </span>
 
           <input
@@ -322,7 +322,7 @@ export default function SearchView({
                 }}
                 title="Clear search"
               >
-                ✕
+                &#10005;
               </button>
             )}
 
@@ -390,7 +390,9 @@ export default function SearchView({
             alignItems: 'center'
           }}
         >
-          <div>⚠️ {error}</div>
+          <div>
+            <TriangleAlert size={16} style={{ marginRight: '0.4rem' }} /> {error}
+          </div>
           <button
             onClick={() => performSearch(query)}
             style={{
@@ -454,7 +456,7 @@ export default function SearchView({
                 transition: 'all 0.15s'
               }}
             >
-              📖 In Library ({filteredLocal.length})
+              <BookOpen size={14} /> In Library ({filteredLocal.length})
             </button>
 
             <button
@@ -471,7 +473,7 @@ export default function SearchView({
                 transition: 'all 0.15s'
               }}
             >
-              🌐 Online GetComics ({filteredOnline.length})
+              <Globe size={14} /> Online GetComics ({filteredOnline.length})
             </button>
           </div>
 
@@ -504,7 +506,9 @@ export default function SearchView({
       {/* Loading State */}
       {loading && (
         <div style={{ textAlign: 'center', padding: '4rem 1rem', color: 'var(--accent-color)' }}>
-          <div style={{ fontSize: '2rem', marginBottom: '1rem', animation: 'spin 1.5s linear infinite' }}>⏳</div>
+          <div style={{ marginBottom: '1rem', animation: 'spin 1.5s linear infinite' }}>
+            <Loader2 size={32} />
+          </div>
           <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>Searching local library and GetComics catalogue...</div>
           <div style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', marginTop: '0.5rem' }}>
             Fetching live releases, checking digital CBZ availability...
@@ -523,7 +527,9 @@ export default function SearchView({
             border: '1px dashed var(--border-color)'
           }}
         >
-          <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>📚</div>
+          <div style={{ marginBottom: '1rem' }}>
+            <BookOpen size={48} />
+          </div>
           <h3 style={{ fontSize: '1.3rem', fontWeight: 600, marginBottom: '0.5rem' }}>
             Search Millions of Comic Pages
           </h3>
@@ -566,7 +572,9 @@ export default function SearchView({
             border: '1px solid var(--border-color)'
           }}
         >
-          <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>🔍</div>
+          <div style={{ marginBottom: '0.75rem' }}>
+            <Search size={40} />
+          </div>
           <h3 style={{ fontSize: '1.2rem', fontWeight: 600, marginBottom: '0.4rem' }}>
             No Comics Found for "{query}"
           </h3>
@@ -598,7 +606,7 @@ export default function SearchView({
             <div style={{ marginBottom: '2.5rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
                 <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#34d399' }}>
-                  📖 In Your Library ({filteredLocal.length})
+                  <BookOpen size={16} style={{ marginRight: '0.4rem' }} /> In Your Library ({filteredLocal.length})
                 </h2>
                 <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                   Ready to read with high-res CBZ reader
@@ -639,7 +647,9 @@ export default function SearchView({
                               color: '#fff'
                             }}
                           >
-                            <span style={{ fontSize: '2rem' }}>📖</span>
+                            <span>
+                              <BookOpen size={32} />
+                            </span>
                             <span style={{ fontSize: '0.8rem', fontWeight: 600, marginTop: '0.5rem' }}>CBZ ARCHIVE</span>
                           </div>
                         )}
@@ -658,7 +668,7 @@ export default function SearchView({
                             letterSpacing: '0.5px'
                           }}
                         >
-                          ✓ IN LIBRARY
+                          &#10003; IN LIBRARY
                         </div>
 
                         <div
@@ -704,7 +714,7 @@ export default function SearchView({
                           onMouseEnter={(e) => (e.currentTarget.style.background = '#059669')}
                           onMouseLeave={(e) => (e.currentTarget.style.background = '#10b981')}
                         >
-                          📖 Read Now
+                          <BookOpen size={16} /> Read Now
                         </button>
                       </div>
                     </div>
@@ -719,7 +729,7 @@ export default function SearchView({
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
                 <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--accent-color)' }}>
-                  🌐 Available on GetComics ({filteredOnline.length})
+                  <Globe size={16} style={{ marginRight: '0.4rem' }} /> Available on GetComics ({filteredOnline.length})
                 </h2>
                 <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                   Click to download high-speed CBZ directly into library
@@ -759,7 +769,7 @@ export default function SearchView({
                               fontWeight: 700
                             }}
                           >
-                            ✓ IN LIBRARY
+                            &#10003; IN LIBRARY
                           </div>
                         )}
 
@@ -778,7 +788,7 @@ export default function SearchView({
                               fontWeight: 600
                             }}
                           >
-                            💾 {item.size}
+                            <Save size={14} /> {item.size}
                           </div>
                         )}
                       </div>
@@ -804,7 +814,7 @@ export default function SearchView({
 
                         {item.year && (
                           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '0.6rem' }}>
-                            📅 {item.year}
+                            <Calendar size={14} /> {item.year}
                           </div>
                         )}
 
@@ -860,7 +870,7 @@ export default function SearchView({
                             onMouseEnter={(e) => (e.currentTarget.style.background = '#059669')}
                             onMouseLeave={(e) => (e.currentTarget.style.background = '#10b981')}
                           >
-                            📖 Read Now
+                            <BookOpen size={16} /> Read Now
                           </button>
                         ) : (
                           <button
@@ -885,11 +895,13 @@ export default function SearchView({
                           >
                             {isDownloading ? (
                               <>
-                                <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⏳</span>
+                                <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>
+                                  <Loader2 size={16} />
+                                </span>
                                 Downloading...
                               </>
                             ) : (
-                              '⚡ Download CBZ'
+                              'Download CBZ'
                             )}
                           </button>
                         )}

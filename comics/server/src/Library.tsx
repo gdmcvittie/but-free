@@ -10,6 +10,29 @@ import {
   getCachedOfflineCoverUrl,
   deleteOfflineComic
 } from './offlineStorage';
+import {
+  Zap,
+  BookOpen,
+  Heart,
+  Folder,
+  Loader2,
+  RefreshCw,
+  Clock,
+  FileText,
+  FolderTree,
+  Type,
+  Hash,
+  ChevronDown,
+  ChevronUp,
+  SquareCheck,
+  Sparkles,
+  Search,
+  Trash2,
+  Pencil,
+  TriangleAlert,
+  Save,
+  CircleCheck
+} from 'lucide-react';
 
 // In-memory cache across tab switches so navigating between Library, Continue Reading, and Favorites is 0ms instant
 let memoryComicsCache: Comic[] | null = null;
@@ -1095,7 +1118,7 @@ export default function Library({
         window.dispatchEvent(new CustomEvent('comix_library_updated'));
       }
 
-      setDeleteToast(`✏️ Updated metadata for "${updatedComic.title}"`);
+      setDeleteToast(`Updated metadata for "${updatedComic.title}"`);
       setTimeout(() => setDeleteToast(null), 4000);
 
       setComicPendingEdit(null);
@@ -1166,7 +1189,7 @@ export default function Library({
           } : undefined}
         >
           {offlineComicIds.has(idStr) ? (
-            <span style={{ fontSize: '11px', fontWeight: 800 }}>⚡</span>
+            <Zap size={16} />
           ) : (
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -1234,7 +1257,9 @@ export default function Library({
                 height: '100%'
               }}
             >
-              <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem', opacity: 0.85 }}>📖</div>
+                <div style={{ marginBottom: '0.5rem', opacity: 0.85, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <BookOpen size={40} />
+                </div>
               <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#f8fafc', lineHeight: 1.3 }}>
                 {comic.title}
               </div>
@@ -1287,7 +1312,7 @@ export default function Library({
               }}
               title="Downloaded & ready for offline reading"
             >
-              <span>⚡</span>
+              <Zap size={14} />
               <span>Offline</span>
             </div>
           )}
@@ -1365,8 +1390,8 @@ export default function Library({
               }}
               title={`Series "${extractSeries(comic)}" is favorited`}
             >
-              <span>❤️</span>
-              <span>Series</span>
+               <Heart size={14} />
+               <span>Series</span>
             </div>
           )}
         </div>
@@ -1453,12 +1478,12 @@ export default function Library({
         {/* Top Folder Tab */}
         <div className="series-folder-tab" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <span className="folder-icon">📁</span>
+            <span className="folder-icon"><Folder size={16} /></span>
             <span>SERIES FOLDER</span>
           </div>
           {isSeriesFav && (
             <span style={{ fontSize: '0.68rem', color: '#f87171', fontWeight: 700, letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-              <span>❤️</span> FAVE
+               <Heart size={14} /> FAVE
             </span>
           )}
         </div>
@@ -1507,7 +1532,9 @@ export default function Library({
                 textAlign: 'center'
               }}
             >
-              <span style={{ fontSize: '3rem', marginBottom: '0.5rem', opacity: 0.8 }}>📁</span>
+               <span style={{ marginBottom: '0.5rem', opacity: 0.8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                 <Folder size={48} />
+               </span>
               <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#f8fafc' }}>{group.seriesName}</span>
             </div>
           )}
@@ -1530,7 +1557,7 @@ export default function Library({
               zIndex: 3
             }}
           >
-            📚 {group.issueCount} {group.issueCount === 1 ? 'issue' : 'issues'}
+             <BookOpen size={14} style={{ marginRight: '0.2rem', display: 'inline-block', verticalAlign: 'middle' }} /> {group.issueCount} {group.issueCount === 1 ? 'issue' : 'issues'}
           </div>
         </div>
 
@@ -1623,7 +1650,7 @@ export default function Library({
             }}
             title="Refresh comics list"
           >
-            {loading ? '⏳ Refreshing...' : '🔄 Refresh'}
+             {loading ? <><Loader2 size={16} className="animate-spin" /> Refreshing...</> : <><RefreshCw size={16} /> Refresh</>}
           </button>
           <button
             className="library-header-btn-scan"
@@ -1646,7 +1673,7 @@ export default function Library({
             }}
             title="Scan Google Drive folder for comics"
           >
-            {scanning ? '⏳ Scanning...' : '⚡ Scan Folder'}
+             {scanning ? <><Loader2 size={16} className="animate-spin" /> Scanning...</> : <><Zap size={16} /> Scan Folder</>}
           </button>
           <button
             className="library-header-btn-sort"
@@ -1668,7 +1695,7 @@ export default function Library({
             }}
             title="Sort loose comics into their series folders"
           >
-            {sorting ? '⏳ Sorting...' : '📁 Sort Folders'}
+             {sorting ? <><Loader2 size={16} className="animate-spin" /> Sorting...</> : <><Folder size={16} /> Sort Folders</>}
           </button>
         </div>
       </div>
@@ -1678,7 +1705,7 @@ export default function Library({
         <section style={{ marginBottom: '2.5rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-              <span style={{ fontSize: '1.25rem' }}>📖</span>
+              <BookOpen size={20} />
               <h2 style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
                 Continue Reading
               </h2>
@@ -1779,7 +1806,7 @@ export default function Library({
                           fontSize: '2rem'
                         }}
                       >
-                        📖
+                         <BookOpen size={32} />
                       </div>
                     )}
 
@@ -1806,7 +1833,7 @@ export default function Library({
                         border: '1px solid rgba(255, 255, 255, 0.1)'
                       }}
                     >
-                      🕒 {formatTimeAgo(prog?.lastRead)}
+                       <Clock size={12} style={{ marginRight: '0.25rem', display: 'inline-block', verticalAlign: 'middle' }} /> {formatTimeAgo(prog?.lastRead)}
                     </div>
 
                     <div
@@ -1905,7 +1932,7 @@ export default function Library({
                 }}
                 title="Group issues into series folders"
               >
-                <span>📁</span> By Series
+                 <Folder size={16} /> By Series
               </button>
               <button
                 type="button"
@@ -1916,7 +1943,7 @@ export default function Library({
                 }}
                 title="View all comic issues in a single flat grid"
               >
-                <span>📑</span> All Issues
+                 <FileText size={16} /> All Issues
               </button>
             </div>
 
@@ -1929,7 +1956,7 @@ export default function Library({
                   onClick={() => setSeriesLayout('folders')}
                   title="Display series as folder cards"
                 >
-                  <span>🗂️</span> Folders
+                   <FolderTree size={16} /> Folders
                 </button>
                 <button
                   type="button"
@@ -1937,7 +1964,7 @@ export default function Library({
                   onClick={() => setSeriesLayout('shelves')}
                   title="Display series as expandable shelf sections"
                 >
-                  <span>📚</span> Shelves
+                   <BookOpen size={16} /> Shelves
                 </button>
               </div>
             )}
@@ -1953,10 +1980,10 @@ export default function Library({
                 onChange={(e) => setSortBy(e.target.value as any)}
                 aria-label="Sort library by"
               >
-                <option value="latest">🕒 Latest Added</option>
-                <option value="alpha">🔤 Alphabetical (A - Z)</option>
-                <option value="issue">🔢 Issue Order</option>
-                <option value="lastRead">📖 Recently Read</option>
+                <option value="latest">Latest Added</option>
+                <option value="alpha">Alphabetical (A - Z)</option>
+                <option value="issue">Issue Order</option>
+                <option value="lastRead">Recently Read</option>
               </select>
             </div>
 
@@ -1968,7 +1995,7 @@ export default function Library({
               title={isReversed ? 'Order is reversed (Click to restore normal order)' : 'Click to reverse sort order'}
               aria-label="Reverse sort order"
             >
-              <span>{isReversed ? '🔽' : '🔼'}</span>
+               <span>{isReversed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}</span>
               <span>{isReversed ? 'Reversed' : 'Reverse'}</span>
             </button>
 
@@ -1988,7 +2015,7 @@ export default function Library({
                 color: '#fca5a5'
               } : undefined}
             >
-              <span>{isSelectMode ? '✕' : '☑️'}</span>
+               <span>{isSelectMode ? '✕' : <SquareCheck size={16} />}</span>
               <span>{isSelectMode ? 'Cancel Selection' : 'Select'}</span>
             </button>
           </div>
@@ -1997,7 +2024,7 @@ export default function Library({
         {/* Bottom Controls Row: Instant Filter Search & Status Chips */}
         <div className="library-toolbar-row" style={{ paddingTop: '0.4rem', borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
           <div className="library-search-container">
-            <span className="library-search-icon">🔍</span>
+             <span className="library-search-icon"><Search size={16} /></span>
             <input
               type="text"
               className="library-search-input"
@@ -2037,11 +2064,11 @@ export default function Library({
                 onClick={() => setStatusFilter(chip)}
               >
                 {chip === 'all' && 'All'}
-                {chip === 'in-progress' && '⏳ In Progress'}
-                {chip === 'unread' && '🆕 Unread'}
-                {chip === 'completed' && '✅ Completed'}
-                {chip === 'favorites' && '❤️ Favorites'}
-                {chip === 'offline' && `⚡ Offline (${offlineComicIds.size})`}
+                {chip === 'in-progress' && 'In Progress'}
+                {chip === 'unread' && 'Unread'}
+                {chip === 'completed' && 'Completed'}
+                {chip === 'favorites' && 'Favorites'}
+                {chip === 'offline' && `Offline (${offlineComicIds.size})`}
               </button>
             ))}
           </div>
@@ -2065,7 +2092,7 @@ export default function Library({
               <span>←</span> All Series Folders
             </button>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ fontSize: '1.2rem' }}>📁</span>
+              <Folder size={20} />
               <span className="series-breadcrumb-title">{currentSeriesGroup.seriesName}</span>
             </div>
           </div>
@@ -2105,7 +2132,7 @@ export default function Library({
                   color: '#93c5fd'
                 }}
               >
-                <span>📚</span>
+                <BookOpen size={16} />
                 <span>Create Omnibus</span>
               </button>
             )}
@@ -2120,10 +2147,10 @@ export default function Library({
                 color: '#fca5a5'
               }}
             >
-              <span>🗑️</span>
+              <Trash2 size={16} />
               <span>Delete Series</span>
             </button>
-            <span className="series-swipe-hint">👈 Swipe left to go back</span>
+            <span className="series-swipe-hint">Swipe left to go back</span>
             <span className="series-count-badge">
               {currentSeriesGroup.issueCount} {currentSeriesGroup.issueCount === 1 ? 'issue' : 'issues'}
             </span>
@@ -2158,8 +2185,8 @@ export default function Library({
             marginTop: '1.5rem'
           }}
         >
-          <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>
-            {searchQuery ? '🔍' : showFavoritesOnly ? '🤍' : showContinueReadingOnly ? '📖' : '📚'}
+          <div style={{ marginBottom: '1rem' }}>
+            {searchQuery ? <Search size={22} /> : showFavoritesOnly ? <Heart size={22} /> : showContinueReadingOnly ? <BookOpen size={22} /> : <BookOpen size={22} />}
           </div>
           <h2 style={{ fontSize: '1.3rem', fontWeight: 600, marginBottom: '0.5rem' }}>
             {searchQuery
@@ -2235,7 +2262,7 @@ export default function Library({
                 boxShadow: '0 4px 12px rgba(37, 99, 235, 0.35)'
               }}
             >
-              📁 Select Google Drive Folder
+              <Folder size={16} /> Select Google Drive Folder
             </button>
           )}
           {!searchQuery && statusFilter === 'all' && !showFavoritesOnly && !showContinueReadingOnly && currentProfile?.driveFolderId && (
@@ -2257,7 +2284,7 @@ export default function Library({
                 boxShadow: '0 4px 12px rgba(37, 99, 235, 0.35)'
               }}
             >
-              {scanning ? '⏳ Scanning folder...' : '⚡ Scan Library Folder Now'}
+              {scanning ? 'Scanning folder...' : 'Scan Library Folder Now'}
             </button>
           )}
         </div>
@@ -2277,7 +2304,7 @@ export default function Library({
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ fontSize: '1.1rem' }}>🗂️</span>
+              <FolderTree size={18} />
               <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '-0.01em' }}>
                 Series Folders ({seriesGroups.length})
               </h2>
@@ -2296,7 +2323,7 @@ export default function Library({
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ fontSize: '1.1rem' }}>📚</span>
+              <BookOpen size={18} />
               <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '-0.01em' }}>
                 Series Shelves ({seriesGroups.length})
               </h2>
@@ -2374,7 +2401,7 @@ export default function Library({
                         <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
                       </svg>
                     </button>
-                    <span style={{ fontSize: '1.2rem' }}>📁</span>
+                    <Folder size={20} />
                     <span className="series-shelf-title">{group.seriesName}</span>
                     <span className="series-count-badge">
                       {group.issueCount} {group.issueCount === 1 ? 'issue' : 'issues'}
@@ -2432,7 +2459,7 @@ export default function Library({
         /* 5D. Flat Grid View of All Issues */
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-            <span style={{ fontSize: '1.1rem' }}>📚</span>
+            <BookOpen size={18} />
             <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '-0.01em' }}>
               All Comics ({displayedFlatComics.length})
             </h2>
@@ -2477,7 +2504,7 @@ export default function Library({
               disabled={selectedComicIds.size === 0 || isDeleting}
               onClick={() => setBulkPendingDelete(true)}
             >
-              <span>🗑️</span>
+              <Trash2 size={16} />
               <span>Delete ({selectedComicIds.size})</span>
             </button>
           </div>
@@ -2489,7 +2516,7 @@ export default function Library({
         <div className="delete-confirm-backdrop" onClick={() => !isDeleting && setComicPendingDelete(null)}>
           <div className="delete-confirm-modal" onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
-              <span style={{ fontSize: '2rem' }}>🗑️</span>
+              <Trash2 size={32} />
               <div>
                 <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#f8fafc' }}>
                   Delete Comic?
@@ -2503,7 +2530,7 @@ export default function Library({
             </p>
 
             <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '8px', padding: '0.75rem', marginBottom: '1.25rem', fontSize: '0.8rem', color: '#fca5a5' }}>
-              ⚠️ This will permanently delete the file from Google Drive (or storage), clear offline downloads, and remove it from your library.
+              <TriangleAlert size={16} /> This will permanently delete the file from Google Drive (or storage), clear offline downloads, and remove it from your library.
             </div>
 
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
@@ -2521,7 +2548,7 @@ export default function Library({
                 disabled={isDeleting}
                 onClick={() => confirmDeleteComics([comicPendingDelete.id], `Deleted "${comicPendingDelete.title}"`)}
               >
-                {isDeleting ? 'Deleting...' : '🗑️ Delete Comic'}
+                {isDeleting ? 'Deleting...' : 'Delete Comic'}
               </button>
             </div>
           </div>
@@ -2534,7 +2561,7 @@ export default function Library({
           <div className="edit-metadata-modal" onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <span style={{ fontSize: '1.5rem' }}>✏️</span>
+                <Pencil size={24} />
                 <div>
                   <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#f8fafc' }}>
                     Edit Comic Metadata
@@ -2562,7 +2589,7 @@ export default function Library({
 
             {editError && (
               <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#fca5a5', padding: '0.65rem 0.9rem', borderRadius: '8px', fontSize: '0.82rem', marginBottom: '1rem' }}>
-                ⚠️ {editError}
+                <TriangleAlert size={16} /> {editError}
               </div>
             )}
 
@@ -2586,7 +2613,7 @@ export default function Library({
                         textDecoration: 'underline'
                       }}
                     >
-                      ⚡ Auto-format Title
+                      <Zap size={16} style={{ marginRight: '0.4rem' }} />Auto-format Title
                     </button>
                   )}
                 </div>
@@ -2693,7 +2720,7 @@ export default function Library({
                   className="edit-save-btn"
                   disabled={isSavingEdit}
                 >
-                  {isSavingEdit ? '⏳ Saving...' : '💾 Save Changes'}
+                  {isSavingEdit ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
             </form>
@@ -2706,7 +2733,7 @@ export default function Library({
         <div className="delete-confirm-backdrop" onClick={() => !isDeleting && setSeriesPendingDelete(null)}>
           <div className="delete-confirm-modal" onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
-              <span style={{ fontSize: '2rem' }}>🗑️</span>
+              <Trash2 size={32} />
               <div>
                 <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#f8fafc' }}>
                   Delete Entire Series?
@@ -2722,7 +2749,7 @@ export default function Library({
             </p>
 
             <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '8px', padding: '0.75rem', marginBottom: '1.25rem', fontSize: '0.8rem', color: '#fca5a5' }}>
-              ⚠️ All {seriesPendingDelete.issueCount} archive files will be permanently deleted from Google Drive / storage and removed from your library.
+              <TriangleAlert size={16} /> All {seriesPendingDelete.issueCount} archive files will be permanently deleted from Google Drive / storage and removed from your library.
             </div>
 
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
@@ -2743,7 +2770,7 @@ export default function Library({
                   `Deleted series "${seriesPendingDelete.seriesName}" (${seriesPendingDelete.issueCount} issues)`
                 )}
               >
-                {isDeleting ? 'Deleting...' : `🗑️ Delete All ${seriesPendingDelete.issueCount} Issues`}
+                {isDeleting ? 'Deleting...' : `Delete All ${seriesPendingDelete.issueCount} Issues`}
               </button>
             </div>
           </div>
@@ -2755,7 +2782,7 @@ export default function Library({
         <div className="delete-confirm-backdrop" onClick={() => !isDeleting && setBulkPendingDelete(false)}>
           <div className="delete-confirm-modal" onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
-              <span style={{ fontSize: '2rem' }}>🗑️</span>
+              <Trash2 size={32} />
               <div>
                 <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#f8fafc' }}>
                   Delete {selectedComicIds.size} Comics?
@@ -2769,7 +2796,7 @@ export default function Library({
             </p>
 
             <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '8px', padding: '0.75rem', marginBottom: '1.25rem', fontSize: '0.8rem', color: '#fca5a5' }}>
-              ⚠️ The files will be permanently deleted from Google Drive / storage and removed from your library.
+              <TriangleAlert size={16} /> The files will be permanently deleted from Google Drive / storage and removed from your library.
             </div>
 
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
@@ -2790,7 +2817,7 @@ export default function Library({
                   `Deleted ${selectedComicIds.size} comics from storage`
                 )}
               >
-                {isDeleting ? 'Deleting...' : `🗑️ Delete ${selectedComicIds.size} Comics`}
+                {isDeleting ? 'Deleting...' : `Delete ${selectedComicIds.size} Comics`}
               </button>
             </div>
           </div>

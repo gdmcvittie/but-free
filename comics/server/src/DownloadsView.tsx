@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { apiUrl, downloadComic } from './api';
 import type { GoogleUserProfile } from './AuthModal';
+import { Download, ClipboardList, Zap, Heart } from 'lucide-react';
 
 interface LibrarySeries {
   series: string;
@@ -147,7 +148,7 @@ export default function DownloadsView({
       if (res.ok) {
         const data = await res.json();
         setPullListStatus(data);
-        setCheckMessage('✅ Pull list saved successfully!');
+        setCheckMessage('Pull list saved successfully!');
         setTimeout(() => setCheckMessage(null), 3500);
       }
     } catch (err: any) {
@@ -255,7 +256,7 @@ export default function DownloadsView({
       }
 
       if (candidates.size === 0) {
-        setCheckMessage('ℹ️ No favorite series found. Click the heart (❤️) on any series or comic in your Library first!');
+        setCheckMessage('No favorite series found. Click the heart on any series or comic in your Library first!');
         setTimeout(() => setCheckMessage(null), 5000);
         return;
       }
@@ -321,9 +322,9 @@ export default function DownloadsView({
       // 6. User feedback
       if (addedNames.length > 0) {
         const preview = addedNames.slice(0, 3).join(', ') + (addedNames.length > 3 ? ` +${addedNames.length - 3} more` : '');
-        setCheckMessage(`❤️ Added ${addedNames.length} favorite series to your pull list (${preview})!`);
+        setCheckMessage(`Added ${addedNames.length} favorite series to your pull list (${preview})!`);
       } else {
-        setCheckMessage(`ℹ️ All ${resolved.size} favorite series are already tracked on your pull list.`);
+        setCheckMessage(`All ${resolved.size} favorite series are already tracked on your pull list.`);
       }
       setTimeout(() => setCheckMessage(null), 5000);
     } catch (err: any) {
@@ -418,13 +419,13 @@ export default function DownloadsView({
       const data = await downloadComic(url, undefined, {
         onProgress: (s) => {
           if (s.message) {
-            setDirectMessage(`⏳ ${s.message}${s.percent ? ` (${s.percent}%)` : ''}`);
+            setDirectMessage(`${s.message}${s.percent ? ` (${s.percent}%)` : ''}`);
           }
         }
       });
 
       setIsSuccess(true);
-      setDirectMessage(`✅ Successfully saved "${data.title || inspectData?.title || 'Comic'}" to your Google Drive library!`);
+      setDirectMessage(`Successfully saved "${data.title || inspectData?.title || 'Comic'}" to your Google Drive library!`);
 
       if (onComicDownloaded) {
         onComicDownloaded();
@@ -442,7 +443,9 @@ export default function DownloadsView({
       {/* Header Tabs */}
       <div className="downloads-header">
         <div>
-          <h1>⬇️ Downloads & Pull List</h1>
+          <h1>
+            <Download size={20} style={{ marginRight: '0.4rem' }} /> Downloads & Pull List
+          </h1>
           <p className="downloads-subtitle">
             Manage your pull list for automatic issue tracking or download specific issues directly into Google Drive.
           </p>
@@ -454,14 +457,14 @@ export default function DownloadsView({
             className={`downloads-tab-btn ${activeTab === 'pullList' ? 'active' : ''}`}
             onClick={() => setActiveTab('pullList')}
           >
-            📋 My Pull List
+            <ClipboardList size={16} /> My Pull List
           </button>
           <button
             type="button"
             className={`downloads-tab-btn ${activeTab === 'direct' ? 'active' : ''}`}
             onClick={() => setActiveTab('direct')}
           >
-            ⚡ Direct URL
+            <Zap size={16} /> Direct URL
           </button>
         </div>
       </div>
@@ -483,7 +486,7 @@ export default function DownloadsView({
                   className="btn btn-secondary btn-sm"
                   onClick={handleAddAllFavorites}
                 >
-                  ❤️ Add Favorite Series
+                  <Heart size={16} /> Add Favorite Series
                 </button>
                 <button
                   type="button"
@@ -523,7 +526,7 @@ export default function DownloadsView({
                   onClick={() => handleScanPullList(false)}
                   disabled={checking || selectedSeries.size === 0}
                 >
-                  {checking ? '⏳ Scanning...' : '🔍 Scan for New Issues'}
+                  {checking ? 'Scanning...' : 'Scan for New Issues'}
                 </button>
               </div>
             </div>
@@ -628,7 +631,7 @@ export default function DownloadsView({
                           }
                         }}
                       >
-                        ⬇️ Download to Drive
+                        <Download size={16} /> Download to Drive
                       </button>
                     </div>
                   ))}
@@ -693,7 +696,7 @@ export default function DownloadsView({
                       onClick={handleDownloadDirect}
                       disabled={downloading}
                     >
-                      {downloading ? '⏳ Downloading & Uploading to Drive...' : '⬇️ Save to Google Drive'}
+                      {downloading ? 'Downloading & Uploading to Drive...' : 'Save to Google Drive'}
                     </button>
                   </div>
                 </div>

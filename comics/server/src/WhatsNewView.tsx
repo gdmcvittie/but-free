@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { apiUrl, downloadComic } from './api';
 import type { GoogleUserProfile } from './AuthModal';
+import { RefreshCw, Heart, Star, Loader2, Save, PartyPopper } from 'lucide-react';
 
 interface LatestRelease {
   title: string;
@@ -494,7 +495,7 @@ export default function WhatsNewView({
         : data.compressionError
           ? ` [Not compressed: ${data.compressionError}]`
           : '';
-      setToastMessage(`⚡ Downloaded "${data.title || item.title}"${compText} directly to your Google Drive library!`);
+      setToastMessage(`Downloaded "${data.title || item.title}"${compText} directly to your Google Drive library!`);
       setTimeout(() => {
         setToastMessage((cur) => (cur?.includes(item.title) ? null : cur));
       }, 4500);
@@ -685,7 +686,7 @@ export default function WhatsNewView({
               cursor: loading ? 'not-allowed' : 'pointer'
             }}
           >
-            🔄 Refresh
+            <RefreshCw size={16} style={{ marginRight: '0.4rem' }} /> Refresh
           </button>
         </div>
       </div>
@@ -727,7 +728,7 @@ export default function WhatsNewView({
               gap: '0.35rem'
             }}
           >
-            <span>❤️</span> Favorite Series ({counts.faveCount})
+            <Heart size={14} /> Favorite Series ({counts.faveCount})
           </button>
         )}
 
@@ -749,7 +750,7 @@ export default function WhatsNewView({
               gap: '0.35rem'
             }}
           >
-            <span>⭐</span> In Library Series ({counts.libSeriesCount})
+            <Star size={14} /> In Library Series ({counts.libSeriesCount})
           </button>
         )}
 
@@ -771,7 +772,7 @@ export default function WhatsNewView({
               gap: '0.35rem'
             }}
           >
-            <span>✓</span> In Library ({counts.inLibCount})
+            <span>&#10003;</span> In Library ({counts.inLibCount})
           </button>
         )}
       </div>
@@ -803,7 +804,7 @@ export default function WhatsNewView({
 
       {loading && (
         <div style={{ color: 'var(--accent-color)', padding: '3rem', textAlign: 'center', fontSize: '1.1rem' }}>
-          ⏳ Fetching live GetComics releases...
+          <Loader2 size={16} style={{ marginRight: '0.4rem' }} /> Fetching live GetComics releases...
         </div>
       )}
 
@@ -877,7 +878,7 @@ export default function WhatsNewView({
                       gap: '4px'
                     }}
                   >
-                    <span>✓</span> IN LIBRARY
+                    <span>&#10003;</span> IN LIBRARY
                   </div>
                 ) : status.isFavoriteSeries ? (
                   <div
@@ -899,7 +900,7 @@ export default function WhatsNewView({
                       gap: '4px'
                     }}
                   >
-                    <span>❤️</span> FAVORITE SERIES
+                    <Heart size={14} /> FAVORITE SERIES
                   </div>
                 ) : status.isLibrarySeries ? (
                   <div
@@ -921,7 +922,7 @@ export default function WhatsNewView({
                       gap: '4px'
                     }}
                   >
-                    <span>⭐</span> IN YOUR SERIES
+                    <Star size={14} /> IN YOUR SERIES
                   </div>
                 ) : null}
 
@@ -941,7 +942,7 @@ export default function WhatsNewView({
                       lineHeight: 1
                     }}
                   >
-                    ❤️
+                    <Heart size={14} />
                   </div>
                 )}
 
@@ -961,7 +962,7 @@ export default function WhatsNewView({
                       lineHeight: 1
                     }}
                   >
-                    ⭐
+                    <Star size={14} />
                   </div>
                 )}
 
@@ -980,7 +981,7 @@ export default function WhatsNewView({
                       fontWeight: 600
                     }}
                   >
-                    💾 {item.size}
+                    <Save size={14} /> {item.size}
                   </div>
                 )}
               </div>
@@ -1004,7 +1005,7 @@ export default function WhatsNewView({
                         whiteSpace: 'nowrap'
                       }}
                     >
-                      ❤️ Fave Series{missingLabel ? ` • ${missingLabel}` : ''}
+                      <Heart size={12} style={{ marginRight: '0.4rem' }} /> Fave Series{missingLabel ? ` • ${missingLabel}` : ''}
                     </span>
                   ) : status.isLibrarySeries ? (
                     <span
@@ -1016,7 +1017,7 @@ export default function WhatsNewView({
                         whiteSpace: 'nowrap'
                       }}
                     >
-                      ⭐ Tracked Series{missingLabel ? ` • ${missingLabel}` : ''}
+                      <Star size={12} style={{ marginRight: '0.4rem' }} /> Tracked Series{missingLabel ? ` • ${missingLabel}` : ''}
                     </span>
                   ) : null}
                 </div>
@@ -1046,7 +1047,7 @@ export default function WhatsNewView({
                         boxShadow: '0 2px 8px rgba(16, 185, 129, 0.1)'
                       }}
                     >
-                      <span>✓</span> In Library
+                      <span>&#10003;</span> In Library
                     </div>
                   ) : (
                     <button
@@ -1079,13 +1080,15 @@ export default function WhatsNewView({
                     >
                       {isDownloading ? (
                         <>
-                          <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⏳</span>
+                          <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>
+                            <Loader2 size={16} />
+                          </span>
                           {state?.percent ? `Downloading ${state.percent}%` : 'Downloading...'}
                         </>
                       ) : isErr ? (
-                        '⚠️ Retry'
+                        'Retry'
                       ) : (
-                        '⚡ Download CBZ'
+                        'Download CBZ'
                       )}
                     </button>
                   )}
@@ -1137,7 +1140,9 @@ export default function WhatsNewView({
             zIndex: 1000
           }}
         >
-          <span style={{ fontSize: '1.2rem' }}>🎉</span>
+          <span>
+            <PartyPopper size={20} />
+          </span>
           <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>{toastMessage}</span>
           <button
             onClick={() => setToastMessage(null)}
@@ -1150,7 +1155,7 @@ export default function WhatsNewView({
               fontSize: '1rem'
             }}
           >
-            ✕
+            &#10005;
           </button>
         </div>
       )}
