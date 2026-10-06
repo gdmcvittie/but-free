@@ -9,10 +9,14 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const DB_FILE = path.join(DATA_DIR, 'games-db.json');
 
 let db = {
-  users: {},     // userId -> { id, googleId, name, email, avatar, tokens, gamesFolderId, gamesFolderName, settings }
-  games: {},     // gameId -> { id, userId, driveId, filename, title, console, size, sizeFormatted, isFavorite, coverUrl, addedAt }
-  favorites: {}  // userId -> Set<gameId> (saved as array)
+  users: {},          // userId -> { id, googleId, name, email, avatar, tokens, gamesFolderId, gamesFolderName, settings }
+  games: {},          // gameId -> { id, userId, driveId, filename, title, console, size, sizeFormatted, isFavorite, coverUrl, addedAt }
+  favorites: {},      // userId -> Set<gameId> (saved as array)
+  recentlyPlayed: {}  // userId -> { gameId: lastPlayedAt } (capped at RECENT_PLAY_LIMIT)
 };
+
+// The "Recently played" menu tracks a play *history*: last N games, newest first.
+const RECENT_PLAY_LIMIT = 50;
 
 function ensureDir() {
   try {
@@ -33,7 +37,8 @@ export function loadDatabase() {
       db = {
         users: data.users || {},
         games: data.games || {},
-        favorites: data.favorites || {}
+        favorites: data.favorites || {},
+        recentlyPlayed: data.recentlyPlayed || {}
       };
     } catch (err) {
       console.warn('[Database] Error parsing games-db.json, starting fresh:', err.message);
@@ -214,6 +219,39 @@ export function toggleFavorite(userId, gameId) {
   db.favorites[userId] = Array.from(set);
   saveDatabase();
   return isFav;
+}
+
+export function getFavorites(userId) {
+  return db.favorites[userId] || [];
+}
+
+export function setFavorites(userId, list) {
+  db.favorites[userId] = Array.isArray(list) ? Array.from(new Set(list)) : [];
+  saveDatabase();
+}
+
+// Recently played (per-user play history, newest first, capped)
+export function markGamePlayed(userId, gameId) {
+  if (!db.recentlyPlayed[userId]) db.recentlyPlayed[userId] = {};
+  const history = db.recentlyPlayed[userId];
+  history[gameId] = Date.now();
+
+  // Prune to the newest RECENT_PLAY_LIMIT entries so the map never grows.
+  const entries = Object.entries(history).sort((a, b) => b[1] - a[1]);
+  if (entries.length > RECENT_PLAY_LIMIT) {
+    db.recentlyPlayed[userId] = Object.fromEntries(entries.slice(0, RECENT_PLAY_LIMIT));
+  }
+
+  saveDatabase();
+  return db.recentlyPlayed[userId][gameId];
+}
+
+export function getRecentlyPlayed(userId) {
+  const history = db.recentlyPlayed[userId] || {};
+  return Object.entries(history)
+    .map(([gameId, playedAt]) => ({ gameId, playedAt }))
+    .sort((a, b) => b.playedAt - a.playedAt)
+    .slice(0, RECENT_PLAY_LIMIT);
 }
 
 // Initial boot load

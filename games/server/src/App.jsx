@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Sidebar from './components/Sidebar';
 import LibraryView from './components/LibraryView';
 import DiscoverView from './components/DiscoverView';
 import DownloadsView from './components/DownloadsView';
 import FavoritesView from './components/FavoritesView';
+import RecentlyPlayedView from './components/RecentlyPlayedView';
 import SettingsView from './components/SettingsView';
 import DrivePickerModal from './components/DrivePickerModal';
 import EmulatorModal from './components/EmulatorModal';
@@ -16,9 +17,31 @@ export default function App() {
   const [authChecking, setAuthChecking] = useState(true);
   const [authError, setAuthError] = useState(null);
   const [currentView, setCurrentView] = useState('library');
+  const [libraryConsole, setLibraryConsole] = useState('');
   const [games, setGames] = useState([]);
   const [loadingGames, setLoadingGames] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
+
+  // Console breakdown of the library, drives the Library sidebar dropdown
+  const consoles = useMemo(() => {
+    const counts = {};
+    games.forEach((g) => {
+      const key = (g.console || 'other').toLowerCase();
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([key, count]) => ({ key, count }))
+      .sort((a, b) => a.key.localeCompare(b.key));
+  }, [games]);
+
+  // There is no "all consoles" tab anymore, so the library always opens on the
+  // first alphabetical console (kept as-is while it still exists in the library).
+  useEffect(() => {
+    if (consoles.length === 0) return;
+    setLibraryConsole((cur) =>
+      cur && consoles.some((c) => c.key === cur) ? cur : consoles[0].key
+    );
+  }, [consoles]);
 
   // Modals state
   const [drivePickerOpen, setDrivePickerOpen] = useState(false);
@@ -112,6 +135,15 @@ export default function App() {
     }
   };
 
+  // Launch a game: open the player and record it in the play history
+  const handlePlayGame = useCallback((game) => {
+    if (!game?.id) return;
+    setActiveGameToPlay(game);
+    fetchJson(`/api/games/${encodeURIComponent(game.id)}/play`, { method: 'POST' }).catch((err) => {
+      console.warn('[App] Could not record play:', err.message);
+    });
+  }, []);
+
   // Callback when user picks a folder in DrivePickerModal
   const handleFolderSelected = (folderId, folderName) => {
     setUser((prev) => (prev ? { ...prev, gamesFolderId: folderId, gamesFolderName: folderName } : prev));
@@ -148,6 +180,9 @@ export default function App() {
         currentView={currentView}
         setCurrentView={setCurrentView}
         user={user}
+        consoles={consoles}
+        libraryConsole={libraryConsole}
+        onSelectConsole={setLibraryConsole}
         onOpenAuthModal={() => setAuthModalOpen(true)}
         onOpenSettings={() => setCurrentView('settings')}
       />
@@ -158,12 +193,23 @@ export default function App() {
           <LibraryView
             games={games}
             loading={loadingGames}
-            onPlayGame={(game) => setActiveGameToPlay(game)}
+            selectedConsole={libraryConsole}
+            onSelectConsole={setLibraryConsole}
+            onPlayGame={handlePlayGame}
             onToggleFavorite={handleToggleFavorite}
             onScanDrive={handleScanDrive}
             isScanning={isScanning}
             user={user}
             onOpenSettings={() => setCurrentView('settings')}
+          />
+        )}
+
+        {currentView === 'recent' && (
+          <RecentlyPlayedView
+            games={games}
+            onPlayGame={handlePlayGame}
+            onToggleFavorite={handleToggleFavorite}
+            onNavigateToLibrary={() => setCurrentView('library')}
           />
         )}
 
@@ -186,7 +232,7 @@ export default function App() {
         {currentView === 'favorites' && (
           <FavoritesView
             games={games}
-            onPlayGame={(game) => setActiveGameToPlay(game)}
+            onPlayGame={handlePlayGame}
             onToggleFavorite={handleToggleFavorite}
             onNavigateToLibrary={() => setCurrentView('library')}
           />

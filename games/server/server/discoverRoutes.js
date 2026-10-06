@@ -197,7 +197,7 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
           source: target,
           title: cleanTitle,
           console: consoleKey || 'pc',
-          subfolder: subfolder || `PC Games/${sanitizeFolderName(cleanTitle)}`,
+          subfolder: subfolder || `PC/${sanitizeFolderName(cleanTitle)}`,
           selectedFiles: Array.isArray(selectedFiles) && selectedFiles.length > 0 ? selectedFiles : null,
           webhookUrl: ctx.webhookUrl,
           tokenRefreshUrl: ctx.tokenRefreshUrl
@@ -209,7 +209,7 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
           title: cleanTitle,
           console: consoleKey || 'pc',
           fileName: fileName && fileName.length > 3 ? fileName : undefined,
-          subfolder: subfolder || `PC Games/${sanitizeFolderName(cleanTitle)}`,
+          subfolder: subfolder || `PC/${sanitizeFolderName(cleanTitle)}`,
           webhookUrl: ctx.webhookUrl,
           tokenRefreshUrl: ctx.tokenRefreshUrl
         });
@@ -257,7 +257,7 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
             source: target,
             title: titleForGame,
             console: consoleKey || 'pc',
-            subfolder: subfolder || `PC Games/${sanitizeFolderName(titleForGame)}`,
+            subfolder: subfolder || `PC/${sanitizeFolderName(titleForGame)}`,
             selectedFiles: Array.isArray(selectedFiles) && selectedFiles.length > 0 ? selectedFiles : null,
             webhookUrl: ctx.webhookUrl,
             tokenRefreshUrl: ctx.tokenRefreshUrl
@@ -270,7 +270,7 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
             title: titleForGame,
             console: consoleKey || 'pc',
             fileName: chosenFileName,
-            subfolder: subfolder || `PC Games/${sanitizeFolderName(titleForGame)}`,
+            subfolder: subfolder || `PC/${sanitizeFolderName(titleForGame)}`,
             webhookUrl: ctx.webhookUrl,
             tokenRefreshUrl: ctx.tokenRefreshUrl
           });
@@ -413,7 +413,7 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
       const cleanTitle = cleanPcGameTitle(gameTitle || '') || gameTitle || `itch_${gameId}`;
       const consoleKey = (consoleHint || 'pc').toLowerCase();
       const subfolder = consoleKey === 'pc'
-        ? `PC Games/${sanitizeFolderName(cleanTitle)}`
+        ? `PC/${sanitizeFolderName(cleanTitle)}`
         : `itch.io/${consoleKey.toUpperCase()}/${sanitizeFolderName(cleanTitle)}`;
 
       const ctx = buildDispatchContext(req);
@@ -449,7 +449,7 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
       const cleanTitle = cleanPcGameTitle(gameTitle || '') || gameTitle || 'itch Game';
       const consoleKey = (consoleId || 'gb').toLowerCase();
       const subfolder = consoleKey === 'pc'
-        ? `PC Games/${sanitizeFolderName(cleanTitle)}`
+        ? `PC/${sanitizeFolderName(cleanTitle)}`
         : `itch.io/${consoleKey.toUpperCase()}/${sanitizeFolderName(cleanTitle)}`;
 
       const ctx = buildDispatchContext(req);
@@ -596,7 +596,7 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
         fileName: fileName || undefined,
         title: cleanTitle,
         console: 'pc',
-        subfolder: `PC Games/${sanitizeFolderName(cleanTitle)}`,
+        subfolder: `PC/${sanitizeFolderName(cleanTitle)}`,
         webhookUrl: ctx.webhookUrl,
         tokenRefreshUrl: ctx.tokenRefreshUrl
       });

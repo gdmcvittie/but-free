@@ -25,7 +25,7 @@ export default function FavoritesView({
   }, [favoriteGames, searchQuery]);
 
   return (
-    <div className="flex-1 flex flex-col bg-[#070a12] p-6 sm:p-8">
+    <div className="flex-1 flex flex-col bg-[#070a12] p-3 sm:p-6 lg:p-8">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>

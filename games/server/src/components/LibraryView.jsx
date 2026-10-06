@@ -4,6 +4,8 @@ import { Play, Star, Search, RefreshCw, HardDrive, Globe, Download, Gamepad2 } f
 export default function LibraryView({
   games = [],
   loading = false,
+  selectedConsole = 'all',
+  onSelectConsole,
   onPlayGame,
   onToggleFavorite,
   onScanDrive,
@@ -12,22 +14,24 @@ export default function LibraryView({
   onOpenSettings
 }) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedConsole, setSelectedConsole] = useState('all');
+  const selectConsole = onSelectConsole || (() => {});
 
   // Compute console breakdown
   const consoles = useMemo(() => {
     const counts = {};
     games.forEach((g) => {
-      const c = g.console || 'other';
-      counts[c] = (counts[c] || 0) + 1;
+      const key = (g.console || 'other').toLowerCase();
+      counts[key] = (counts[key] || 0) + 1;
     });
-    return counts;
+    return Object.entries(counts)
+      .map(([key, count]) => ({ key, count }))
+      .sort((a, b) => a.key.localeCompare(b.key));
   }, [games]);
 
   // Filter games based on console and search
   const filteredGames = useMemo(() => {
     return games.filter((g) => {
-      const matchesConsole = selectedConsole === 'all' || (g.console || '').toLowerCase() === selectedConsole.toLowerCase();
+      const matchesConsole = !selectedConsole || (g.console || '').toLowerCase() === String(selectedConsole).toLowerCase();
       const matchesSearch = !searchQuery || 
         (g.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         (g.filename || '').toLowerCase().includes(searchQuery.toLowerCase());
@@ -36,7 +40,7 @@ export default function LibraryView({
   }, [games, selectedConsole, searchQuery]);
 
   return (
-    <div className="flex-1 flex flex-col bg-[#070a12] p-6 sm:p-8">
+    <div className="flex-1 flex flex-col bg-[#070a12] p-3 sm:p-6 lg:p-8">
       {/* Top Header Row */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <div>
@@ -78,29 +82,22 @@ export default function LibraryView({
             title="Scan Google Drive for new games"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin text-purple-400' : ''}`} />
-            <span>{isScanning ? 'Scanning...' : 'Scan Drive'}</span>
+            <span>{isScanning ? 'Scanning...' : 'Scan'}</span>
           </button>
         </div>
       </div>
 
       {/* Consoles / System Filter Bar */}
       <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-6 scrollbar-none">
-        <button
-          onClick={() => setSelectedConsole('all')}
-          className={`filter-chip ${selectedConsole === 'all' ? 'active' : ''}`}
-        >
-          All Consoles ({games.length})
-        </button>
-
-        {Object.entries(consoles).map(([consoleKey, count]) => {
-          const isSelected = selectedConsole === consoleKey;
+        {consoles.map(({ key, count }) => {
+          const isSelected = selectedConsole === key;
           return (
             <button
-              key={consoleKey}
-              onClick={() => setSelectedConsole(consoleKey)}
+              key={key}
+              onClick={() => selectConsole(key)}
               className={`filter-chip ${isSelected ? 'active' : ''}`}
             >
-              <span>{consoleKey}</span>
+              <span className="console-key">{key}</span>
               <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isSelected ? 'bg-purple-500/30 text-purple-200' : 'bg-white/10 text-slate-400'}`}>
                 {count}
               </span>
@@ -144,7 +141,7 @@ export default function LibraryView({
             </button>
           ) : (
             <button
-              onClick={() => { setSelectedConsole('all'); setSearchQuery(''); }}
+              onClick={() => { selectConsole(consoles[0]?.key || ''); setSearchQuery(''); }}
               className="btn btn-secondary"
             >
               Reset Filters

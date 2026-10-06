@@ -298,15 +298,21 @@ h1, h2, h3, h4, .font-heading {
 
 .bg-white { background-color: #ffffff; }
 .bg-white\/5 { background-color: rgba(255, 255, 255, 0.05); }
+.bg-black { background-color: #000000 !important; }
 .bg-black\/40 { background-color: rgba(0, 0, 0, 0.4); }
 .bg-black\/50 { background-color: rgba(0, 0, 0, 0.5); }
 .bg-black\/80 { background-color: rgba(0, 0, 0, 0.8); }
 .bg-black\/90 { background-color: rgba(0, 0, 0, 0.9); }
+.bg-black\/95 { background-color: rgba(0, 0, 0, 0.95); }
 .bg-slate-800 { background-color: #1e293b; }
 .bg-slate-900 { background-color: #0f172a; }
 .bg-slate-900\/50 { background-color: rgba(15, 23, 42, 0.5); }
 .bg-slate-900\/60 { background-color: rgba(15, 23, 42, 0.6); }
 .bg-slate-900\/80 { background-color: rgba(15, 23, 42, 0.8); }
+.bg-slate-950 { background-color: #020617; }
+.bg-slate-950\/80 { background-color: rgba(2, 6, 23, 0.8); }
+.bg-slate-950\/90 { background-color: rgba(2, 6, 23, 0.9); }
+.bg-slate-950\/95 { background-color: rgba(2, 6, 23, 0.95); }
 .bg-\[\#070a12\] { background-color: #070a12; }
 .bg-\[\#090d16\]\/90 { background-color: rgba(9, 13, 22, 0.9); }
 
@@ -729,6 +735,11 @@ h1, h2, h3, h4, .font-heading {
 }
 
 /* Filter Chips / Console Pill Buttons */
+.filter-chip .console-key {
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
 .filter-chip,
 .filter-pill {
   display: inline-flex;
@@ -1251,14 +1262,89 @@ h1, h2, h3, h4, .font-heading {
 
 .games-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (min-width: 540px) {
+  .games-grid {
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 12px;
+  }
 }
 
 @media (min-width: 640px) {
   .games-grid {
     grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
     gap: 16px;
+  }
+}
+
+/* Mobile portrait optimizations for game cards */
+@media (max-width: 539px) {
+  .games-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+
+  .game-card {
+    padding: 6px !important;
+    gap: 6px !important;
+    border-radius: 10px !important;
+  }
+
+  .game-card-poster {
+    aspect-ratio: 4/3 !important;
+    border-radius: 6px !important;
+  }
+
+  .game-card-meta {
+    gap: 2px !important;
+  }
+
+  .game-card-title {
+    font-size: 11.5px !important;
+    line-height: 1.25 !important;
+  }
+
+  .game-card-sub {
+    font-size: 10px !important;
+  }
+
+  .game-card .btn,
+  .game-card .btn-xs,
+  .game-card .btn-primary,
+  .game-card .btn-secondary {
+    padding: 4px 6px !important;
+    font-size: 10.5px !important;
+    gap: 3px !important;
+    border-radius: 6px !important;
+  }
+
+  .game-card .btn svg,
+  .game-card .btn-xs svg {
+    width: 12px !important;
+    height: 12px !important;
+  }
+
+  .badge-mint,
+  .badge-fitgirl,
+  .badge-console,
+  .badge-price-free,
+  .badge-price-paid,
+  .badge-update {
+    font-size: 8.5px !important;
+    padding: 2px 5px !important;
+    top: 4px !important;
+    border-radius: 4px !important;
+  }
+
+  .badge-top-right {
+    right: 4px !important;
+  }
+
+  .badge-top-left {
+    left: 4px !important;
   }
 }
 
@@ -1440,6 +1526,105 @@ h1, h2, h3, h4, .font-heading {
   border-left: 3px solid #a855f7;
 }
 
+/* Library dropdown: consoles inside the user's library */
+.nav-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.nav-group .nav-item {
+  width: 100%;
+}
+
+.nav-group .nav-item > span {
+  flex: 1;
+}
+
+.nav-caret {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: transform 0.2s ease, background-color 0.2s ease;
+  flex-shrink: 0;
+}
+
+.nav-caret:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.nav-caret.open {
+  transform: rotate(180deg);
+}
+
+.nav-submenu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0.15rem 0 0.35rem 1.65rem;
+  padding-left: 0.85rem;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.nav-submenu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #94a3b8;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-align: left;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.nav-submenu-item:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: #ffffff;
+}
+
+.nav-submenu-item.active {
+  background-color: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+  font-weight: 600;
+}
+
+.nav-submenu-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-submenu-count {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+}
+
+.nav-submenu-item.active .nav-submenu-count {
+  background-color: rgba(168, 85, 247, 0.3);
+  color: #e9d5ff;
+}
+
 /* User Profile Badge at Bottom of Sidebar */
 .sidebar-user-section {
   margin-top: auto;
@@ -1619,7 +1804,7 @@ h1, h2, h3, h4, .font-heading {
     border: none;
     color: #94a3b8;
     cursor: pointer;
-    gap: 2px;
+    gap: 0;
     flex: 1;
     padding: 0.25rem 0;
     transition: color 0.15s ease;
@@ -1629,9 +1814,15 @@ h1, h2, h3, h4, .font-heading {
     color: #c084fc;
   }
 
-  .mobile-nav-label {
-    font-size: 0.68rem;
-    font-weight: 600;
+  .mobile-nav-btn:active {
+    transform: scale(0.92);
+  }
+}
+
+/* The console dropdown belongs to the desktop sidebar: never in mobile portrait */
+@media (max-width: 768px) and (orientation: portrait) {
+  .nav-submenu {
+    display: none !important;
   }
 }
 
@@ -1642,6 +1833,22 @@ h1, h2, h3, h4, .font-heading {
 .animate-in { animation: fpFadeIn 0.2s ease; }
 @keyframes fpFadeIn { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
 
+.rom-emulator-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  background: #000000 !important;
+  background-color: #000000 !important;
+  opacity: 1 !important;
+  z-index: 99999 !important;
+  isolation: isolate !important;
+}
+
 .game-screen-mount {
   outline: none;
   border: none;
@@ -1650,11 +1857,15 @@ h1, h2, h3, h4, .font-heading {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  background: #000000 !important;
+  background-color: #000000 !important;
 }
 .game-canvas {
   outline: none;
   image-rendering: pixelated;
   -webkit-tap-highlight-color: transparent;
+  background: #000000 !important;
+  background-color: #000000 !important;
 }
 
 .retro-dpad {

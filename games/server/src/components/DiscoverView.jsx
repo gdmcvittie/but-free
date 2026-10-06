@@ -43,7 +43,7 @@ export default function DiscoverView({ user, onOpenSettings, onDownloadDispatche
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-[#070a12] p-6 sm:p-8">
+    <div className="flex-1 flex flex-col bg-[#070a12] p-3 sm:p-6 lg:p-8">
       {/* Sticky Section Nav Header */}
       <div className="sticky top-0 z-20 bg-[#070a12]/95 backdrop-blur-md pt-2 pb-3 border-b border-white/5 mb-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">

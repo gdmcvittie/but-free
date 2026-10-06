@@ -1,20 +1,43 @@
-import React from 'react';
-import { Gamepad2, Compass, Download, Star, Settings } from 'lucide-react';
+import React, { useState } from 'react';
+import { Gamepad2, Compass, Download, Star, Settings, ChevronDown, History } from 'lucide-react';
 
 export default function Sidebar({
   currentView,
   setCurrentView,
   user,
   onOpenAuthModal,
-  onOpenSettings
+  onOpenSettings,
+  consoles = [],
+  libraryConsole = 'all',
+  onSelectConsole
 }) {
+  const [libraryOpen, setLibraryOpen] = useState(false);
+
+  // What's New leads, Library expands into the consoles in the library, and
+  // Recently played sits directly under it.
   const navItems = [
-    { id: 'library', label: 'Library', shortLabel: 'Library', icon: Gamepad2 },
-    { id: 'discover', label: 'Discover', shortLabel: 'Discover', icon: Compass },
-    { id: 'downloads', label: 'Downloads', shortLabel: 'Downloads', icon: Download },
-    { id: 'favorites', label: 'Favorites', shortLabel: 'Favorites', icon: Star },
-    { id: 'settings', label: 'Settings', shortLabel: 'Settings', icon: Settings },
+    { id: 'discover', label: "What's New", icon: Compass },
+    { id: 'library', label: 'Library', icon: Gamepad2, hasConsoles: consoles.length > 0 },
+    { id: 'recent', label: 'Recently played', icon: History },
+    { id: 'downloads', label: 'Downloads', icon: Download },
+    { id: 'favorites', label: 'Favorites', icon: Star },
+    { id: 'settings', label: 'Settings', icon: Settings },
   ];
+
+  const navigate = (item) => {
+    if (item.id === 'library' && onSelectConsole) {
+      // The all-library tab is gone: landing on Library starts at the first
+      // alphabetical console, or whichever is currently selected if one is set.
+      onSelectConsole(consoles.length ? consoles[0].key : '');
+    }
+    setCurrentView(item.id);
+  };
+
+  const selectConsole = (consoleKey) => {
+    if (onSelectConsole) onSelectConsole(consoleKey);
+    setCurrentView('library');
+    setLibraryOpen(true);
+  };
 
   return (
     <>
@@ -58,11 +81,58 @@ export default function Sidebar({
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = currentView === item.id;
+
+            if (item.hasConsoles) {
+              return (
+                <div key={item.id} className="nav-group">
+                  <div
+                    className={`nav-item ${isActive ? 'active' : ''}`}
+                    onClick={() => navigate(item)}
+                    title={item.label}
+                  >
+                    <Icon size={18} style={{ marginRight: '0.75rem', flexShrink: 0 }} />
+                    <span>{item.label}</span>
+                    <button
+                      type="button"
+                      className={`nav-caret ${libraryOpen ? 'open' : ''}`}
+                      aria-label={libraryOpen ? 'Hide consoles' : 'Show consoles'}
+                      aria-expanded={libraryOpen}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setLibraryOpen((open) => !open);
+                      }}
+                    >
+                      <ChevronDown size={15} />
+                    </button>
+                  </div>
+
+                  {libraryOpen && (
+                    <div className="nav-submenu">
+                      {consoles.map((console) => (
+                        <button
+                          key={console.key}
+                          type="button"
+                          className={`nav-submenu-item ${
+                            isActive && libraryConsole === console.key ? 'active' : ''
+                          }`}
+                          onClick={() => selectConsole(console.key)}
+                        >
+                          <span className="nav-submenu-label">{console.key}</span>
+                          <span className="nav-submenu-count">{console.count}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
             return (
               <div
                 key={item.id}
                 className={`nav-item ${isActive ? 'active' : ''}`}
-                onClick={() => setCurrentView(item.id)}
+                onClick={() => navigate(item)}
+                title={item.label}
               >
                 <Icon size={18} style={{ marginRight: '0.75rem', flexShrink: 0 }} />
                 <span>{item.label}</span>
@@ -111,19 +181,22 @@ export default function Sidebar({
         </div>
       </aside>
 
-      {/* Mobile Bottom Navigation Bar */}
+      {/* Mobile Bottom Navigation Bar (icons only) */}
       <nav className="mobile-bottom-nav">
         {navItems.map((item) => {
           const Icon = item.icon;
+          const isActive = currentView === item.id;
           return (
             <button
               key={item.id}
               type="button"
-              className={`mobile-nav-btn ${currentView === item.id ? 'active' : ''}`}
-              onClick={() => setCurrentView(item.id)}
+              className={`mobile-nav-btn ${isActive ? 'active' : ''}`}
+              onClick={() => navigate(item)}
+              title={item.label}
+              aria-label={item.label}
+              aria-current={isActive ? 'page' : undefined}
             >
-              <Icon size={20} className="mobile-nav-icon" />
-              <span className="mobile-nav-label">{item.shortLabel}</span>
+              <Icon size={22} className="mobile-nav-icon" />
             </button>
           );
         })}

@@ -575,8 +575,12 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
     const rawUrl = game.playUrl || game.webUrl;
     const embedUrl = `/api/web-game/embed?url=${encodeURIComponent(rawUrl)}`;
     return (
-      <div ref={containerRef} className="fixed inset-0 z-50 bg-black flex flex-col animate-in">
-        <div className="flex items-center justify-between px-4 py-2.5 bg-slate-950/80 border-b border-white/10">
+      <div
+        ref={containerRef}
+        className="rom-emulator-overlay fixed inset-0 bg-black flex flex-col"
+        style={{ backgroundColor: '#000000', zIndex: 99999 }}
+      >
+        <div className="flex items-center justify-between px-4 py-2.5 bg-slate-950 border-b border-white/10" style={{ backgroundColor: '#020617' }}>
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-8 h-8 rounded-lg bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-300 shrink-0">
               <Globe className="w-4 h-4" />
@@ -608,7 +612,8 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
         <iframe
           src={embedUrl}
           title={game.title}
-          className="flex-1 w-full border-0"
+          className="flex-1 w-full border-0 bg-black"
+          style={{ backgroundColor: '#000000' }}
           allow="autoplay; fullscreen *; gamepad; accelerometer; gyroscope; cross-origin-isolated"
           allowFullScreen
         />
@@ -621,7 +626,11 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
   // -------------------------------------------------------------
   if (isPcGame) {
     return (
-      <div ref={containerRef} className="fixed inset-0 z-50 bg-black/95 backdrop-blur-xl flex items-center justify-center p-6">
+      <div
+        ref={containerRef}
+        className="rom-emulator-overlay fixed inset-0 bg-black flex items-center justify-center p-6"
+        style={{ backgroundColor: 'rgba(0, 0, 0, 0.95)', zIndex: 99999 }}
+      >
         <div className="glass-panel max-w-md w-full p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="font-heading font-bold text-lg text-white">{game.title}</h2>

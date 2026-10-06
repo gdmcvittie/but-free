@@ -8,7 +8,8 @@ import dotenv from 'dotenv';
 
 import * as Database from './server/database.js';
 import { GoogleAuth } from './server/googleAuth.js';
-import { GoogleDrive } from './server/googleDrive.js';
+import { GoogleDrive, cleanGameTitle } from './server/googleDrive.js';
+import { sanitizeFolderName } from './server/rssDiscovery.js';
 import { DownloaderClient, GameDownloaderClient } from './server/downloaderClient.js';
 import { registerDiscoverRoutes } from './server/discoverRoutes.js';
 import { registerLibraryRoutes } from './server/libraryRoutes.js';
@@ -195,12 +196,38 @@ app.post('/api/games/scan', async (req, res) => {
 });
 
 // Toggle Favorite
-app.post('/api/games/:id/favorite', (req, res) => {
+app.post('/api/games/:id/favorite', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
   const gameId = req.params.id;
   const isFavorite = Database.toggleFavorite(req.user.id, gameId);
+
+  // Sync favorites.json to user's games folder on Google Drive
+  if (req.user.gamesFolderId) {
+    try {
+      const favs = Database.getFavorites(req.user.id);
+      await GoogleDrive.writeJsonFile(req.user, req.user.gamesFolderId, 'favorites.json', {
+        version: 1,
+        updatedAt: Date.now(),
+        favorites: favs
+      });
+    } catch (err) {
+      console.warn('[Favorites Sync Error]:', err.message);
+    }
+  }
+
   res.json({ success: true, gameId, isFavorite });
+});
+
+// Stream any file from Google Drive directly (posters, ROMs, etc.)
+app.get('/api/drive/file/:driveId', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    await GoogleDrive.streamFile(req.user, req.params.driveId, req, res);
+  } catch (err) {
+    console.warn('[Drive File Stream Error]:', err.message);
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+  }
 });
 
 // Stream game ROM to in-browser emulator with HTTP range requests
@@ -276,7 +303,7 @@ app.post('/api/downloads/add', async (req, res) => {
       source: magnet,
       title: title || 'Retro Game',
       console: consoleKey || 'retro',
-      subfolder: consoleKey === 'pc' ? undefined : consoleKey || undefined,
+      subfolder: consoleKey === 'pc' ? `PC/${sanitizeFolderName(cleanGameTitle(title || 'PC Game'))}` : consoleKey || undefined,
       webhookUrl: `${base}/api/webhook/download-complete`,
       tokenRefreshUrl: `${base}/api/downloads/token-refresh`
     });

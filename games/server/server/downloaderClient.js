@@ -136,17 +136,20 @@ export const GameDownloaderClient = {
     const accessToken = await GoogleAuth.getValidAccessToken(user);
     const url = `${getDownloaderUrl()}/api/game/torrent/download`;
 
+    const safePcFolder = `PC/${(title || 'PC Game').replace(/[/\\:*?"<>|]/g, '_').trim()}`;
+    const targetSubfolder = subfolder || (consoleKey === 'pc' || !consoleKey ? safePcFolder : undefined);
+
     const payload = {
       magnet: source,
       title: title || 'PC Game',
       kind: 'game',
-      meta: { console: consoleKey || 'pc', title: title || 'PC Game', subfolder },
-      subfolder: subfolder || undefined,
+      meta: { console: consoleKey || 'pc', title: title || 'PC Game', subfolder: targetSubfolder },
+      subfolder: targetSubfolder,
       selectedFiles: Array.isArray(selectedFiles) && selectedFiles.length > 0 ? selectedFiles : undefined,
       driveConfig: {
         accessToken,
         rootFolderId: user.gamesFolderId,
-        subfolder: subfolder || undefined,
+        subfolder: targetSubfolder,
         tokenRefreshUrl: tokenRefreshUrl || undefined
       },
       webhookUrl: webhookUrl || '',
@@ -174,17 +177,20 @@ export const GameDownloaderClient = {
     const accessToken = await GoogleAuth.getValidAccessToken(user);
     const endpoint = `${getDownloaderUrl()}/api/game/direct/download`;
 
+    const safePcFolder = `PC/${(title || 'PC Game').replace(/[/\\:*?"<>|]/g, '_').trim()}`;
+    const targetSubfolder = subfolder || (consoleKey === 'pc' ? safePcFolder : undefined);
+
     const payload = {
       url,
       headers: headers && Object.keys(headers).length ? headers : undefined,
       fileName: fileName || undefined,
       title: title || 'Game Download',
-      meta: { console: consoleKey || 'pc', title: title || 'Game Download', subfolder },
-      subfolder: subfolder || undefined,
+      meta: { console: consoleKey || 'pc', title: title || 'Game Download', subfolder: targetSubfolder },
+      subfolder: targetSubfolder,
       driveConfig: {
         accessToken,
         rootFolderId: user.gamesFolderId,
-        subfolder: subfolder || undefined,
+        subfolder: targetSubfolder,
         tokenRefreshUrl: tokenRefreshUrl || undefined
       },
       webhookUrl: webhookUrl || '',
