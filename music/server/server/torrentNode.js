@@ -164,4 +164,12 @@ export async function restartNode() {
   return request('/api/restart', { method: 'POST', timeoutMs: 8000 });
 }
 
-export default { isConfigured, health, enqueue, enqueueYoutube, getRemoteTracks, listJobs, getJob, cancelJob, restartNode };
+export async function getCookies() {
+  return request('/api/cookies', { method: 'GET', timeoutMs: 10000 });
+}
+
+export async function updateCookies(content) {
+  return request('/api/cookies', { method: 'POST', body: { content }, timeoutMs: 15000 });
+}
+
+export default { isConfigured, health, enqueue, enqueueYoutube, getRemoteTracks, listJobs, getJob, cancelJob, restartNode, getCookies, updateCookies };

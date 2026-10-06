@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DOWNLOADS_DIR, config } from './config.js';
+import { DOWNLOADS_DIR, config, ROOT_DIR } from './config.js';
 import db from './db.js';
 import googleDrive from './googleDrive.js';
 import { ensureYtDlp, resolveFfmpegDir, runProcess } from './binManager.js';
@@ -107,18 +107,63 @@ function textOf(node) {
   return '';
 }
 
-/** YouTube Music orders subtitle runs as [type, " • ", artist]. */
-function artistFromSubtitle(subtitle) {
+// Subtitle parser: cleanly isolates artist, release year, and release type
+function parseSubtitle(subtitle) {
   const runs = subtitle?.runs || [];
-  for (let i = runs.length - 1; i >= 0; i -= 1) {
-    const run = runs[i];
-    if (run.navigationEndpoint?.browseEndpoint?.browseId && run.text?.trim()) {
-      return { name: run.text.trim(), id: run.navigationEndpoint.browseEndpoint.browseId };
+  let artistName = '';
+  let artistId = null;
+  let year = null;
+  let releaseType = '';
+
+  for (const run of runs) {
+    const text = (run.text || '').trim();
+    if (!text || text === '•' || text === '·') continue;
+    const bid = run.navigationEndpoint?.browseEndpoint?.browseId;
+    if (bid?.startsWith('UC') && !isYearLike(text) && !KNOWN_TYPES.has(text)) {
+      artistName = text;
+      artistId = bid;
+      break;
     }
   }
-  const plain = textOf(subtitle).replace(/^[^•]+•\s*/, '').trim();
-  return { name: plain, id: null };
+
+  const tokens = (runs.length
+    ? runs.map((r) => (r.text || '').trim()).filter((t) => t && t !== '•' && t !== '·')
+    : textOf(subtitle).split(/[•·|]/).map((s) => s.trim())
+  ).filter(Boolean);
+
+  for (const token of tokens) {
+    if (isYearLike(token)) {
+      if (!year) year = token.replace(/[()]/g, '').trim();
+    } else if (KNOWN_TYPES.has(token)) {
+      if (!releaseType) releaseType = token;
+    } else if (!artistName) {
+      artistName = token;
+    }
+  }
+
+  return {
+    name: (artistName && !isYearLike(artistName)) ? artistName : '',
+    id: artistId,
+    year: year || null,
+    type: releaseType || null
+  };
 }
+
+function artistFromSubtitle(subtitle) {
+  const parsed = parseSubtitle(subtitle);
+  return { name: parsed.name, id: parsed.id, year: parsed.year, type: parsed.type };
+}
+
+
+
+
+
+
+
+
+
+
+
 
 function largestThumb(item) {
   const list = item?.thumbnailRenderer?.musicThumbnailRenderer?.thumbnail?.thumbnails || [];
@@ -137,13 +182,15 @@ function toAlbum(item) {
   const title = textOf(item.title);
   if (!albumId || !title) return null;
 
-  const { name: artist, id: artistId } = artistFromSubtitle(item.subtitle);
+  const { name: artist, id: artistId, year, type } = parseSubtitle(item.subtitle);
   return {
     kind: 'album',
     id: albumId,
     title,
     album: title,
-    artist: artist || 'Unknown Artist',
+    artist: (artist && !isYearLike(artist)) ? artist : '',
+    year: year || null,
+    type: type || null,
     artistId,
     thumbnail: largestThumb(item),
     coverUrl: largestThumb(item),
@@ -292,7 +339,7 @@ function toListItem(renderer) {
       // Search song rows carry no artist link - YouTube Music only shows
       // title/type/duration/plays. The real artist arrives from the file's own
       // tags when the track is downloaded.
-      artist: artistRun?.text?.trim() || '',
+      artist: pickName(artistRun?.text, ...textOnly(afterType), ...textOnly(metaRuns)) || '',
       artistId: channelId || artistRun?.navigationEndpoint?.browseEndpoint?.browseId || null,
       album: albumRun?.text?.trim() || textOnly(columns[2]?.runs).filter(Boolean)[0] || '',
       albumId: albumRun?.navigationEndpoint?.browseEndpoint?.browseId || albumId || null,
@@ -356,11 +403,13 @@ function toCard(renderer) {
 
   // A card that is really an album or song - fold it into the normal lists.
   if (browseId?.startsWith('MPREb')) {
+    const cardSub = parseSubtitle(shelf.subtitle);
     return {
       kind: 'album',
       id: browseId,
       title: heading,
-      artist: subtitleRuns.find((r) => r.navigationEndpoint)?.text?.trim() || '',
+      artist: cardSub.name || '',
+      year: cardSub.year || null,
       thumbnail: bestThumb(shelf),
       playlistId: featured?.playlistId || null
     };
@@ -445,13 +494,29 @@ export async function artistBrowse(channelId, { force = false } = {}) {
   // page title ("... - YouTube Music") or from the most common credited artist.
   const pageTitle = /<title[^>]*>([^<]+)<\/title>/i.exec(html)?.[1] || '';
   const fromTitle = pageTitle.replace(/\s*-\s*YouTube Music\s*$/i, '').trim();
-  const credited = (result.songs[0]?.artist || result.albums[0]?.artist || '').trim();
+  const creditedSong = result.songs.find((s) => s.artist && !isYearLike(s.artist))?.artist;
+  const creditedAlbum = result.albums.find((a) => a.artist && !isYearLike(a.artist))?.artist;
+  const credited = (creditedSong || creditedAlbum || '').trim();
+  const artistTitle = fromTitle && !/^YouTube Music$/i.test(fromTitle) ? fromTitle : (credited || id);
   result.artist = {
     channelId: id,
-    title: fromTitle && !/^YouTube Music$/i.test(fromTitle) ? fromTitle : (credited || id),
+    title: artistTitle,
     thumbnail: result.albums[0]?.coverUrl || result.songs[0]?.thumbnail || null,
     subscribers: result.artists[0]?.subscribers || null
   };
+
+  for (const album of result.albums) {
+    if (!album.artist || isYearLike(album.artist) || album.artist === 'Unknown Artist') {
+      album.artist = artistTitle;
+      if (!album.artistId) album.artistId = id;
+    }
+  }
+  for (const song of result.songs) {
+    if (!song.artist || isYearLike(song.artist)) {
+      song.artist = artistTitle;
+      if (!song.artistId) song.artistId = id;
+    }
+  }
 
   artistCache.set(id, { at: Date.now(), result });
   return result;
@@ -611,13 +676,25 @@ const MAX_PLAYLIST_TRACKS = 500;
  */
 function ytAuthArgs(userId) {
   const settings = userId ? db.getSettings(userId) : {};
-  const file = String(settings.youtubeCookiesFile || config.music.cookiesFile || '').trim();
+  const file = String(settings.youtubeCookiesFile || config.music.cookiesFile || process.env.YOUTUBE_COOKIES_FILE || '').trim();
   if (file) {
     const resolved = path.resolve(file);
     if (!fs.existsSync(resolved)) {
       throw new Error(`YouTube cookies file not found: ${resolved}`);
     }
     return ['--cookies', resolved];
+  }
+  const localCandidates = [
+    path.resolve(ROOT_DIR, '../../downloader/cookies.txt'),
+    path.resolve(ROOT_DIR, '../downloader/cookies.txt'),
+    path.resolve(ROOT_DIR, 'cookies.txt'),
+    path.resolve(process.cwd(), 'cookies.txt'),
+    path.resolve(process.cwd(), 'downloader/cookies.txt')
+  ];
+  for (const c of localCandidates) {
+    if (fs.existsSync(c)) {
+      return ['--cookies', c];
+    }
   }
   const browser = String(settings.youtubeCookiesBrowser || '').trim().toLowerCase();
   return browser ? ['--cookies-from-browser', browser] : [];
@@ -1015,6 +1092,23 @@ async function downloadTracksRemote(user, entries, meta = {}, onProgress = () =>
         cookiesContent = fs.readFileSync(resolved, 'utf8');
       }
     } catch (_) {}
+  }
+  if (!cookiesContent) {
+    const localCandidates = [
+      path.resolve(ROOT_DIR, '../../downloader/cookies.txt'),
+      path.resolve(ROOT_DIR, '../downloader/cookies.txt'),
+      path.resolve(ROOT_DIR, 'cookies.txt'),
+      path.resolve(process.cwd(), 'cookies.txt'),
+      path.resolve(process.cwd(), 'downloader/cookies.txt')
+    ];
+    for (const c of localCandidates) {
+      if (fs.existsSync(c)) {
+        try {
+          cookiesContent = fs.readFileSync(c, 'utf8');
+          if (cookiesContent) break;
+        } catch (_) {}
+      }
+    }
   }
 
   let refreshUrl = null;

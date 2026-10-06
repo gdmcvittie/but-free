@@ -320,60 +320,7 @@ export default function SettingsView({
           </div>
         </div>
 
-        {/* Card 5: Umbrella Cloud Ecosystem */}
-        <div className="glass-panel p-6 rounded-2xl border border-white/5 space-y-4 lg:col-span-2">
-          <div className="flex items-center justify-between pb-3 border-b border-white/5">
-            <h3 className="font-heading font-bold text-base text-white flex items-center gap-2">
-              <ExternalLink className="w-4 h-4 text-purple-400" />
-              <span>butfree.online Ecosystem</span>
-            </h3>
-          </div>
 
-          <p className="text-xs text-slate-400">
-            FREEPLAY shares Google Drive authentication and high-speed downloader infrastructure with our suite of media apps:
-          </p>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-            <a
-              href="https://comics.butfree.online"
-              target="_blank"
-              rel="noreferrer"
-              className="p-3.5 rounded-xl bg-slate-900/60 hover:bg-slate-800/80 border border-white/5 hover:border-emerald-500/30 transition flex items-center justify-between group"
-            >
-              <div>
-                <div className="text-sm font-semibold text-white group-hover:text-emerald-400 transition-colors">ComixoloFree</div>
-                <div className="text-[11px] text-slate-400">Cloud Comic Reader</div>
-              </div>
-              <ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:text-emerald-400" />
-            </a>
-
-            <a
-              href="https://music.butfree.online"
-              target="_blank"
-              rel="noreferrer"
-              className="p-3.5 rounded-xl bg-slate-900/60 hover:bg-slate-800/80 border border-white/5 hover:border-pink-500/30 transition flex items-center justify-between group"
-            >
-              <div>
-                <div className="text-sm font-semibold text-white group-hover:text-pink-400 transition-colors">Fraudio</div>
-                <div className="text-[11px] text-slate-400">Music & Audiobooks</div>
-              </div>
-              <ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:text-pink-400" />
-            </a>
-
-            <a
-              href="https://tv.butfree.online"
-              target="_blank"
-              rel="noreferrer"
-              className="p-3.5 rounded-xl bg-slate-900/60 hover:bg-slate-800/80 border border-white/5 hover:border-red-500/30 transition flex items-center justify-between group"
-            >
-              <div>
-                <div className="text-sm font-semibold text-white group-hover:text-red-400 transition-colors">Freevee</div>
-                <div className="text-[11px] text-slate-400">Movies & TV Series</div>
-              </div>
-              <ExternalLink className="w-3.5 h-3.5 text-slate-500 group-hover:text-red-400" />
-            </a>
-          </div>
-        </div>
       </div>
     </div>
   );

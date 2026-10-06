@@ -430,6 +430,59 @@ app.post('/api/cleanup', requireAuth, (req, res) => {
 });
 
 // -------------------------------------------------------------
+// YouTube Netscape Cookies Configuration
+// -------------------------------------------------------------
+app.get('/api/cookies', requireAuth, (req, res) => {
+  const cookiePath = path.join(__dirname, 'cookies.txt');
+  if (fs.existsSync(cookiePath)) {
+    try {
+      const content = fs.readFileSync(cookiePath, 'utf8');
+      const stats = fs.statSync(cookiePath);
+      return res.json({
+        success: true,
+        exists: true,
+        sizeBytes: stats.size,
+        updatedAt: stats.mtime,
+        content
+      });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+  return res.json({ success: true, exists: false, content: '', sizeBytes: 0 });
+});
+
+app.post('/api/cookies', requireAuth, (req, res) => {
+  const raw = (req.body?.content || req.body?.cookies || '').trim();
+  if (!raw) {
+    return res.status(400).json({ success: false, error: 'cookies.txt content is required' });
+  }
+
+  const targets = [
+    path.join(__dirname, 'cookies.txt'),
+    path.resolve('./cookies.txt'),
+    path.join(CACHE_DIR, 'cookies.txt')
+  ];
+
+  try {
+    for (const target of targets) {
+      const dir = path.dirname(target);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(target, raw + '\n', 'utf8');
+    }
+    console.log(`[FraudioStreamer] Successfully written ${raw.length} bytes to cookies.txt via /api/cookies`);
+    return res.json({
+      success: true,
+      message: 'cookies.txt successfully written to download server',
+      sizeBytes: Buffer.byteLength(raw, 'utf8')
+    });
+  } catch (err) {
+    console.error('[FraudioStreamer] Failed to write cookies.txt:', err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// -------------------------------------------------------------
 // Freevee TV: Torrent Streaming Endpoints
 // -------------------------------------------------------------
 app.post('/api/torrent/stream', (req, res) => {

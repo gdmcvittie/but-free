@@ -161,7 +161,9 @@ export const api = {
 
   // ---- admin ---------------------------------------------------------
   restartStreamer: () => post('/api/admin/restart-streamer'),
-  restartAppServer: () => post('/api/admin/restart-app')
+  restartAppServer: () => post('/api/admin/restart-app'),
+  getAdminCookies: () => get('/api/admin/cookies'),
+  saveAdminCookies: (content) => post('/api/admin/cookies', { content })
 };
 
 /**

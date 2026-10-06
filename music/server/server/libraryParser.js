@@ -421,7 +421,9 @@ export function buildTrackRecord({ pathSegments = [], fileName, tags = null, goo
   const common = tags?.common || tags || {};
   const format = tags?.rawFormat || tags?.format || {};
 
-  const artist = common.artist || common.albumartist || tags?.artist || fromName.artist || meaningfulFolders[0] || '';
+  const isYearCandidate = (v) => /^\(?\b(18|19|20)\d{2}\b\)?$/.test(String(v || '').trim());
+  const artist = [common.artist, common.albumartist, tags?.artist, fromName.artist, meaningfulFolders[0]]
+    .find((c) => c && !isYearCandidate(c)) || '';
   const album = common.album || tags?.album || fromName.album || meaningfulFolders[1] || '';
 
   const rawGenre = common.genre || tags?.genre;

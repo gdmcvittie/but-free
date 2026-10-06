@@ -283,20 +283,42 @@ export function runProcess(command, args, { cwd = process.cwd(), timeoutMs = 600
  */
 const AUTH_SUSPECT_RE = /sign in|not a bot|cookies|age|private|login|premium|authentication|account|requested format is not available|http error 4(?:03|29)|video unavailable/i;
 
-async function runWithAuthFallback(bin, args, cookies, runOpts) {
-  if (!cookies) return runProcess(bin, args, runOpts);
+async function runWithAuthFallback(bin, baseArgs, url, cookies, runOpts) {
+  const urls = [
+    url,
+    url.includes('music.youtube.com')
+      ? url.replace('music.youtube.com', 'www.youtube.com')
+      : url.replace('www.youtube.com', 'music.youtube.com')
+  ];
+
   let lastErr = null;
-  for (const useCookies of [true, false]) {
+  // 1. Try with cookies if provided
+  if (cookies) {
+    for (const targetUrl of urls) {
+      try {
+        return await runProcess(bin, [...baseArgs, '--cookies', cookies, targetUrl], runOpts);
+      } catch (err) {
+        lastErr = err;
+        console.warn(`[FraudioStreamer] yt-dlp attempt (with cookies) failed on ${targetUrl}:`, err.message);
+        if (!AUTH_SUSPECT_RE.test(err.message || '')) break;
+      }
+    }
+  }
+
+  // 2. Try anonymous
+  for (const targetUrl of urls) {
     try {
-      return await runProcess(bin, useCookies ? [...args, '--cookies', cookies] : args, runOpts);
+      return await runProcess(bin, [...baseArgs, targetUrl], runOpts);
     } catch (err) {
       lastErr = err;
-      console.warn(`[FraudioStreamer] yt-dlp attempt (useCookies=${useCookies}) failed:`, err.message);
-      if (!useCookies && !AUTH_SUSPECT_RE.test(err.message || '')) break;
+      console.warn(`[FraudioStreamer] yt-dlp attempt (anonymous) failed on ${targetUrl}:`, err.message);
+      if (!AUTH_SUSPECT_RE.test(err.message || '')) break;
     }
   }
   throw lastErr;
 }
+
+
 
 let cachedYtdlpVersion;
 let versionCheckedAt = 0;
@@ -341,8 +363,6 @@ export async function downloadYoutubeTrack(entry, options = {}) {
     '--embed-metadata',
     '--embed-thumbnail',
     '--convert-thumbnails', 'jpg',
-    // android client bypasses the web PO-token / bot check for audio streams on datacenter IPs
-    '--extractor-args', 'youtube:player_client=android,web',
     '-o', path.join(destDir, '%(title)s.%(ext)s')
   ];
 
@@ -350,11 +370,10 @@ export async function downloadYoutubeTrack(entry, options = {}) {
     args.push('--ffmpeg-location', ffmpeg);
   }
 
-  const url = `https://www.youtube.com/watch?v=${encodeURIComponent(entry.videoId)}`;
-  args.push(url);
+  const url = `https://music.youtube.com/watch?v=${encodeURIComponent(entry.videoId)}`;
 
   console.log(`[FraudioStreamer] yt-dlp downloading: ${entry.title || entry.videoId} (${format})`);
-  await runWithAuthFallback(bin, args, cookies, { cwd: destDir, timeoutMs: 300000 });
+  await runWithAuthFallback(bin, args, url, cookies, { cwd: destDir, timeoutMs: 300000 });
 
   // Locate the downloaded audio file
   const files = fs.readdirSync(destDir).filter((f) => {
@@ -384,9 +403,7 @@ export async function getPlaylistTracks(playlistId) {
   const url = `https://music.youtube.com/playlist?list=${encodeURIComponent(playlistId)}`;
 
   const args = ['--flat-playlist', '-J', '--no-warnings'];
-  args.push(url);
-
-  const { stdout } = await runWithAuthFallback(bin, args, cookies, { timeoutMs: 60000 });
+  const { stdout } = await runWithAuthFallback(bin, args, url, cookies, { timeoutMs: 60000 });
   const jsonStr = stdout.slice(stdout.indexOf('{'));
   const data = JSON.parse(jsonStr);
 

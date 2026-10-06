@@ -274,7 +274,15 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
   }, [queue, notify, detail, entityJobs]);
 
   const openAlbum = useCallback(async (album) => {
-    setDetail(album);
+    const rawArtist = album.artist || '';
+    const isYear = /^\(?\b(18|19|20)\d{2}\b\)?$/.test(rawArtist.trim());
+    const enrichedAlbum = {
+      ...album,
+      artist: (!isYear && rawArtist && rawArtist !== 'Unknown Artist')
+        ? rawArtist
+        : (artist?.title || rawArtist || 'Unknown Artist')
+    };
+    setDetail(enrichedAlbum);
     setTracks([]);
     setDetailLoading(true);
     try {
@@ -285,7 +293,7 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
     } finally {
       setDetailLoading(false);
     }
-  }, [notify]);
+  }, [notify, artist?.title]);
 
   const closeDetail = useCallback(() => {
     setDetail(null);
@@ -648,7 +656,11 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
                     </div>
                   </div>
                   <div className="media-title">{album.title}</div>
-                  <div className="media-subtitle">{album.artist || album.year || 'Album'}</div>
+                  <div className="media-subtitle">
+                    {album.artist && !/^\(?\b(18|19|20)\d{2}\b\)?$/.test(album.artist.trim())
+                      ? `${album.artist}${album.year ? ` • ${album.year}` : ''}`
+                      : (album.year ? `${artist?.title || 'Album'} • ${album.year}` : (artist?.title || 'Album'))}
+                  </div>
                 </div>
               ))}
             </div>
@@ -724,7 +736,11 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
                       </div>
                     </div>
                     <div className="media-title">{album.title}</div>
-                    <div className="media-subtitle">{album.artist}</div>
+                    <div className="media-subtitle">
+                      {album.artist && !/^\(?\b(18|19|20)\d{2}\b\)?$/.test(album.artist.trim())
+                        ? `${album.artist}${album.year ? ` • ${album.year}` : ''}`
+                        : (album.year || 'Album')}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -825,7 +841,11 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
                   </div>
                 </div>
                 <div className="media-title">{album.title}</div>
-                <div className="media-subtitle">{album.artist}</div>
+                <div className="media-subtitle">
+                  {album.artist && !/^\(?\b(18|19|20)\d{2}\b\)?$/.test(album.artist.trim())
+                    ? `${album.artist}${album.year ? ` • ${album.year}` : ''}`
+                    : (album.year || 'Album')}
+                </div>
               </div>
             ))}
           </div>
@@ -846,7 +866,11 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
                 )}
                 <div style={{ minWidth: 0 }}>
                   <h2 style={{ margin: 0 }}>{detail.title}</h2>
-                  <div className="media-subtitle">{detail.artist}</div>
+                  <div className="media-subtitle">
+                    {detail.artist && !/^\(?\b(18|19|20)\d{2}\b\)?$/.test(detail.artist.trim())
+                      ? `${detail.artist}${detail.year ? ` • ${detail.year}` : ''}`
+                      : (detail.year || 'Album')}
+                  </div>
                 </div>
                 <button
                   type="button"

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { FolderOpen, LogOut, RefreshCw, Trash2, HardDrive, Activity, KeyRound, Music, Disc, ListMusic, BookOpen, Download, Smartphone, Server, RotateCcw } from 'lucide-react';
+import { FolderOpen, LogOut, RefreshCw, Trash2, HardDrive, Activity, KeyRound, Music, Disc, ListMusic, BookOpen, Download, Smartphone, Server, RotateCcw, Cookie, Save } from 'lucide-react';
 import { api } from './api';
 import { hasNativeBridge } from './nativeBridge';
 import { formatBytes, pluralize } from './format';
@@ -41,6 +41,53 @@ export default function Settings({ user, libraryVersion, onOpenDrivePicker, onLo
   const [savingKey, setSavingKey] = useState(null);
   const [restartingStreamer, setRestartingStreamer] = useState(false);
   const [restartingApp, setRestartingApp] = useState(false);
+  const [adminCookies, setAdminCookies] = useState('');
+  const [adminCookiesLoading, setAdminCookiesLoading] = useState(false);
+  const [adminCookiesSaving, setAdminCookiesSaving] = useState(false);
+  const [adminCookiesStatus, setAdminCookiesStatus] = useState(null);
+
+  const handleFetchAdminCookies = useCallback(async () => {
+    setAdminCookiesLoading(true);
+    setAdminCookiesStatus(null);
+    try {
+      const res = await api.getAdminCookies();
+      if (res?.content) {
+        setAdminCookies(res.content);
+        setAdminCookiesStatus({ success: true, message: `Loaded ${res.sizeBytes || res.content.length} bytes from server.` });
+      } else if (res?.exists === false) {
+        setAdminCookiesStatus({ success: true, message: 'No cookies.txt currently found on download server.' });
+      }
+    } catch (err) {
+      setAdminCookiesStatus({ success: false, message: `Failed to load: ${err.message}` });
+    } finally {
+      setAdminCookiesLoading(false);
+    }
+  }, []);
+
+  const handleSaveAdminCookies = async () => {
+    if (!adminCookies.trim()) {
+      notify('Empty cookies', 'Please paste the contents of your cookies.txt first.', true);
+      return;
+    }
+    setAdminCookiesSaving(true);
+    setAdminCookiesStatus(null);
+    try {
+      const res = await api.saveAdminCookies(adminCookies);
+      setAdminCookiesStatus({ success: true, message: res.message || 'Saved to download server!' });
+      notify('Cookies Updated', 'cookies.txt was successfully written to the download server.');
+    } catch (err) {
+      setAdminCookiesStatus({ success: false, message: err.message || 'Failed to save cookies' });
+      notify('Save Failed', err.message, true);
+    } finally {
+      setAdminCookiesSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user?.email?.toLowerCase() === 'gdmcvittie@gmail.com') {
+      handleFetchAdminCookies();
+    }
+  }, [user?.email, handleFetchAdminCookies]);
 
   const handleRestartStreamer = async () => {
     if (!window.confirm('Restart the torrent / streamer daemon? Active transfers will reconnect.')) return;
@@ -541,7 +588,7 @@ export default function Settings({ user, libraryVersion, onOpenDrivePicker, onLo
           </div>
         )}
 
-        <div className="setting-row">
+        {/* <div className="setting-row">
           <div>
             <div className="setting-label">Cookies file</div>
             <div className="setting-help">
@@ -558,7 +605,7 @@ export default function Settings({ user, libraryVersion, onOpenDrivePicker, onLo
             value={settings?.youtubeCookiesFile ?? ''}
             onChange={(e) => update('youtubeCookiesFile', e.target.value)}
           />
-        </div>
+        </div> */}
 
         {/* <div className="setting-row">
           <div>
@@ -931,6 +978,87 @@ export default function Settings({ user, libraryVersion, onOpenDrivePicker, onLo
               <RotateCcw size={14} className={restartingApp ? 'spin' : ''} />
               {restartingApp ? 'Restarting…' : 'Restart App Server'}
             </button>
+          </div>
+
+          {/* Download Server YouTube Cookies (cookies.txt) */}
+          <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <div>
+                <div className="setting-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Cookie size={15} style={{ color: 'var(--accent-color)' }} />
+                  <span>Download Server Cookies (<code>cookies.txt</code>)</span>
+                </div>
+                <div className="setting-help">
+                  Paste the Netscape-format <code>cookies.txt</code> exported from your signed-in browser for <code>music.youtube.com</code>.
+                  Saving this writes directly to <code>cookies.txt</code> on the download server ({health?.torrentNode?.targetUrl || 'download server'}) to unlock age-gated tracks, private playlists (e.g. Liked Music), and prevent YouTube bot-checks.
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={handleFetchAdminCookies}
+                disabled={adminCookiesLoading || adminCookiesSaving}
+                title="Reload the current cookies.txt from the download server"
+              >
+                <RefreshCw size={13} className={adminCookiesLoading ? 'spin' : ''} />
+                {adminCookiesLoading ? 'Loading…' : 'Load from Server'}
+              </button>
+            </div>
+
+            <textarea
+              className="input-field"
+              rows={8}
+              value={adminCookies}
+              onChange={(e) => setAdminCookies(e.target.value)}
+              placeholder={`# Netscape HTTP Cookie File\n# http://curl.haxx.se/rfc/cookie_spec.html\n# This file is generated by yt-dlp or exported from your browser.\n.youtube.com\tTRUE\t/\tTRUE\t...\tSID\t...\n.youtube.com\tTRUE\t/\tTRUE\t...\tHSID\t...`}
+              style={{
+                width: '100%',
+                fontFamily: 'monospace',
+                fontSize: '0.78rem',
+                lineHeight: 1.4,
+                padding: '0.65rem 0.85rem',
+                borderRadius: '8px',
+                resize: 'vertical',
+                minHeight: '130px',
+                marginTop: '0.4rem',
+                background: 'rgba(0, 0, 0, 0.25)',
+                color: 'var(--text-main, #f8fafc)',
+                border: '1px solid var(--border-color)'
+              }}
+            />
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.65rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <div style={{ fontSize: '0.8rem', color: adminCookiesStatus?.success ? '#34d399' : 'var(--danger, #ef4444)' }}>
+                {adminCookiesStatus && (
+                  <span>{adminCookiesStatus.success ? '✅ ' : '❌ '}{adminCookiesStatus.message}</span>
+                )}
+                {!adminCookiesStatus && adminCookies && (
+                  <span style={{ color: 'var(--text-muted)' }}>
+                    {pluralize(adminCookies.split('\n').filter(l => l.trim() && !l.startsWith('#')).length, 'cookie')} detected ({formatBytes(new Blob([adminCookies]).size)})
+                  </span>
+                )}
+              </div>
+
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={handleSaveAdminCookies}
+                disabled={adminCookiesSaving || adminCookiesLoading || !adminCookies.trim()}
+                style={{ minWidth: 160 }}
+              >
+                {adminCookiesSaving ? (
+                  <>
+                    <RefreshCw size={14} className="spin" />
+                    <span>Writing to Server…</span>
+                  </>
+                ) : (
+                  <>
+                    <Save size={14} />
+                    <span>Save to Download Server</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

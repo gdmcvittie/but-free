@@ -269,6 +269,7 @@ export default function App() {
         user={user}
         onLogout={handleLogout}
         onOpenDrivePicker={() => setIsDrivePickerOpen(true)}
+        onLibraryUpdated={() => setProgressVersion((v) => v + 1)}
       />
 
       {/* Google Drive Folder Selector Modal */}

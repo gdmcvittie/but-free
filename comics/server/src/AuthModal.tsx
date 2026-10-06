@@ -16,6 +16,7 @@ interface AuthModalProps {
   user: GoogleUserProfile | null;
   onLogout: () => void;
   onOpenDrivePicker?: () => void;
+  onLibraryUpdated?: () => void;
 }
 
 export default function AuthModal({
@@ -23,12 +24,43 @@ export default function AuthModal({
   onClose,
   user,
   onLogout,
-  onOpenDrivePicker
+  onOpenDrivePicker,
+  onLibraryUpdated
 }: AuthModalProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanStatus, setScanStatus] = useState<string | null>(null);
 
   if (!isOpen) return null;
+
+  const handleScan = async () => {
+    if (!user?.driveFolderId) {
+      if (onOpenDrivePicker) {
+        onClose();
+        onOpenDrivePicker();
+      } else {
+        setScanStatus('⚠️ Please select a Google Drive comic folder first.');
+      }
+      return;
+    }
+
+    setScanning(true);
+    setScanStatus('Scanning Google Drive for comics...');
+    try {
+      const res = await fetch(apiUrl('/api/settings/scan'), { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'Scan failed');
+
+      setScanStatus(`✅ Scan complete! Found ${data.count || 0} comic(s).`);
+      if (onLibraryUpdated) onLibraryUpdated();
+      setTimeout(() => setScanStatus(null), 5000);
+    } catch (err: any) {
+      setScanStatus(`❌ Scan error: ${err.message || 'Failed to scan'}`);
+    } finally {
+      setScanning(false);
+    }
+  };
 
   const handleSignIn = async () => {
     setLoading(true);
@@ -95,6 +127,52 @@ export default function AuthModal({
                   >
                     Change
                   </button>
+                )}
+              </div>
+
+              {/* Scan Library Folder Action (especially handy on mobile portrait view) */}
+              <div style={{ width: '100%', marginBottom: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-block"
+                  onClick={handleScan}
+                  disabled={scanning}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.5rem',
+                    padding: '0.65rem 1rem',
+                    fontWeight: 600
+                  }}
+                >
+                  <span style={{ display: 'inline-block', animation: scanning ? 'spin 1s linear infinite' : 'none' }}>
+                    🔄
+                  </span>
+                  <span>{scanning ? 'Scanning Google Drive...' : 'Scan Library Folder'}</span>
+                </button>
+                {scanStatus && (
+                  <div
+                    style={{
+                      fontSize: '0.82rem',
+                      textAlign: 'center',
+                      padding: '0.5rem 0.75rem',
+                      borderRadius: '8px',
+                      background: scanStatus.startsWith('❌') || scanStatus.startsWith('⚠️')
+                        ? 'rgba(239, 68, 68, 0.15)'
+                        : 'rgba(52, 211, 153, 0.15)',
+                      color: scanStatus.startsWith('❌') || scanStatus.startsWith('⚠️')
+                        ? '#ef4444'
+                        : '#34d399',
+                      border: `1px solid ${
+                        scanStatus.startsWith('❌') || scanStatus.startsWith('⚠️')
+                          ? 'rgba(239, 68, 68, 0.3)'
+                          : 'rgba(52, 211, 153, 0.3)'
+                      }`
+                    }}
+                  >
+                    {scanStatus}
+                  </div>
                 )}
               </div>
 

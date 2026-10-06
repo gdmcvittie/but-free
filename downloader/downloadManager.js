@@ -252,8 +252,9 @@ driveConfig: options.driveConfig || null,
 export function addYoutubeJob(options) {
   if (options.cookiesContent && typeof options.cookiesContent === 'string' && options.cookiesContent.trim().length > 50) {
     try {
-      const dest = path.resolve('./cookies.txt');
-      fs.writeFileSync(dest, options.cookiesContent.trim(), 'utf8');
+      for (const dest of [path.resolve('./cookies.txt'), path.resolve('./downloads/cookies.txt')]) {
+        try { fs.writeFileSync(dest, options.cookiesContent.trim(), 'utf8'); } catch (_) {}
+      }
       console.log('[FraudioStreamer] Synced fresh cookies.txt from download job');
     } catch (err) {
       console.warn('[FraudioStreamer] Could not sync cookies from job:', err.message);

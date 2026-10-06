@@ -1,10 +1,14 @@
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { config, ROOT_DIR, ensureDirs } from './config.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import db from './db.js';
 import googleAuth from './googleAuth.js';
 import googleDrive, { renderPlaceholderSvg } from './googleDrive.js';
@@ -1252,6 +1256,118 @@ app.post('/api/admin/restart-app', requireAdmin, (req, res) => {
     console.log('[Admin] App server restart requested by admin.');
     shutdown();
   }, 600);
+});
+
+app.get('/api/admin/cookies', requireAdmin, async (req, res) => {
+  try {
+  let remoteData = null;
+  if (torrentNode.isConfigured()) {
+    try {
+      remoteData = await torrentNode.getCookies();
+    } catch (err) {
+      console.warn('[Admin] Could not read cookies from remote download server:', err.message);
+    }
+  }
+
+  // Also check local downloader directory if present on disk
+  const localCandidates = [
+    process.env.YOUTUBE_COOKIES_FILE,
+    path.resolve(ROOT_DIR, '../../downloader/cookies.txt'),
+    path.resolve(ROOT_DIR, '../downloader/cookies.txt'),
+    path.resolve(ROOT_DIR, 'cookies.txt'),
+    path.resolve(ROOT_DIR, '../cookies.txt'),
+    path.resolve(__dirname, '../../../downloader/cookies.txt'),
+    path.resolve(__dirname, '../cookies.txt'),
+    path.resolve(process.cwd(), 'cookies.txt'),
+    path.resolve(process.cwd(), 'downloader/cookies.txt')
+  ].filter(Boolean);
+  let localContent = '';
+  let localFound = false;
+  for (const c of localCandidates) {
+    if (fs.existsSync(c)) {
+      try {
+        localContent = fs.readFileSync(c, 'utf8');
+        localFound = true;
+        break;
+      } catch (_) {}
+    }
+  }
+
+  const content = remoteData?.content || localContent || '';
+  res.json({
+    success: true,
+    exists: Boolean(remoteData?.exists || localFound || content),
+    content,
+    sizeBytes: remoteData?.sizeBytes || (content ? Buffer.byteLength(content, 'utf8') : 0),
+    remoteSynced: Boolean(remoteData?.success)
+  });
+  } catch (err) {
+    console.error('[Admin] GET /api/admin/cookies error:', err);
+    res.status(500).json({ success: false, error: err.message || 'Internal Server Error' });
+  }
+});
+
+app.post('/api/admin/cookies', requireAdmin, async (req, res) => {
+  try {
+  const content = (req.body?.content || req.body?.cookies || '').trim();
+  if (!content) {
+    return res.status(400).json({ error: 'cookies.txt content is required.' });
+  }
+
+  let remoteSuccess = false;
+  let remoteError = null;
+
+  // 1. Forward to download server daemon if configured
+  if (torrentNode.isConfigured()) {
+    try {
+      const data = await torrentNode.updateCookies(content);
+      if (data?.success) remoteSuccess = true;
+    } catch (err) {
+      remoteError = err.message;
+      console.warn('[Admin] Remote download server cookies update failed:', err.message);
+    }
+  }
+
+  // 2. Also write to local downloader/cookies.txt if present
+  const localTargets = [
+    process.env.YOUTUBE_COOKIES_FILE,
+    path.resolve(ROOT_DIR, '../../downloader/cookies.txt'),
+    path.resolve(ROOT_DIR, '../downloader/cookies.txt'),
+    path.resolve(ROOT_DIR, '../../downloader/downloads/cookies.txt'),
+    path.resolve(ROOT_DIR, '../downloader/downloads/cookies.txt'),
+    path.resolve(ROOT_DIR, 'cookies.txt'),
+    path.resolve(__dirname, '../../../downloader/cookies.txt'),
+    path.resolve(__dirname, '../../../downloader/downloads/cookies.txt')
+  ].filter(Boolean);
+  let localWritten = false;
+  for (const target of localTargets) {
+    try {
+      const dir = path.dirname(target);
+      if (fs.existsSync(dir)) {
+        fs.writeFileSync(target, content + '\n', 'utf8');
+        localWritten = true;
+      }
+    } catch (err) {
+      console.warn('[Admin] Local cookies write error:', err.message);
+    }
+  }
+
+  if (!remoteSuccess && !localWritten && remoteError) {
+    return res.status(502).json({ error: `Failed to update download server: ${remoteError}` });
+  }
+
+  console.log(`[Admin] Successfully synced cookies.txt (${content.length} chars) to download server (remote=${remoteSuccess}, local=${localWritten})`);
+    res.json({
+      success: true,
+      message: 'cookies.txt written to download server successfully.',
+      remoteSynced: remoteSuccess,
+      localSynced: localWritten,
+      bytes: Buffer.byteLength(content, 'utf8')
+    });
+  } catch (err) {
+    console.error('[Admin] POST /api/admin/cookies error:', err);
+    res.status(500).json({ success: false, error: err.message || 'Internal Server Error' });
+  }
 });
 
 // =========================================================================

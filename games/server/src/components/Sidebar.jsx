@@ -1,135 +1,133 @@
 import React from 'react';
-import { Gamepad2, Compass, Download, Star, Settings, HardDrive, LogIn, ExternalLink } from 'lucide-react';
+import { Gamepad2, Compass, Download, Star, Settings } from 'lucide-react';
 
 export default function Sidebar({
   currentView,
   setCurrentView,
   user,
   onOpenAuthModal,
-  onOpenSettings,
-  activeConsole,
-  setActiveConsole,
-  consoleCounts = {}
+  onOpenSettings
 }) {
   const navItems = [
-    { id: 'library', label: 'Game Library', icon: Gamepad2 },
-    { id: 'discover', label: 'Discover & Search', icon: Compass },
-    { id: 'downloads', label: 'Downloads & Queue', icon: Download },
-    { id: 'favorites', label: 'Favorites', icon: Star },
-    { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'library', label: 'Library', shortLabel: 'Library', icon: Gamepad2 },
+    { id: 'discover', label: 'Discover', shortLabel: 'Discover', icon: Compass },
+    { id: 'downloads', label: 'Downloads', shortLabel: 'Downloads', icon: Download },
+    { id: 'favorites', label: 'Favorites', shortLabel: 'Favorites', icon: Star },
+    { id: 'settings', label: 'Settings', shortLabel: 'Settings', icon: Settings },
   ];
 
   return (
-    <aside className="w-64 bg-[#090d16]/90 backdrop-blur-xl border-r border-white/5 flex flex-col h-screen fixed left-0 top-0 z-30 select-none">
-      {/* Brand Header */}
-      <div className="p-6 border-b border-white/5 flex items-center justify-between">
-        <div 
-          onClick={() => setCurrentView('library')} 
-          className="flex items-center gap-3 cursor-pointer group"
-        >
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-purple-500/25 group-hover:scale-105 transition-transform">
-            <Gamepad2 className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="font-heading font-extrabold text-xl tracking-wide flex items-center">
-              <span className="text-white">FREE</span>
-              <span className="text-purple-400">PLAY</span>
-            </div>
-            <div className="text-[10px] uppercase font-bold text-cyan-400 tracking-wider">Cloud Arcade</div>
-          </div>
+    <>
+      {/* Mobile Top App Bar */}
+      <header className="mobile-header">
+        <div className="mobile-title" onClick={() => setCurrentView('library')} style={{ cursor: 'pointer' }}>
+          FREE<span style={{ color: '#a855f7' }}>PLAY</span>
         </div>
-      </div>
 
-      {/* Main Navigation */}
-      <nav className="p-3 flex-1 overflow-y-auto space-y-1">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = currentView === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => setCurrentView(item.id)}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-medium text-sm transition-all ${
-                isActive
-                  ? 'bg-purple-600/20 text-purple-300 border border-purple-500/30 shadow-sm'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
-              }`}
-            >
-              <Icon className={`w-4 h-4 ${isActive ? 'text-purple-400' : 'text-slate-400'}`} />
-              <span>{item.label}</span>
-            </button>
-          );
-        })}
-
-        {/* Quick Umbrella Links */}
-        <div className="pt-6 pb-2 px-3">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">butfree.online</div>
-        </div>
-        <div className="space-y-0.5">
-          <a
-            href="https://comics.butfree.online"
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center justify-between px-3.5 py-1.5 rounded-lg text-xs text-slate-400 hover:text-emerald-400 hover:bg-slate-800/30 transition-colors"
-          >
-            <span>📚 ComixoloFree</span>
-            <ExternalLink className="w-3 h-3 opacity-60" />
-          </a>
-          <a
-            href="https://music.butfree.online"
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center justify-between px-3.5 py-1.5 rounded-lg text-xs text-slate-400 hover:text-pink-400 hover:bg-slate-800/30 transition-colors"
-          >
-            <span>🎵 Fraudio</span>
-            <ExternalLink className="w-3 h-3 opacity-60" />
-          </a>
-          <a
-            href="https://tv.butfree.online"
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center justify-between px-3.5 py-1.5 rounded-lg text-xs text-slate-400 hover:text-red-400 hover:bg-slate-800/30 transition-colors"
-          >
-            <span>🎬 Freevee</span>
-            <ExternalLink className="w-3 h-3 opacity-60" />
-          </a>
-        </div>
-      </nav>
-
-      {/* User & Google Drive Folder Section at Bottom */}
-      <div className="p-3 border-t border-white/5">
-        {user ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
           <div
-            onClick={onOpenSettings}
-            className="p-2.5 rounded-xl bg-slate-900/60 hover:bg-slate-800/60 border border-white/5 hover:border-purple-500/30 transition-all cursor-pointer group"
+            className="mobile-profile-btn"
+            onClick={onOpenAuthModal}
+            title={user ? `${user.name} (${user.email || ''})` : 'Sign in with Google'}
           >
-            <div className="flex items-center gap-3">
-              {user.avatar ? (
-                <img src={user.avatar} alt={user.name} className="w-8 h-8 rounded-full ring-2 ring-purple-500/40" />
-              ) : (
-                <div className="w-8 h-8 rounded-full bg-purple-600/30 flex items-center justify-center text-purple-300 font-bold text-xs">
-                  {user.name ? user.name[0].toUpperCase() : 'G'}
-                </div>
-              )}
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-semibold text-white truncate">{user.name || 'User'}</div>
-                <div className="flex items-center gap-1.5 text-[11px] text-slate-400 truncate">
-                  <HardDrive className="w-3 h-3 text-cyan-400 shrink-0" />
-                  <span className="truncate">{user.gamesFolderName || 'Select Folder'}</span>
+            {user?.avatar && user.avatar.startsWith('http') ? (
+              <img src={user.avatar} alt={user.name || 'User'} className="mobile-profile-img" />
+            ) : (
+              <span className="mobile-profile-avatar">{user ? '🎮' : '👤'}</span>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* Desktop Sidebar */}
+      <aside className="sidebar desktop-only">
+        {/* Brand Header */}
+        <div className="sidebar-header-row">
+          <div
+            className="sidebar-title"
+            onClick={() => setCurrentView('library')}
+            style={{ cursor: 'pointer' }}
+          >
+            FREE<span style={{ color: '#a855f7' }}>PLAY</span>
+          </div>
+          <span className="sidebar-cloud-badge">ARCADE</span>
+        </div>
+
+        {/* Navigation Items */}
+        <nav>
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = currentView === item.id;
+            return (
+              <div
+                key={item.id}
+                className={`nav-item ${isActive ? 'active' : ''}`}
+                onClick={() => setCurrentView(item.id)}
+              >
+                <Icon size={18} style={{ marginRight: '0.75rem', flexShrink: 0 }} />
+                <span>{item.label}</span>
+              </div>
+            );
+          })}
+        </nav>
+
+        {/* User Account / Google Sign-In Card at Bottom */}
+        <div className="sidebar-user-section">
+          {user ? (
+            <div
+              className="sidebar-user-card"
+              onClick={onOpenSettings || onOpenAuthModal}
+              title="Click to manage account or switch Google Drive folder"
+            >
+              <div className="sidebar-user-avatar">
+                {user.avatar && user.avatar.startsWith('http') ? (
+                  <img src={user.avatar} alt={user.name || 'User'} />
+                ) : (
+                  <span>🎮</span>
+                )}
+              </div>
+              <div className="sidebar-user-meta">
+                <div className="sidebar-user-name">{user.name || 'Player'}</div>
+                <div className="sidebar-user-folder">
+                  📁 {user.gamesFolderName || 'Select folder...'}
                 </div>
               </div>
             </div>
-          </div>
-        ) : (
-          <button
-            onClick={onOpenAuthModal}
-            className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-medium text-xs shadow-md shadow-purple-600/20 transition-all"
-          >
-            <LogIn className="w-3.5 h-3.5" />
-            <span>Connect Google Drive</span>
-          </button>
-        )}
-      </div>
-    </aside>
+          ) : (
+            <button
+              type="button"
+              className="sidebar-signin-btn"
+              onClick={onOpenAuthModal}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+              </svg>
+              <span>Connect Google Drive</span>
+            </button>
+          )}
+        </div>
+      </aside>
+
+      {/* Mobile Bottom Navigation Bar */}
+      <nav className="mobile-bottom-nav">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className={`mobile-nav-btn ${currentView === item.id ? 'active' : ''}`}
+              onClick={() => setCurrentView(item.id)}
+            >
+              <Icon size={20} className="mobile-nav-icon" />
+              <span className="mobile-nav-label">{item.shortLabel}</span>
+            </button>
+          );
+        })}
+      </nav>
+    </>
   );
 }
