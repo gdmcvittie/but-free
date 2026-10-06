@@ -47,6 +47,17 @@ import {
 } from './tvDownloadManager.js';
 import { getPlaylistTracks } from './youtubeDownloader.js';
 import { transcodeMediaFile, getVideoHeight, getMediaDuration } from './transcoder.js';
+import {
+  addGameTorrentJob,
+  addDirectDownloadJob,
+  getJobs as getGameJobs,
+  getJob as getGameJob,
+  cancelJob as cancelGameJob,
+  deleteJob as deleteGameJob,
+  clearHistory as clearGameHistory,
+  inspectTorrent as inspectGameTorrent,
+  gameNodeStatus
+} from './gameDownloadManager.js';
 
 const PORT = parseInt(process.env.PORT || process.env.DOWNLOADER_PORT || '4000', 10);
 const NODE_KEY = (process.env.NODE_KEY || process.env.DOWNLOADER_SECRET_KEY || process.env.TORRENT_NODE_KEY || '').trim();
@@ -928,6 +939,76 @@ const handleRestart = (req, res) => {
 app.post('/api/restart', requireAuth, handleRestart);
 app.post('/api/torrent/restart', requireAuth, handleRestart);
 app.post('/api/dashboard/restart', requireAuth, handleRestart);
+
+// -------------------------------------------------------------
+// FREEPLAY Game Downloads (additive - independent game pipeline)
+// Torrents (FitGirl/ROM packs) + direct HTTP files (itch.io / GOG.com)
+// uploaded to the requesting user's Google Drive folder.
+// -------------------------------------------------------------
+app.post('/api/game/torrent/download', requireAuth, (req, res) => {
+  try {
+    const job = addGameTorrentJob(req.body || {});
+    res.json({
+      success: true,
+      message: 'Game torrent job added to queue',
+      job: { id: job.id, title: job.title, kind: job.kind, status: job.status, stage: job.stage }
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/game/direct/download', requireAuth, (req, res) => {
+  try {
+    const job = addDirectDownloadJob(req.body || {});
+    res.json({
+      success: true,
+      message: 'Direct download job added to queue',
+      job: { id: job.id, title: job.title, kind: job.kind, status: job.status, stage: job.stage }
+    });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/game/torrent/inspect', requireAuth, async (req, res) => {
+  try {
+    const { url, timeoutMs } = req.body || {};
+    const result = await inspectGameTorrent(url, parseInt(timeoutMs || '25000', 10));
+    res.json(result);
+  } catch (err) {
+    console.warn('[Game Inspect] Error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/game/downloads', requireAuth, (req, res) => {
+  const userId = req.query.userId || null;
+  res.json({ success: true, downloads: getGameJobs(userId) });
+});
+
+app.get('/api/game/download/:id', requireAuth, (req, res) => {
+  const job = getGameJob(req.params.id);
+  if (!job) return res.status(404).json({ success: false, error: 'Job not found' });
+  res.json({ success: true, job });
+});
+
+app.post('/api/game/download/:id/cancel', requireAuth, (req, res) => {
+  res.json({ success: true, cancelled: cancelGameJob(req.params.id) });
+});
+
+app.delete('/api/game/download/:id', requireAuth, (req, res) => {
+  res.json({ success: true, deleted: deleteGameJob(req.params.id) });
+});
+
+app.delete('/api/game/downloads/history', requireAuth, (req, res) => {
+  const userId = req.query.userId || req.body?.userId || null;
+  res.json({ success: true, count: clearGameHistory(userId) });
+});
+
+app.get('/api/game/status', requireAuth, (req, res) => {
+  res.json({ success: true, service: 'butfree games downloader', ...gameNodeStatus() });
+});
 
 app.use((err, req, res, next) => {
   console.error('[Downloader Unhandled Error]:', err.message);

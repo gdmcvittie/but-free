@@ -13,7 +13,6 @@ const EXTENSION_CONSOLE_MAP = {
   md: 'sega',
   gen: 'sega',
   smd: 'sega',
-  bin: 'sega',
   iso: 'psx',
   cue: 'psx',
   chd: 'psx',
@@ -26,8 +25,38 @@ const EXTENSION_CONSOLE_MAP = {
   gg: 'gg',
   sms: 'sms',
   p8: 'pico8',
-  zip: 'snes' // fallback or detected from subfolder
+  // PC / archive parts (only classified as pc unless a console folder hint wins)
+  exe: 'pc',
+  msi: 'pc',
+  '7z': 'pc',
+  rar: 'pc',
+  zip: 'snes', // legacy fallback or detected from subfolder
+  bin: 'sega' // detected from folder context for PC installers
 };
+
+// Folder-name variants -> console key (used for subfolder hints at any depth)
+const FOLDER_CONSOLE_HINTS = [
+  { names: ['snes', 'super nintendo', 'super famicom'], console: 'snes' },
+  { names: ['nes', 'famicom'], console: 'nes' },
+  { names: ['gba', 'game boy advance', 'gameboy advance'], console: 'gba' },
+  { names: ['gbc', 'game boy color', 'gameboy color'], console: 'gbc' },
+  { names: ['gb', 'game boy', 'gameboy', 'game gear boy'], console: 'gb' },
+  { names: ['genesis', 'sega', 'mega drive', 'megadrive'], console: 'sega' },
+  { names: ['psx', 'ps1', 'playstation'], console: 'psx' },
+  { names: ['n64', 'nintendo 64'], console: 'n64' },
+  { names: ['nds', 'ds'], console: 'nds' },
+  { names: ['pce', 'pc engine', 'turbografx', 'tg16'], console: 'pce' },
+  { names: ['gg', 'game gear'], console: 'gg' },
+  { names: ['sms', 'master system'], console: 'sms' },
+  { names: ['neo', 'neogeo', 'neo geo'], console: 'neo' },
+  { names: ['pico8', 'pico-8', 'pico'], console: 'pico8' },
+  { names: ['pc', 'pc games', 'gog', 'gog.com', 'epic', 'itch', 'itch.io'], console: 'pc' }
+];
+
+// File extensions that mark a Drive folder as a PC game installation
+const PC_FILE_EXTS = new Set(['exe', 'msi', '7z', 'rar', 'zip', 'bin', 'iso', 'img', '001', 'dat']);
+
+const IGNORED_FILE_EXTS = new Set(['txt', 'nfo', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'html', 'pdf', 'url', 'srm', 'cfg', 'ini', 'md5', 'sha1', 'sfv', 'doc', 'docx', 'log']);
 
 // Map console names to Libretro thumbnail repository names
 const LIBRETRO_SYSTEM_NAMES = {
@@ -133,86 +162,151 @@ export const GoogleDrive = {
 
     const accessToken = await GoogleAuth.getValidAccessToken(user);
 
-    // 1. Find all folders under gamesFolderId (to check console-specific subfolders)
-    const subfolderQuery = `'${user.gamesFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-    const folderRes = await fetch(
-      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(subfolderQuery)}&fields=files(id,name)&pageSize=100`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-    const folderData = await folderRes.json();
-    const subfolders = folderData.files || [];
+    const driveQueryFiles = async (queryString, extraFields = 'id,name,size,mimeType,modifiedTime,parents') => {
+      const results = [];
+      let pageToken = null;
+      do {
+        const url = new URL('https://www.googleapis.com/drive/v3/files');
+        url.searchParams.set('q', queryString);
+        url.searchParams.set('fields', `nextPageToken, files(${extraFields})`);
+        url.searchParams.set('pageSize', '250');
+        if (pageToken) url.searchParams.set('pageToken', pageToken);
 
-    // Map of folderId -> consoleHint
-    const folderConsoleMap = new Map();
-    for (const f of subfolders) {
-      const lower = f.name.toLowerCase();
-      if (lower.includes('snes') || lower.includes('super nintendo')) folderConsoleMap.set(f.id, 'snes');
-      else if (lower.includes('gba') || lower.includes('advance')) folderConsoleMap.set(f.id, 'gba');
-      else if (lower.includes('gbc') || lower.includes('color')) folderConsoleMap.set(f.id, 'gbc');
-      else if (lower.includes('game boy') || lower === 'gb') folderConsoleMap.set(f.id, 'gb');
-      else if (lower.includes('genesis') || lower.includes('sega') || lower.includes('mega drive')) folderConsoleMap.set(f.id, 'sega');
-      else if (lower.includes('psx') || lower.includes('ps1') || lower.includes('playstation')) folderConsoleMap.set(f.id, 'psx');
-      else if (lower.includes('n64') || lower.includes('nintendo 64')) folderConsoleMap.set(f.id, 'n64');
-      else if (lower.includes('nes')) folderConsoleMap.set(f.id, 'nes');
-      else if (lower.includes('nds') || lower.includes('ds')) folderConsoleMap.set(f.id, 'nds');
-      else if (lower.includes('pico')) folderConsoleMap.set(f.id, 'pico8');
-      else folderConsoleMap.set(f.id, null);
+        const res = await fetch(url.toString(), {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        const data = await res.json();
+        if (data.files) results.push(...data.files);
+        pageToken = data.nextPageToken;
+      } while (pageToken);
+      return results;
+    };
+
+    const folderHint = (name) => {
+      const lower = (name || '').toLowerCase().trim();
+      for (const entry of FOLDER_CONSOLE_HINTS) {
+        if (entry.names.includes(lower)) return entry.console;
+      }
+      if (lower.includes('snes') || lower.includes('super nintendo')) return 'snes';
+      if (lower.includes('gba') || lower.includes('game boy advance')) return 'gba';
+      if (lower.includes('gbc') || lower.includes('game boy color')) return 'gbc';
+      if (lower.includes('game boy') || lower === 'gb') return 'gb';
+      if (lower.includes('genesis') || lower.includes('sega') || lower.includes('mega drive')) return 'sega';
+      if (lower.includes('psx') || lower.includes('ps1') || lower.includes('playstation')) return 'psx';
+      if (lower.includes('n64') || lower.includes('nintendo 64')) return 'n64';
+      if (lower.includes('nes')) return 'nes';
+      if (lower.includes('nds')) return 'nds';
+      if (lower.includes('pico')) return 'pico8';
+      if (lower === 'pc games' || lower === 'pc' || lower.includes('gog') || lower.includes('itch')) return 'pc';
+      return null;
+    };
+
+    // 1. Enumerate the folder tree (Games root -> level 1 -> level 2)
+    const level1Folders = await driveQueryFiles(
+      `'${user.gamesFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+      'id,name'
+    );
+
+    const folderInfo = new Map(); // folderId -> { name, parentId, hint }
+    folderInfo.set(user.gamesFolderId, { name: user.gamesFolderName || 'Games', parentId: null, hint: null });
+
+    for (const f of level1Folders) {
+      folderInfo.set(f.id, { name: f.name, parentId: user.gamesFolderId, hint: folderHint(f.name) });
     }
 
-    // 2. Query all files inside gamesFolderId and all subfolders
-    const parentIds = [user.gamesFolderId, ...subfolders.map((f) => f.id)];
-    const parentClause = parentIds.map((id) => `'${id}' in parents`).join(' or ');
-    const fileQuery = `(${parentClause}) and mimeType != 'application/vnd.google-apps.folder' and trashed = false`;
-
-    let allFiles = [];
-    let pageToken = null;
-
-    do {
-      const url = new URL('https://www.googleapis.com/drive/v3/files');
-      url.searchParams.set('q', fileQuery);
-      url.searchParams.set('fields', 'nextPageToken, files(id, name, size, mimeType, modifiedTime, parents)');
-      url.searchParams.set('pageSize', '250');
-      if (pageToken) url.searchParams.set('pageToken', pageToken);
-
-      const res = await fetch(url.toString(), {
-        headers: { Authorization: `Bearer ${accessToken}` }
-      });
-      const data = await res.json();
-      if (data.files) {
-        allFiles.push(...data.files);
+    if (level1Folders.length > 0) {
+      const l1Ids = level1Folders.map(f => f.id);
+      const parentClause = l1Ids.map(id => `'${id}' in parents`).join(' or ');
+      const level2Folders = await driveQueryFiles(
+        `(${parentClause}) and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+        'id,name,parents'
+      );
+      for (const f of level2Folders) {
+        const parentId = f.parents && f.parents.length ? f.parents[0] : null;
+        folderInfo.set(f.id, { name: f.name, parentId, hint: folderHint(f.name) });
       }
-      pageToken = data.nextPageToken;
-    } while (pageToken);
+    }
 
-    // 3. Filter for supported game ROM files and build catalog
+    // 2. Query all files under root + any folder (2 levels deep)
+    const allFolderIds = Array.from(folderInfo.keys()).filter(id => id !== user.gamesFolderId);
+    const searchableParents = [user.gamesFolderId, ...allFolderIds];
+    const fileClauses = [];
+    let allFiles = [];
+    for (let i = 0; i < searchableParents.length; i += 20) {
+      const batch = searchableParents.slice(i, i + 20);
+      fileClauses.push(`(${batch.map(id => `'${id}' in parents`).join(' or ')})`);
+    }
+    for (const clause of fileClauses) {
+      const files = await driveQueryFiles(
+        `(${clause}) and mimeType != 'application/vnd.google-apps.folder' and trashed = false`
+      );
+      allFiles.push(...files);
+    }
+
+    // 3. Infer console for each file by walking the folder chain upward
+    const resolveChainHint = (folderId) => {
+      let current = folderId;
+      const visited = new Set();
+      while (current && !visited.has(current)) {
+        visited.add(current);
+        const info = folderInfo.get(current);
+        if (!info) break;
+        if (info.hint) return { hint: info.hint, hintFolderId: current };
+        current = info.parentId;
+      }
+      return { hint: null, hintFolderId: null };
+    };
+
     const recognizedGames = [];
+    const pcGroups = new Map(); // gameFolderId -> { files: [] }
 
     for (const file of allFiles) {
       const ext = (file.name.split('.').pop() || '').toLowerCase();
-      let consoleKey = EXTENSION_CONSOLE_MAP[ext];
+      const parentId = file.parents && file.parents.length ? file.parents[0] : user.gamesFolderId;
+      const { hint } = resolveChainHint(parentId);
 
-      // Check if file is inside a console subfolder
-      if (file.parents && file.parents.length > 0) {
-        for (const p of file.parents) {
-          if (folderConsoleMap.has(p) && folderConsoleMap.get(p)) {
-            consoleKey = folderConsoleMap.get(p);
-            break;
-          }
-        }
+      if (IGNORED_FILE_EXTS.has(ext)) continue;
+
+      let consoleKey = hint || EXTENSION_CONSOLE_MAP[ext] || null;
+      if (!consoleKey) continue;
+
+      // Legacy split-volume suffixes outside of PC groups are noise (the main
+      // .rar/.zip in the same folder is the game entry).
+      if (consoleKey !== 'pc' && (/\.r\d{2}$/i.test(file.name) || /\.z\d{2}$/i.test(file.name) || /\.\d{3}$/.test(file.name))) {
+        continue;
       }
 
-      if (!consoleKey) {
-        // Skip files that are clearly not games (e.g. txt, nfo, srm save states, pdf)
+      if (consoleKey === 'pc') {
+        // Group all PC parts by their immediate game folder
+        const gameFolderId = folderInfo.has(parentId) ? parentId : null;
+        if (gameFolderId) {
+          if (!pcGroups.has(gameFolderId)) pcGroups.set(gameFolderId, { files: [] });
+          pcGroups.get(gameFolderId).files.push(file);
+        } else {
+          recognizedGames.push({
+            id: `gm_${file.id}`,
+            driveId: file.id,
+            source: 'drive',
+            filename: file.name,
+            title: cleanGameTitle(file.name),
+            console: 'pc',
+            isPcGame: true,
+            size: Number(file.size || 0),
+            sizeFormatted: formatBytes(file.size),
+            coverUrl: null,
+            addedAt: file.modifiedTime ? new Date(file.modifiedTime).getTime() : Date.now()
+          });
+        }
         continue;
       }
 
       const cleanTitle = cleanGameTitle(file.name);
       const coverUrl = getBoxArtUrl(cleanTitle, consoleKey);
-      const gameId = `gm_${file.id}`;
 
       recognizedGames.push({
-        id: gameId,
+        id: `gm_${file.id}`,
         driveId: file.id,
+        source: 'drive',
         filename: file.name,
         title: cleanTitle,
         console: consoleKey,
@@ -223,8 +317,60 @@ export const GoogleDrive = {
       });
     }
 
-    // Save into database
-    Database.saveGames(user.id, recognizedGames);
+    // 4. Collapse PC game folders into single library entries
+    for (const [gameFolderId, group] of pcGroups.entries()) {
+      const info = folderInfo.get(gameFolderId);
+      const folderName = (info && info.name) || 'PC Game';
+
+      // A folder that literally is a container ("PC Games", "itch.io", ...)
+      // keeps its files as individual game entries instead of grouping.
+      const isContainerName = /^(pc games|pc|gog|gog\.com|epic|epic games|itch|itch\.io|retro games)$/i.test(folderName.trim());
+
+      const mainFile = [...group.files].sort((a, b) => Number(b.size || 0) - Number(a.size || 0))[0];
+
+      if (isContainerName) {
+        for (const file of group.files) {
+          recognizedGames.push({
+            id: `gm_${file.id}`,
+            driveId: file.id,
+            source: 'drive',
+            filename: file.name,
+            title: cleanGameTitle(file.name),
+            console: 'pc',
+            isPcGame: true,
+            size: Number(file.size || 0),
+            sizeFormatted: formatBytes(file.size),
+            coverUrl: null,
+            addedAt: file.modifiedTime ? new Date(file.modifiedTime).getTime() : Date.now()
+          });
+        }
+        continue;
+      }
+
+      const totalSize = group.files.reduce((sum, f) => sum + Number(f.size || 0), 0);
+      const title = cleanGameTitle(folderName.replace(/\.(rar|zip|7z)$/i, ''));
+
+      recognizedGames.push({
+        id: `gmpc_${gameFolderId}`,
+        driveId: gameFolderId,
+        driveFileId: mainFile ? mainFile.id : null,
+        isFolder: true,
+        source: 'drive',
+        filename: folderName,
+        title,
+        console: 'pc',
+        isPcGame: true,
+        size: totalSize,
+        sizeFormatted: formatBytes(totalSize),
+        fileCount: group.files.length,
+        files: group.files.map(f => ({ name: f.name, driveId: f.id, size: Number(f.size || 0) })),
+        coverUrl: null,
+        addedAt: mainFile && mainFile.modifiedTime ? new Date(mainFile.modifiedTime).getTime() : Date.now()
+      });
+    }
+
+    // Save into database (drive-sourced records only; bookmarks survive)
+    Database.saveGames(user.id, recognizedGames, 'drive');
 
     return {
       count: recognizedGames.length,

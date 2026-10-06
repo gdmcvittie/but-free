@@ -28,7 +28,8 @@ export function loadDatabase() {
   ensureDir();
   if (fs.existsSync(DB_FILE)) {
     try {
-      const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
+      const raw = fs.readFileSync(DB_FILE, 'utf-8').replace(/^\uFEFF/, '');
+      const data = JSON.parse(raw);
       db = {
         users: data.users || {},
         games: data.games || {},
@@ -130,6 +131,39 @@ export function updateUserSettings(userId, settings) {
   }
 }
 
+// Store-linked accounts (itch.io API key, GOG tokens) - kept per user
+export function updateUserIntegrations(userId, integrationsPatch) {
+  const user = db.users[userId];
+  if (!user) return null;
+  user.integrations = { ...(user.integrations || {}) };
+  for (const [key, value] of Object.entries(integrationsPatch || {})) {
+    if (value === null || value === undefined) {
+      delete user.integrations[key];
+    } else {
+      user.integrations[key] = value;
+    }
+  }
+  saveDatabase();
+  return user.integrations;
+}
+
+export function upsertGame(gameRecord) {
+  db.games[gameRecord.id] = { ...gameRecord };
+  saveDatabase();
+  return db.games[gameRecord.id];
+}
+
+export function removeGame(userId, gameId) {
+  const game = db.games[gameId];
+  if (!game || game.userId !== userId) return false;
+  delete db.games[gameId];
+  if (db.favorites[userId]) {
+    db.favorites[userId] = db.favorites[userId].filter(id => id !== gameId);
+  }
+  saveDatabase();
+  return true;
+}
+
 // Games operations
 export function getGames(userId) {
   const userGames = Object.values(db.games).filter((g) => g.userId === userId);
@@ -144,10 +178,10 @@ export function getGame(gameId) {
   return db.games[gameId] || null;
 }
 
-export function saveGames(userId, gameList) {
-  // Clear previous games for this user and replace with fresh scan
+export function saveGames(userId, gameList, source = 'drive') {
+  // Clear previous scans of this SAME source only (keeps web bookmarks etc.)
   for (const [id, game] of Object.entries(db.games)) {
-    if (game.userId === userId) {
+    if (game.userId === userId && (game.source || 'drive') === source) {
       delete db.games[id];
     }
   }
@@ -155,6 +189,7 @@ export function saveGames(userId, gameList) {
   for (const game of gameList) {
     db.games[game.id] = {
       ...game,
+      source,
       userId
     };
   }

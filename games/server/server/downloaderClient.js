@@ -120,3 +120,139 @@ export const DownloaderClient = {
     return res.ok;
   }
 };
+
+// -------------------------------------------------------------
+// PC GAMES pipeline (additive): dedicated /api/game/* endpoints on the
+// Downloader node - game torrents with file selection + direct HTTP
+// downloads (itch.io / GOG installers), uploaded to Google Drive.
+// -------------------------------------------------------------
+
+export const GameDownloaderClient = {
+  async addGameTorrent(user, { source, title, subfolder, selectedFiles, console: consoleKey, webhookUrl, tokenRefreshUrl }) {
+    if (!user.gamesFolderId) {
+      throw new Error('Please select a Google Drive Games folder in Settings before downloading.');
+    }
+
+    const accessToken = await GoogleAuth.getValidAccessToken(user);
+    const url = `${getDownloaderUrl()}/api/game/torrent/download`;
+
+    const payload = {
+      magnet: source,
+      title: title || 'PC Game',
+      kind: 'game',
+      meta: { console: consoleKey || 'pc', title: title || 'PC Game', subfolder },
+      subfolder: subfolder || undefined,
+      selectedFiles: Array.isArray(selectedFiles) && selectedFiles.length > 0 ? selectedFiles : undefined,
+      driveConfig: {
+        accessToken,
+        rootFolderId: user.gamesFolderId,
+        subfolder: subfolder || undefined,
+        tokenRefreshUrl: tokenRefreshUrl || undefined
+      },
+      webhookUrl: webhookUrl || '',
+      userId: user.id
+    };
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: getNodeHeaders(),
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) {
+      throw new Error(data.error || `Downloader node error (HTTP ${res.status})`);
+    }
+    return data.job || data;
+  },
+
+  async addDirectDownload(user, { url, headers, fileName, title, subfolder, console: consoleKey, webhookUrl, tokenRefreshUrl }) {
+    if (!user.gamesFolderId) {
+      throw new Error('Please select a Google Drive Games folder in Settings before downloading.');
+    }
+
+    const accessToken = await GoogleAuth.getValidAccessToken(user);
+    const endpoint = `${getDownloaderUrl()}/api/game/direct/download`;
+
+    const payload = {
+      url,
+      headers: headers && Object.keys(headers).length ? headers : undefined,
+      fileName: fileName || undefined,
+      title: title || 'Game Download',
+      meta: { console: consoleKey || 'pc', title: title || 'Game Download', subfolder },
+      subfolder: subfolder || undefined,
+      driveConfig: {
+        accessToken,
+        rootFolderId: user.gamesFolderId,
+        subfolder: subfolder || undefined,
+        tokenRefreshUrl: tokenRefreshUrl || undefined
+      },
+      webhookUrl: webhookUrl || '',
+      userId: user.id
+    };
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: getNodeHeaders(),
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) {
+      throw new Error(data.error || `Downloader node error (HTTP ${res.status})`);
+    }
+    return data.job || data;
+  },
+
+  async inspectTorrent(source, timeoutMs = 25000) {
+    const url = `${getDownloaderUrl()}/api/game/torrent/inspect`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: getNodeHeaders(),
+      body: JSON.stringify({ url: source, timeoutMs })
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) {
+      throw new Error(data.error || `Torrent inspect failed (HTTP ${res.status})`);
+    }
+    return data;
+  },
+
+  async getGameDownloads(userId) {
+    const url = `${getDownloaderUrl()}/api/game/downloads${userId ? `?userId=${encodeURIComponent(userId)}` : ''}`;
+    try {
+      const res = await fetch(url, {
+        headers: getNodeHeaders(),
+        signal: AbortSignal.timeout(6000)
+      });
+      const data = await res.json().catch(() => ({}));
+      return data.downloads || [];
+    } catch {
+      return [];
+    }
+  },
+
+  async cancelGameDownload(jobId) {
+    const url = `${getDownloaderUrl()}/api/game/download/${encodeURIComponent(jobId)}/cancel`;
+    const res = await fetch(url, { method: 'POST', headers: getNodeHeaders() });
+    return res.ok;
+  },
+
+  async clearGameHistory(userId) {
+    const url = `${getDownloaderUrl()}/api/game/downloads/history?userId=${encodeURIComponent(userId || '')}`;
+    const res = await fetch(url, { method: 'DELETE', headers: getNodeHeaders() });
+    return res.ok;
+  },
+
+  async getGameStatus() {
+    const url = `${getDownloaderUrl()}/api/game/status`;
+    try {
+      const res = await fetch(url, { headers: getNodeHeaders(), signal: AbortSignal.timeout(4000) });
+      const data = await res.json().catch(() => ({}));
+      return { online: res.ok, ...data };
+    } catch {
+      return { online: false };
+    }
+  }
+};

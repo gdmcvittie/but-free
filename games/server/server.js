@@ -9,7 +9,9 @@ import dotenv from 'dotenv';
 import * as Database from './server/database.js';
 import { GoogleAuth } from './server/googleAuth.js';
 import { GoogleDrive } from './server/googleDrive.js';
-import { DownloaderClient } from './server/downloaderClient.js';
+import { DownloaderClient, GameDownloaderClient } from './server/downloaderClient.js';
+import { registerDiscoverRoutes } from './server/discoverRoutes.js';
+import { registerLibraryRoutes } from './server/libraryRoutes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -231,19 +233,31 @@ app.head('/api/games/stream/:driveId', async (req, res) => {
 
 // Downloader status check
 app.get('/api/downloader/status', async (req, res) => {
-  const status = await DownloaderClient.getStatus();
-  res.json(status);
+  const [status, gameStatus] = await Promise.all([
+    DownloaderClient.getStatus(),
+    GameDownloaderClient.getGameStatus()
+  ]);
+  res.json({ ...status, gameQueue: gameStatus });
 });
 
-// List downloads
+// List downloads (merged: classic retro jobs + PC game jobs)
 app.get('/api/downloads', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
-  const list = await DownloaderClient.getDownloads(req.user.id);
-  res.json({ success: true, downloads: list });
+  const [legacy, gameJobs] = await Promise.all([
+    DownloaderClient.getDownloads(req.user.id),
+    GameDownloaderClient.getGameDownloads(req.user.id)
+  ]);
+
+  const merged = [
+    ...gameJobs.map(j => ({ ...j, queue: 'games' })),
+    ...legacy.map(j => ({ ...j, queue: 'media' }))
+  ].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+  res.json({ success: true, downloads: merged });
 });
 
-// Add download to queue
+// Add download to queue (magnet / .torrent URL)
 app.post('/api/downloads/add', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -252,17 +266,19 @@ app.post('/api/downloads/add', async (req, res) => {
     return res.status(400).json({ error: 'Missing magnet or torrent URL' });
   }
 
-  // Construct webhook URL back to this games server
+  // Construct webhook + token refresh URLs back to this games server
   const proto = req.headers['x-forwarded-proto'] || (req.connection?.encrypted ? 'https' : 'http');
   const host = req.headers['x-forwarded-host'] || req.headers.host;
-  const webhookUrl = `${proto}://${host}/api/webhook/download-complete`;
+  const base = `${proto}://${host}`;
 
   try {
-    const job = await DownloaderClient.addDownload(req.user, {
-      magnet,
-      title,
-      console: consoleKey,
-      webhookUrl
+    const job = await GameDownloaderClient.addGameTorrent(req.user, {
+      source: magnet,
+      title: title || 'Retro Game',
+      console: consoleKey || 'retro',
+      subfolder: consoleKey === 'pc' ? undefined : consoleKey || undefined,
+      webhookUrl: `${base}/api/webhook/download-complete`,
+      tokenRefreshUrl: `${base}/api/downloads/token-refresh`
     });
     res.json({ success: true, job });
   } catch (err) {
@@ -274,7 +290,13 @@ app.post('/api/downloads/add', async (req, res) => {
 app.post('/api/downloads/:id/cancel', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
-  const ok = await DownloaderClient.cancelDownload(req.params.id);
+  const id = req.params.id;
+  let ok;
+  if (id.startsWith('gme_') || id.startsWith('gdl_')) {
+    ok = await GameDownloaderClient.cancelGameDownload(id);
+  } else {
+    ok = await DownloaderClient.cancelDownload(id);
+  }
   res.json({ success: ok });
 });
 
@@ -282,14 +304,20 @@ app.post('/api/downloads/:id/cancel', async (req, res) => {
 app.delete('/api/downloads/history', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
-  const ok = await DownloaderClient.clearHistory(req.user.id);
-  res.json({ success: ok });
+  const results = await Promise.all([
+    DownloaderClient.clearHistory(req.user.id),
+    GameDownloaderClient.clearGameHistory(req.user.id)
+  ]);
+  res.json({ success: true, cleared: results.filter(Boolean).length });
 });
 
 // Webhook invoked by Downloader server when upload to Google Drive finishes
 app.post('/api/webhook/download-complete', async (req, res) => {
-  const { success, userId, fileName, fileId } = req.body || {};
-  console.log(`[FREEPLAY Webhook] Download completed: "${fileName}" for user ${userId} (success: ${success})`);
+  const body = req.body || {};
+  const success = body.success === true || body.status === 'completed';
+  const fileName = body.fileName || body.cleanName || 'game files';
+  const { userId } = body;
+  console.log(`[FREEPLAY Webhook] Download ${success ? 'completed' : 'failed'}: "${fileName}" for user ${userId} (job ${body.jobId}, kind ${body.kind || 'media'})`);
 
   res.json({ received: true });
 
@@ -322,6 +350,14 @@ app.post('/api/settings', (req, res) => {
   Database.updateUserSettings(req.user.id, req.body || {});
   res.json({ success: true, settings: req.user.settings });
 });
+
+// -------------------------------------------------------------
+// Discovery: FitGirl RSS / Steam Popular / itch.io / GOG.com
+// + Library extras: bookmarks, embeds, save states, token refresh
+// -------------------------------------------------------------
+
+registerDiscoverRoutes(app, { Database, GameDownloaderClient });
+registerLibraryRoutes(app, { Database });
 
 // -------------------------------------------------------------
 // Production Static Client Serving

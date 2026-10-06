@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Play, Star, Search, RefreshCw, HardDrive, Filter, Gamepad2, Info } from 'lucide-react';
+import { Play, Star, Search, RefreshCw, HardDrive, Globe, Download, Gamepad2 } from 'lucide-react';
 
 export default function LibraryView({
   games = [],
@@ -208,10 +208,16 @@ export default function LibraryView({
                   <Star className={`w-3.5 h-3.5 ${game.isFavorite ? 'fill-amber-400' : ''}`} />
                 </button>
 
-                {/* Hover Play Button Overlay */}
+                {/* Hover Action Overlay */}
                 <div className="game-card-overlay absolute inset-0 flex items-center justify-center p-4">
                   <div className="w-12 h-12 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-lg shadow-purple-600/50 transform translate-y-2 group-hover:translate-y-0 transition-transform">
-                    <Play className="w-5 h-5 ml-0.5 fill-white" />
+                    {game.console === 'pc' || game.isPcGame ? (
+                      <Download className="w-5 h-5" />
+                    ) : game.console === 'web' ? (
+                      <Globe className="w-5 h-5" />
+                    ) : (
+                      <Play className="w-5 h-5 ml-0.5 fill-white" />
+                    )}
                   </div>
                 </div>
               </div>
@@ -224,8 +230,10 @@ export default function LibraryView({
                   </h3>
                 </div>
                 <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/5 text-[10px] text-slate-500">
-                  <span>{game.fileSize ? `${(game.fileSize / 1024 / 1024).toFixed(1)} MB` : 'ROM'}</span>
-                  <span className="text-purple-400 font-semibold group-hover:underline">Play Now →</span>
+                  <span>{game.sizeFormatted || (game.size ? `${(game.size / 1024 / 1024).toFixed(1)} MB` : 'ROM')}</span>
+                  <span className="text-purple-400 font-semibold group-hover:underline">
+                    {game.console === 'pc' || game.isPcGame ? 'Files ↓' : game.console === 'web' ? 'Web Play →' : 'Play Now →'}
+                  </span>
                 </div>
               </div>
             </div>

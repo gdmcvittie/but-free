@@ -172,6 +172,7 @@ export default function App() {
             user={user}
             onOpenSettings={() => setCurrentView('settings')}
             onDownloadDispatched={() => setCurrentView('downloads')}
+            onLibraryUpdated={fetchGames}
           />
         )}
 
@@ -205,7 +206,9 @@ export default function App() {
       {activeGameToPlay && (
         <EmulatorModal
           game={activeGameToPlay}
+          user={user}
           onClose={() => setActiveGameToPlay(null)}
+          onToggleFavorite={handleToggleFavorite}
         />
       )}
 

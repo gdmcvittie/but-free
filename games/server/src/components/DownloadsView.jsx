@@ -165,6 +165,12 @@ export default function DownloadsView({ user, onOpenSettings }) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <h3 className="font-heading font-bold text-sm text-white truncate">{item.title}</h3>
+                      {item.kind === 'game-torrent' && (
+                        <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-pink-500/15 text-pink-300 border border-pink-500/30 shrink-0">Repack</span>
+                      )}
+                      {item.kind === 'game-direct' && (
+                        <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 shrink-0">Direct</span>
+                      )}
                       <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
                         isCompleted
                           ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
@@ -172,9 +178,9 @@ export default function DownloadsView({ user, onOpenSettings }) {
                           ? 'bg-red-500/20 text-red-400 border border-red-500/30'
                           : isUploading
                           ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
-                          : 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                          : 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
                       }`}>
-                        {item.stage || item.status}
+                        {item.stage === 'queued' ? (item.queuePosition ? `Queued #${item.queuePosition}` : 'Queued') : (item.stage || item.status)}
                       </span>
                     </div>
 
