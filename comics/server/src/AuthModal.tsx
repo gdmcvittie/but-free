@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { User, Folder, RefreshCw, Cloud, Lock } from 'lucide-react';
 import { apiUrl } from './api';
 
 export interface GoogleUserProfile {
@@ -40,7 +41,7 @@ export default function AuthModal({
         onClose();
         onOpenDrivePicker();
       } else {
-        setScanStatus('⚠️ Please select a Google Drive comic folder first.');
+        setScanStatus('Please select a Google Drive comic folder first.');
       }
       return;
     }
@@ -52,11 +53,11 @@ export default function AuthModal({
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || 'Scan failed');
 
-      setScanStatus(`✅ Scan complete! Found ${data.count || 0} comic(s).`);
+      setScanStatus(`Scan complete! Found ${data.count || 0} comic(s).`);
       if (onLibraryUpdated) onLibraryUpdated();
       setTimeout(() => setScanStatus(null), 5000);
     } catch (err: any) {
-      setScanStatus(`❌ Scan error: ${err.message || 'Failed to scan'}`);
+      setScanStatus(`Scan error: ${err.message || 'Failed to scan'}`);
     } finally {
       setScanning(false);
     }
@@ -99,7 +100,7 @@ export default function AuthModal({
                 {user.avatar && user.avatar.startsWith('http') ? (
                   <img src={user.avatar} alt={user.name} className="auth-user-avatar-img" />
                 ) : (
-                  <div className="auth-user-avatar-fallback">{user.avatar || '🦸'}</div>
+                  <div className="auth-user-avatar-fallback">{user.avatar || <User size={18}/>}</div>
                 )}
               </div>
 
@@ -109,7 +110,7 @@ export default function AuthModal({
               </div>
 
               <div className="auth-drive-status-badge">
-                <span className="drive-icon">📁</span>
+                <span className="drive-icon"><Folder size={18}/></span>
                 <div className="drive-text">
                   <span className="drive-label">Google Drive Library:</span>
                   <span className="drive-folder-name">
@@ -147,7 +148,7 @@ export default function AuthModal({
                   }}
                 >
                   <span style={{ display: 'inline-block', animation: scanning ? 'spin 1s linear infinite' : 'none' }}>
-                    🔄
+                    <RefreshCw size={16}/>
                   </span>
                   <span>{scanning ? 'Scanning Google Drive...' : 'Scan Library Folder'}</span>
                 </button>
@@ -158,14 +159,14 @@ export default function AuthModal({
                       textAlign: 'center',
                       padding: '0.5rem 0.75rem',
                       borderRadius: '8px',
-                      background: scanStatus.startsWith('❌') || scanStatus.startsWith('⚠️')
+                      background: scanStatus.includes('error') || scanStatus.includes('Failed') || scanStatus.includes('Please')
                         ? 'rgba(239, 68, 68, 0.15)'
                         : 'rgba(52, 211, 153, 0.15)',
-                      color: scanStatus.startsWith('❌') || scanStatus.startsWith('⚠️')
+                      color: scanStatus.includes('error') || scanStatus.includes('Failed') || scanStatus.includes('Please')
                         ? '#ef4444'
                         : '#34d399',
                       border: `1px solid ${
-                        scanStatus.startsWith('❌') || scanStatus.startsWith('⚠️')
+                        scanStatus.includes('error') || scanStatus.includes('Failed') || scanStatus.includes('Please')
                           ? 'rgba(239, 68, 68, 0.3)'
                           : 'rgba(52, 211, 153, 0.3)'
                       }`
@@ -188,7 +189,7 @@ export default function AuthModal({
             </div>
           ) : (
             <div className="auth-login-prompt">
-              <div className="auth-hero-icon">☁️</div>
+              <div className="auth-hero-icon"><Cloud size={26}/></div>
               <h3 style={{ margin: '0.5rem 0 0.25rem', fontSize: '1.25rem', fontWeight: 700 }}>
                 Read Comics from Your Cloud
               </h3>
@@ -212,7 +213,7 @@ export default function AuthModal({
               </button>
 
               <div className="auth-privacy-note">
-                🔒 We only access the comic folder you select in Google Drive to read and save your comics.
+                <Lock size={14}/> We only access the comic folder you select in Google Drive to read and save your comics.
               </div>
             </div>
           )}

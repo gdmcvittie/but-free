@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { apiUrl } from './api';
 import type { Comic } from './Library';
 import type { GoogleUserProfile } from './AuthModal';
+import { BookOpen, Inbox, ArrowLeft, ArrowRight, Trash2, PartyPopper, Folder } from 'lucide-react';
 
 interface OmnibusCreatorViewProps {
   user: GoogleUserProfile | null;
@@ -345,7 +346,7 @@ export default function OmnibusCreatorView({
       <div style={{ marginBottom: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
         <div>
           <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '0.6rem', margin: 0 }}>
-            <span style={{ fontSize: '1.8rem' }}>📚</span> Omnibus Creator
+            <span style={{ display: 'inline-flex', marginRight: '0.4rem' }}><BookOpen size={30}/></span> Omnibus Creator
           </h1>
           <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: '0.25rem 0 0' }}>
             Select comic issues, arrange reading sequence, and merge into a single CBZ omnibus.
@@ -509,7 +510,7 @@ export default function OmnibusCreatorView({
               <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>Loading library issues...</div>
             ) : availableIssues.length === 0 ? (
               <div style={{ padding: '2.5rem 1rem', textAlign: 'center', color: '#94a3b8' }}>
-                <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📭</div>
+                <div style={{ marginBottom: '0.5rem' }}><Inbox size={32}/></div>
                 No comic issues found matching the selected filter.
               </div>
             ) : (
@@ -551,8 +552,8 @@ export default function OmnibusCreatorView({
                           loading="lazy"
                         />
                       ) : (
-                        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#475569', fontSize: '1rem' }}>
-                          📖
+                        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#475569' }}>
+                          <BookOpen size={16}/>
                         </div>
                       )}
                     </div>
@@ -691,7 +692,7 @@ export default function OmnibusCreatorView({
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.78rem', color: '#94a3b8' }}>
               <span>Output File: <code style={{ color: '#38bdf8' }}>{omnibusTitle ? `${omnibusTitle.replace(/[<>:"/\\|?*]+/g, '').trim()}.cbz` : 'Omnibus.cbz'}</code></span>
-              <span style={{ color: '#34d399' }}>📁 Saved in same folder</span>
+              <span style={{ color: '#34d399' }}><Folder size={14}/> Saved in same folder</span>
             </div>
           </div>
 
@@ -709,7 +710,7 @@ export default function OmnibusCreatorView({
           <div className="omnibus-reorder-list-container">
             {selectedComics.length === 0 ? (
               <div style={{ padding: '2.5rem 1rem', textAlign: 'center', color: '#64748b', border: '2px dashed #1e293b', borderRadius: '8px' }}>
-                <div style={{ fontSize: '1.8rem', marginBottom: '0.4rem' }}>👈</div>
+                <div style={{ marginBottom: '0.4rem' }}><ArrowLeft size={30}/></div>
                 Select issues from the list on the left to arrange them here.
               </div>
             ) : (
@@ -816,7 +817,7 @@ export default function OmnibusCreatorView({
               transition: 'all 0.2s ease'
             }}
           >
-            {isMerging ? 'Creating Omnibus...' : `📚 Merge ${selectedComics.length} Issues into Omnibus`}
+            {isMerging ? 'Creating Omnibus...' : `Merge ${selectedComics.length} Issues into Omnibus`}
           </button>
         </div>
       </div>
@@ -830,12 +831,12 @@ export default function OmnibusCreatorView({
           tabIndex={0}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <span>📚</span>
+            <span><BookOpen size={16}/></span>
             <span>{selectedIssueIds.length} {selectedIssueIds.length === 1 ? 'issue' : 'issues'} selected</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
             <span>Order & Create</span>
-            <span style={{ fontSize: '1.1rem' }}>→</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><ArrowRight size={16}/></span>
           </div>
         </div>
       )}
@@ -867,7 +868,7 @@ export default function OmnibusCreatorView({
             }}
           >
             <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-              <div style={{ fontSize: '2.5rem', marginBottom: '0.6rem', animation: 'pulse 1.5s infinite' }}>📚</div>
+              <div style={{ marginBottom: '0.6rem', animation: 'pulse 1.5s infinite' }}><BookOpen size={40}/></div>
               <h3 style={{ fontSize: '1.25rem', fontWeight: 800, margin: '0 0 0.4rem', color: '#f8fafc' }}>
                 Creating Omnibus Archive
               </h3>
@@ -925,7 +926,7 @@ export default function OmnibusCreatorView({
           >
             {/* Success Header */}
             <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
-              <div style={{ fontSize: '2.5rem', marginBottom: '0.4rem' }}>🎉</div>
+              <div style={{ marginBottom: '0.4rem' }}><PartyPopper size={40}/></div>
               <h3 style={{ fontSize: '1.35rem', fontWeight: 800, margin: '0 0 0.4rem', color: '#f8fafc' }}>
                 Omnibus Created Successfully!
               </h3>
@@ -958,7 +959,7 @@ export default function OmnibusCreatorView({
             {/* Prompt for Deleting Single Issues */}
             <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '12px', padding: '1.1rem', marginBottom: '1.5rem' }}>
               <div style={{ display: 'flex', gap: '0.65rem' }}>
-                <span style={{ fontSize: '1.4rem' }}>🗑️</span>
+                <span style={{ display: 'inline-flex' }}><Trash2 size={22}/></span>
                 <div>
                   <h4 style={{ margin: '0 0 0.25rem', fontSize: '0.98rem', fontWeight: 700, color: '#fca5a5' }}>
                     Delete the {jobStatus.result.issueCount} single issues?
@@ -997,7 +998,7 @@ export default function OmnibusCreatorView({
                       cursor: deleteSinglesState === 'deleting' ? 'not-allowed' : 'pointer'
                     }}
                   >
-                    {deleteSinglesState === 'deleting' ? 'Deleting singles...' : '🗑️ Delete Single Issues'}
+                    {deleteSinglesState === 'deleting' ? 'Deleting singles...' : 'Delete Single Issues'}
                   </button>
 
                   <button
@@ -1017,7 +1018,7 @@ export default function OmnibusCreatorView({
                       cursor: 'pointer'
                     }}
                   >
-                    💾 Keep Single Issues
+                    Keep Single Issues
                   </button>
                 </>
               ) : (
@@ -1060,7 +1061,7 @@ export default function OmnibusCreatorView({
                     marginTop: '0.35rem'
                   }}
                 >
-                  📖 Read Omnibus Now
+                  Read Omnibus Now
                 </button>
               )}
             </div>

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { apiUrl } from './api';
 import type { Comic } from './Library';
 import type { GoogleUserProfile } from './AuthModal';
+import { BookOpen, Inbox, ArrowLeft, Folder, Image, PartyPopper, Scissors, Trash2, TriangleAlert } from 'lucide-react';
 
 interface OmnibusSplitterViewProps {
   user: GoogleUserProfile | null;
@@ -419,7 +420,7 @@ export default function OmnibusSplitterView({
       <div style={{ marginBottom: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
         <div>
           <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: '#f8fafc', display: 'flex', alignItems: 'center', gap: '0.6rem', margin: 0 }}>
-            <span style={{ fontSize: '1.8rem' }}>✂️</span> Omnibus Splitter
+            <span style={{ display: 'inline-flex', marginRight: '0.4rem' }}><Scissors size={30}/></span> Omnibus Splitter
           </h1>
           <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: '0.25rem 0 0' }}>
             Break a large omnibus into evenly sized volumes, each with its own cover.
@@ -442,7 +443,7 @@ export default function OmnibusSplitterView({
                 cursor: 'pointer'
               }}
             >
-              📚 Merge Issues Instead
+              Merge Issues Instead
             </button>
           )}
           {onNavigateView && (
@@ -574,7 +575,7 @@ export default function OmnibusSplitterView({
               <div style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8' }}>Loading library...</div>
             ) : candidates.length === 0 ? (
               <div style={{ padding: '2.5rem 1rem', textAlign: 'center', color: '#94a3b8' }}>
-                <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📭</div>
+                <div style={{ marginBottom: '0.5rem' }}><Inbox size={32}/></div>
                 No comics found matching the selected filter.
               </div>
             ) : (
@@ -606,8 +607,8 @@ export default function OmnibusSplitterView({
                           loading="lazy"
                         />
                       ) : (
-                        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#475569', fontSize: '1rem' }}>
-                          📖
+                        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#475569' }}>
+                          <BookOpen size={16}/>
                         </div>
                       )}
                     </div>
@@ -682,7 +683,7 @@ export default function OmnibusSplitterView({
             </div>
           ) : !inspect ? (
             <div style={{ padding: '2.5rem 1rem', textAlign: 'center', color: '#64748b', border: '2px dashed #1e293b', borderRadius: '8px' }}>
-              <div style={{ fontSize: '1.8rem', marginBottom: '0.4rem' }}>👈</div>
+              <div style={{ marginBottom: '0.4rem' }}><ArrowLeft size={30}/></div>
               Choose an omnibus from the list on the left to read its page count and plan the split.
             </div>
           ) : (
@@ -830,8 +831,8 @@ export default function OmnibusSplitterView({
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.35rem' }}>
                     <span>Destination</span>
-                    <span style={{ color: '#34d399' }}>
-                      📁 {inspect.storage === 'drive' ? 'Same Google Drive folder' : 'Same folder as source'}
+                    <span style={{ color: '#34d399', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                      <Folder size={14}/> {inspect.storage === 'drive' ? 'Same Google Drive folder' : 'Same folder as source'}
                     </span>
                   </div>
                 </div>
@@ -894,8 +895,8 @@ export default function OmnibusSplitterView({
                         </div>
                       </div>
 
-                      <span style={{ fontSize: '0.7rem', color: '#34d399', flexShrink: 0 }} title={`Cover: ${entry.coverFileName}`}>
-                        🖼️
+                      <span style={{ display: 'inline-flex', alignItems: 'center', color: '#34d399', flexShrink: 0 }} title={`Cover: ${entry.coverFileName}`}>
+                        <Image size={16}/>
                       </span>
                     </div>
                   ))
@@ -930,8 +931,8 @@ export default function OmnibusSplitterView({
                 {isSplitting
                   ? 'Splitting...'
                   : plan.length > 0
-                    ? `✂️ Split into ${plan.length} Volumes`
-                    : '✂️ Split Omnibus'}
+                    ? `Split into ${plan.length} Volumes`
+                    : 'Split Omnibus'}
               </button>
             </>
           )}
@@ -965,7 +966,7 @@ export default function OmnibusSplitterView({
             }}
           >
             <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-              <div style={{ fontSize: '2.5rem', marginBottom: '0.6rem', animation: 'pulse 1.5s infinite' }}>✂️</div>
+              <div style={{ marginBottom: '0.6rem', animation: 'pulse 1.5s infinite' }}><Scissors size={40}/></div>
               <h3 style={{ fontSize: '1.25rem', fontWeight: 800, margin: '0 0 0.4rem', color: '#f8fafc' }}>
                 Splitting Omnibus
               </h3>
@@ -1017,7 +1018,7 @@ export default function OmnibusSplitterView({
           }}
         >
           <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'flex-start' }}>
-            <span style={{ fontSize: '1.2rem' }}>⚠️</span>
+            <span style={{ display: 'inline-flex' }}><TriangleAlert size={16}/></span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#fca5a5', marginBottom: '0.2rem' }}>
                 Split failed
@@ -1072,7 +1073,7 @@ export default function OmnibusSplitterView({
             }}
           >
             <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
-              <div style={{ fontSize: '2.5rem', marginBottom: '0.4rem' }}>🎉</div>
+              <div style={{ marginBottom: '0.4rem' }}><PartyPopper size={40}/></div>
               <h3 style={{ fontSize: '1.35rem', fontWeight: 800, margin: '0 0 0.4rem', color: '#f8fafc' }}>
                 Split Complete!
               </h3>
@@ -1135,7 +1136,7 @@ export default function OmnibusSplitterView({
             {deleteSourceState !== 'deleted' ? (
               <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '12px', padding: '1.1rem', marginBottom: '1.5rem' }}>
                 <div style={{ display: 'flex', gap: '0.65rem' }}>
-                  <span style={{ fontSize: '1.4rem' }}>🗑️</span>
+                  <span style={{ display: 'inline-flex' }}><Trash2 size={22}/></span>
                   <div>
                     <h4 style={{ margin: '0 0 0.25rem', fontSize: '0.98rem', fontWeight: 700, color: '#fca5a5' }}>
                       Delete the original omnibus?
@@ -1171,7 +1172,7 @@ export default function OmnibusSplitterView({
                       cursor: deleteSourceState === 'deleting' ? 'not-allowed' : 'pointer'
                     }}
                   >
-                    {deleteSourceState === 'deleting' ? 'Deleting...' : '🗑️ Delete Original'}
+                    {deleteSourceState === 'deleting' ? 'Deleting...' : 'Delete Original'}
                   </button>
                   <button
                     type="button"
@@ -1190,7 +1191,7 @@ export default function OmnibusSplitterView({
                       cursor: 'pointer'
                     }}
                   >
-                    💾 Keep Original
+                    Keep Original
                   </button>
                 </div>
               </div>
@@ -1224,7 +1225,7 @@ export default function OmnibusSplitterView({
                     cursor: 'pointer'
                   }}
                 >
-                  📖 Read Volume 01
+                  Read Volume 01
                 </button>
               )}
               <button

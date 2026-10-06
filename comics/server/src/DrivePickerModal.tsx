@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Folder, Plus, FolderOpen } from 'lucide-react';
 import { apiUrl } from './api';
 
 interface DriveFolder {
@@ -147,7 +148,7 @@ export default function DrivePickerModal({
       <div className="modal-container drive-picker-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-            <span style={{ fontSize: '1.4rem' }}>📁</span>
+            <Folder size={22}/>
             <h2>Select Comic Folder in Google Drive</h2>
           </div>
           <button className="modal-close-btn" onClick={onClose} aria-label="Close">
@@ -189,7 +190,8 @@ export default function DrivePickerModal({
                 className="btn btn-secondary btn-sm"
                 onClick={() => setIsCreatingFolder(true)}
               >
-                ➕ New Folder
+                <Plus size={16}/>
+                New Folder
               </button>
             ) : (
               <form onSubmit={handleCreateFolder} className="drive-new-folder-form">
@@ -245,7 +247,7 @@ export default function DrivePickerModal({
                       onDoubleClick={() => handleNavigateInto(folder)}
                     >
                       <div className="drive-folder-left">
-                        <span className="drive-folder-icon">📂</span>
+                        <span className="drive-folder-icon"><FolderOpen size={18}/></span>
                         <div className="drive-folder-name-col">
                           <span className="drive-folder-title">{folder.name}</span>
                           {isCurrentSaved && <span className="badge badge-success">Active Library</span>}

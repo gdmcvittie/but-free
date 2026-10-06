@@ -1062,7 +1062,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 0;
   cursor: pointer;
   flex: 1;
   padding: 6px 0;
@@ -1074,13 +1074,8 @@ body {
 }
 
 .mobile-nav-icon {
-  font-size: 1.25rem;
-  line-height: 1;
-}
-
-.mobile-nav-label {
-  font-size: 0.68rem;
-  font-weight: 600;
+  width: 22px;
+  height: 22px;
 }
 
 /* Desktop hover visibility for reader HUD (only for mouse/fine pointer) */

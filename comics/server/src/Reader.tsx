@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { FileText, BookOpen, ScrollText, Scissors, Search, CircleCheck, Download, Monitor, Smartphone, TriangleAlert, RefreshCw, Zap, Loader2 } from 'lucide-react';
 import { apiUrl } from './api';
 import {
   autoDownloadComicForOffline,
@@ -2600,19 +2601,19 @@ export default function Reader({ comic, currentProfile: propProfile, user, onClo
             className={`reader-mode-toggle-btn ${readingMode === 'single' ? 'active' : ''}`}
             onClick={() => updateReadingMode('single')}
           >
-            📄 Single
+            <FileText size={15}/> Single
           </button>
           <button
             className={`reader-mode-toggle-btn ${readingMode === 'double' ? 'active' : ''}`}
             onClick={() => updateReadingMode('double')}
           >
-            📖 Double
+            <BookOpen size={15}/> Double
           </button>
           <button
             className={`reader-mode-toggle-btn ${readingMode === 'webtoon' ? 'active' : ''}`}
             onClick={() => updateReadingMode('webtoon')}
           >
-            📜 Strip
+            <ScrollText size={15}/> Strip
           </button>
         </div>
       </div>
@@ -2652,7 +2653,7 @@ export default function Reader({ comic, currentProfile: propProfile, user, onClo
             }}
             title="Automatically split two-page spreads into single pages"
           >
-            ✂️ Split (Single)
+            <Scissors size={15}/> Split (Single)
           </button>
           <button
             className={`reader-mode-toggle-btn ${!splitSpreads ? 'active' : ''}`}
@@ -2757,7 +2758,7 @@ export default function Reader({ comic, currentProfile: propProfile, user, onClo
             cursor: 'pointer'
           }}
         >
-          🔍 Reset Zoom ({scale.toFixed(1)}x)
+          <Search size={15}/> Reset Zoom ({scale.toFixed(1)}x)
         </button>
       )}
     </>
@@ -2842,7 +2843,7 @@ export default function Reader({ comic, currentProfile: propProfile, user, onClo
               }}
               title={offlineStatus.isComplete ? 'All pages saved for offline reading' : 'Downloading pages for offline reading in background'}
             >
-              {offlineStatus.isComplete ? '✅ Offline' : `📥 Offline: ${offlineStatus.downloaded}/${offlineStatus.total}`}
+              {offlineStatus.isComplete ? <><CircleCheck size={14}/> Offline</> : <><Download size={14}/> Offline: {offlineStatus.downloaded}/{offlineStatus.total}</>}
             </span>
           )}
         </div>
@@ -2855,7 +2856,7 @@ export default function Reader({ comic, currentProfile: propProfile, user, onClo
               title={desktopModeEnabled ? 'Desktop Mode Active (2/3 Page, 1/3 Zoom)' : 'Switch to Desktop Mode'}
               style={{ padding: '0.4rem 0.55rem', fontSize: '0.9rem', lineHeight: 1 }}
             >
-              🖥️
+              <Monitor size={16}/>
             </button>
           )}
           {phoneMode && (
@@ -2874,7 +2875,7 @@ export default function Reader({ comic, currentProfile: propProfile, user, onClo
             title={phoneMode ? 'Disable Phone Mode' : 'Phone Mode: drag the page thumbnail to pan the zoom'}
             style={{ padding: '0.4rem 0.55rem', fontSize: '0.9rem', lineHeight: 1 }}
           >
-            📱
+            <Smartphone size={16}/>
           </button>
         </div>
       </div>
@@ -2904,17 +2905,17 @@ export default function Reader({ comic, currentProfile: propProfile, user, onClo
           </div>
         ) : backendError ? (
           <div style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#ef4444', padding: '2rem 1rem', textAlign: 'center' }}>
-            <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>⚠️</div>
+            <div style={{ marginBottom: '0.75rem' }}><TriangleAlert size={40}/></div>
             <div style={{ fontWeight: 700, fontSize: '1.2rem', marginBottom: '0.5rem' }}>Unable to Open Comic Archive</div>
             <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', borderRadius: '8px', padding: '0.75rem 1rem', color: '#fca5a5', fontSize: '0.85rem', fontFamily: 'monospace', wordBreak: 'break-all', margin: '1rem 0', maxWidth: '600px' }}>
               {backendError}
             </div>
             <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
               <button onClick={() => { setBackendError(null); setRetryCount((c) => c + 1); fetchPages(); }} className="control-btn" style={{ background: 'var(--accent-color)' }}>
-                🔄 Retry Loading
+                <RefreshCw size={16}/> Retry Loading
               </button>
               <button onClick={handleAutoLocateAndRescan} className="control-btn">
-                ⚡ Auto-Locate / Rescan Library
+                <Zap size={16}/> Auto-Locate / Rescan Library
               </button>
             </div>
           </div>
@@ -3110,7 +3111,7 @@ export default function Reader({ comic, currentProfile: propProfile, user, onClo
                 fontVariantNumeric: 'tabular-nums'
               }}
             >
-              {!loadedPages.has(currentPage) ? '⏳ ' : ''}
+              {!loadedPages.has(currentPage) ? <><Loader2 size={14}/>{' '}</> : ''}
               {readingMode === 'single' && splitSpreads && widePages[currentPage]?.isWide
                 ? `${currentPage} (${subPage + 1}/2) / ${totalPages}`
                 : `${currentPage} / ${totalPages}`}

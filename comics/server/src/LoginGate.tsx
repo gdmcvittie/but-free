@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Cloud, TriangleAlert, Folder, BookOpen, Zap, Lock } from 'lucide-react';
 import { apiUrl } from './api';
 
 interface LoginGateProps {
@@ -45,7 +46,7 @@ export default function LoginGate({ authError, onClearAuthError }: LoginGateProp
         {/* Brand Title */}
         <div className="login-gate-brand">
           <div className="login-gate-logo-icon">
-            <span role="img" aria-label="Cloud">☁️</span>
+            <Cloud size={40}/>
           </div>
           <h1 className="login-gate-title">COMIXOLOFREE</h1>
         </div>
@@ -58,7 +59,7 @@ export default function LoginGate({ authError, onClearAuthError }: LoginGateProp
         {displayedError && (
           <div className="login-gate-error-banner" role="alert">
             <div className="login-gate-error-content">
-              <span className="login-gate-error-icon">⚠️</span>
+              <span className="login-gate-error-icon"><TriangleAlert size={16}/></span>
               <div className="login-gate-error-text">
                 <strong>Sign-in notice:</strong> {displayedError}
               </div>
@@ -118,21 +119,21 @@ export default function LoginGate({ authError, onClearAuthError }: LoginGateProp
         {/* Feature Highlights */}
         <div className="login-gate-features">
           <div className="login-gate-feature-item">
-            <span className="login-gate-feature-icon">📁</span>
+            <span className="login-gate-feature-icon"><Folder size={16}/></span>
             <div className="login-gate-feature-desc">
               <strong>Google Drive Sync</strong>
               <span>Stream CBR, CBZ, and Omnibus comics directly from your cloud folders.</span>
             </div>
           </div>
           <div className="login-gate-feature-item">
-            <span className="login-gate-feature-icon">📖</span>
+            <span className="login-gate-feature-icon"><BookOpen size={16}/></span>
             <div className="login-gate-feature-desc">
               <strong>Cross-Device Progress</strong>
               <span>Pick up right where you left off on any mobile device or desktop.</span>
             </div>
           </div>
           <div className="login-gate-feature-item">
-            <span className="login-gate-feature-icon">⚡</span>
+            <span className="login-gate-feature-icon"><Zap size={16}/></span>
             <div className="login-gate-feature-desc">
               <strong>Integrated Cloud Scraper</strong>
               <span>Search, download, and compress issues straight into your library.</span>
@@ -143,7 +144,7 @@ export default function LoginGate({ authError, onClearAuthError }: LoginGateProp
         {/* Security & Privacy Footnote */}
         <div className="login-gate-footer">
           <p className="login-gate-privacy">
-            🔒 Secured via OAuth 2.0. Permissions are strictly scoped to comic reading and selected Drive folders.
+            <Lock size={14}/> Secured via OAuth 2.0. Permissions are strictly scoped to comic reading and selected Drive folders.
           </p>
         </div>
       </div>

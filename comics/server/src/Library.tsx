@@ -10,6 +10,29 @@ import {
   getCachedOfflineCoverUrl,
   deleteOfflineComic
 } from './offlineStorage';
+import {
+  Zap,
+  BookOpen,
+  Heart,
+  Folder,
+  Loader2,
+  RefreshCw,
+  Clock,
+  FileText,
+  FolderTree,
+  Type,
+  Hash,
+  ChevronDown,
+  ChevronUp,
+  SquareCheck,
+  Sparkles,
+  Search,
+  Trash2,
+  Pencil,
+  TriangleAlert,
+  Save,
+  CircleCheck
+} from 'lucide-react';
 
 // In-memory cache across tab switches so navigating between Library, Continue Reading, and Favorites is 0ms instant
 let memoryComicsCache: Comic[] | null = null;
@@ -1166,7 +1189,7 @@ export default function Library({
           } : undefined}
         >
           {offlineComicIds.has(idStr) ? (
-            <span style={{ fontSize: '11px', fontWeight: 800 }}>⚡</span>
+            <Zap size={16} />
           ) : (
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -1234,7 +1257,9 @@ export default function Library({
                 height: '100%'
               }}
             >
-              <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem', opacity: 0.85 }}>📖</div>
+                <div style={{ marginBottom: '0.5rem', opacity: 0.85, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <BookOpen size={40} />
+                </div>
               <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#f8fafc', lineHeight: 1.3 }}>
                 {comic.title}
               </div>
@@ -1287,7 +1312,7 @@ export default function Library({
               }}
               title="Downloaded & ready for offline reading"
             >
-              <span>⚡</span>
+              <Zap size={14} />
               <span>Offline</span>
             </div>
           )}
@@ -1365,8 +1390,8 @@ export default function Library({
               }}
               title={`Series "${extractSeries(comic)}" is favorited`}
             >
-              <span>❤️</span>
-              <span>Series</span>
+               <Heart size={14} />
+               <span>Series</span>
             </div>
           )}
         </div>
@@ -1453,12 +1478,12 @@ export default function Library({
         {/* Top Folder Tab */}
         <div className="series-folder-tab" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <span className="folder-icon">📁</span>
+            <span className="folder-icon"><Folder size={16} /></span>
             <span>SERIES FOLDER</span>
           </div>
           {isSeriesFav && (
             <span style={{ fontSize: '0.68rem', color: '#f87171', fontWeight: 700, letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-              <span>❤️</span> FAVE
+               <Heart size={14} /> FAVE
             </span>
           )}
         </div>
@@ -1507,7 +1532,9 @@ export default function Library({
                 textAlign: 'center'
               }}
             >
-              <span style={{ fontSize: '3rem', marginBottom: '0.5rem', opacity: 0.8 }}>📁</span>
+               <span style={{ marginBottom: '0.5rem', opacity: 0.8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                 <Folder size={48} />
+               </span>
               <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#f8fafc' }}>{group.seriesName}</span>
             </div>
           )}
@@ -1530,7 +1557,7 @@ export default function Library({
               zIndex: 3
             }}
           >
-            📚 {group.issueCount} {group.issueCount === 1 ? 'issue' : 'issues'}
+             <BookOpen size={14} style={{ marginRight: '0.2rem', display: 'inline-block', verticalAlign: 'middle' }} /> {group.issueCount} {group.issueCount === 1 ? 'issue' : 'issues'}
           </div>
         </div>
 
@@ -1623,7 +1650,7 @@ export default function Library({
             }}
             title="Refresh comics list"
           >
-            {loading ? '⏳ Refreshing...' : '🔄 Refresh'}
+             {loading ? <><Loader2 size={16} className="animate-spin" /> Refreshing...</> : <><RefreshCw size={16} /> Refresh</>}
           </button>
           <button
             className="library-header-btn-scan"
@@ -1646,7 +1673,7 @@ export default function Library({
             }}
             title="Scan Google Drive folder for comics"
           >
-            {scanning ? '⏳ Scanning...' : '⚡ Scan Folder'}
+             {scanning ? <><Loader2 size={16} className="animate-spin" /> Scanning...</> : <><Zap size={16} /> Scan Folder</>}
           </button>
           <button
             className="library-header-btn-sort"
@@ -1668,7 +1695,7 @@ export default function Library({
             }}
             title="Sort loose comics into their series folders"
           >
-            {sorting ? '⏳ Sorting...' : '📁 Sort Folders'}
+             {sorting ? <><Loader2 size={16} className="animate-spin" /> Sorting...</> : <><Folder size={16} /> Sort Folders</>}
           </button>
         </div>
       </div>
@@ -1678,7 +1705,7 @@ export default function Library({
         <section style={{ marginBottom: '2.5rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-              <span style={{ fontSize: '1.25rem' }}>📖</span>
+              <BookOpen size={20} />
               <h2 style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>
                 Continue Reading
               </h2>
@@ -1779,7 +1806,7 @@ export default function Library({
                           fontSize: '2rem'
                         }}
                       >
-                        📖
+                         <BookOpen size={32} />
                       </div>
                     )}
 
@@ -1806,7 +1833,7 @@ export default function Library({
                         border: '1px solid rgba(255, 255, 255, 0.1)'
                       }}
                     >
-                      🕒 {formatTimeAgo(prog?.lastRead)}
+                       <Clock size={12} style={{ marginRight: '0.25rem', display: 'inline-block', verticalAlign: 'middle' }} /> {formatTimeAgo(prog?.lastRead)}
                     </div>
 
                     <div
@@ -1905,7 +1932,7 @@ export default function Library({
                 }}
                 title="Group issues into series folders"
               >
-                <span>📁</span> By Series
+                 <Folder size={16} /> By Series
               </button>
               <button
                 type="button"
@@ -1916,7 +1943,7 @@ export default function Library({
                 }}
                 title="View all comic issues in a single flat grid"
               >
-                <span>📑</span> All Issues
+                 <FileText size={16} /> All Issues
               </button>
             </div>
 
@@ -1929,7 +1956,7 @@ export default function Library({
                   onClick={() => setSeriesLayout('folders')}
                   title="Display series as folder cards"
                 >
-                  <span>🗂️</span> Folders
+                   <FolderTree size={16} /> Folders
                 </button>
                 <button
                   type="button"
@@ -1937,7 +1964,7 @@ export default function Library({
                   onClick={() => setSeriesLayout('shelves')}
                   title="Display series as expandable shelf sections"
                 >
-                  <span>📚</span> Shelves
+                   <BookOpen size={16} /> Shelves
                 </button>
               </div>
             )}
@@ -1953,10 +1980,10 @@ export default function Library({
                 onChange={(e) => setSortBy(e.target.value as any)}
                 aria-label="Sort library by"
               >
-                <option value="latest">🕒 Latest Added</option>
-                <option value="alpha">🔤 Alphabetical (A - Z)</option>
-                <option value="issue">🔢 Issue Order</option>
-                <option value="lastRead">📖 Recently Read</option>
+                <option value="latest">Latest Added</option>
+                <option value="alpha">Alphabetical (A - Z)</option>
+                <option value="issue">Issue Order</option>
+                <option value="lastRead">Recently Read</option>
               </select>
             </div>
 
@@ -1968,7 +1995,7 @@ export default function Library({
               title={isReversed ? 'Order is reversed (Click to restore normal order)' : 'Click to reverse sort order'}
               aria-label="Reverse sort order"
             >
-              <span>{isReversed ? '🔽' : '🔼'}</span>
+               <span>{isReversed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}</span>
               <span>{isReversed ? 'Reversed' : 'Reverse'}</span>
             </button>
 
@@ -1988,7 +2015,7 @@ export default function Library({
                 color: '#fca5a5'
               } : undefined}
             >
-              <span>{isSelectMode ? '✕' : '☑️'}</span>
+               <span>{isSelectMode ? '✕' : <SquareCheck size={16} />}</span>
               <span>{isSelectMode ? 'Cancel Selection' : 'Select'}</span>
             </button>
           </div>
@@ -1997,7 +2024,7 @@ export default function Library({
         {/* Bottom Controls Row: Instant Filter Search & Status Chips */}
         <div className="library-toolbar-row" style={{ paddingTop: '0.4rem', borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
           <div className="library-search-container">
-            <span className="library-search-icon">🔍</span>
+             <span className="library-search-icon"><Search size={16} /></span>
             <input
               type="text"
               className="library-search-input"
