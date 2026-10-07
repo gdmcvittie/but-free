@@ -1326,28 +1326,12 @@ a {
   background: linear-gradient(180deg, rgba(11, 14, 24, 0.94), rgba(8, 9, 14, 0.98));
 }
 
-body.auth-checking #public-site-content,
 body.is-authenticated #public-site-content {
   display: none;
 }
 
-body.auth-checking .app-launcher,
 body.is-authenticated .app-launcher {
   display: block;
-}
-
-body.auth-checking .launcher-content,
-body.auth-checking .launcher-account {
-  display: none;
-}
-
-body.auth-checking #app-launcher::after {
-  content: 'Checking Google sign-in…';
-  position: fixed;
-  inset: 50% auto auto 50%;
-  transform: translate(-50%, -50%);
-  color: var(--text-secondary);
-  font-size: 0.95rem;
 }
 
 .launcher-navbar {

@@ -7,6 +7,7 @@
   "description": "FREEPLAY - Cloud Video Games and Retro Arcade for Google Drive (games.butfree.online)",
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "prebuild": "node scripts/generate-pwa-icons.mjs",
     "dev:server": "node server.js",
     "dev:client": "vite",
     "start": "node server.js",

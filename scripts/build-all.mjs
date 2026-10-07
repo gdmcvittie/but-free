@@ -348,6 +348,9 @@ if (!only || only === 'games') {
   if (fs.existsSync(gamesServerDir)) {
     if (fs.existsSync(gamesAndroidDir)) {
       console.log('[Games] Preparing the cloud web bundle for the Android offline library...');
+      if (!runCommand('node', ['scripts/generate-pwa-icons.mjs'], gamesServerDir)) {
+        throw new Error('Could not generate FREEPLAY PWA icons.');
+      }
       if (!runCommand('npx', ['vite', 'build'], gamesServerDir)) {
         throw new Error('Games web bundle preparation failed; Android app was not built.');
       }
