@@ -833,16 +833,27 @@
         </p>
       </div>
 
+      <!-- Step 2: Post-authorization Connected State -->
+      <div id="oauth-step-2" style="display: none; text-align: center;">
+        <div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(16, 185, 129, 0.15); color: var(--accent-emerald); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        </div>
+        <h3 style="font-size: 1.35rem; margin-bottom: 8px;">Google Drive Connected!</h3>
+        <p style="font-size: 0.92rem; color: var(--text-secondary); margin-bottom: 24px;">
+          Your account is verified and ready. Media folders are being scanned for comics, video, music, and games.
+        </p>
+        <button class="btn btn-primary" id="reset-demo-btn" style="width: 100%;">
+          Launch butfree Media Suite
+        </button>
+      </div>
     </div>
-  </div>
-  </div>
 
   <main class="app-launcher" id="app-launcher" aria-labelledby="launcher-title">
     <header class="launcher-navbar">
       <a href="/" class="brand-logo" aria-label="butfree app launcher">
         <div class="logo-badge" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
-        </div>
+  </div>
         <span>but<span class="text-gradient">FREE</span></span>
         <span class="brand-domain">.online</span>
       </a>
