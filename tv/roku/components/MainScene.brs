@@ -3,7 +3,7 @@ sub init()
     m.top.backgroundColor = "0x00000000"
 
     m.serverUrl = "https://tv.butfree.online"
-    m.torrentServerUrl = "http://download.butfree.online"
+    m.torrentServerUrl = "http://download.butfree.online:4000"
     m.state = "grid"
     m.isIpFocused = false
     m.isLiveChannel = false

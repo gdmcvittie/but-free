@@ -4,7 +4,7 @@
 // the cloud web app's /device flow.
 
 const SERVER_URL = 'https://tv.butfree.online';
-const TORRENT_SERVER_URL = 'http://download.butfree.online';
+const TORRENT_SERVER_URL = 'http://download.butfree.online:4000';
 const STORAGE_KEY_TOKEN = 'FREEVEE_auth_token';
 const STORAGE_KEY_USER = 'FREEVEE_auth_user';
 

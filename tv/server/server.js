@@ -63,6 +63,10 @@ function resolveFfmpegPath() {
   const binName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
   const candidates = [];
 
+  // Check explicit environment variable overrides
+  if (process.env.FFMPEG_PATH) candidates.push(process.env.FFMPEG_PATH);
+  if (process.env.FFMPEG_BIN) candidates.push(process.env.FFMPEG_BIN);
+
   // 1. ffmpeg-static npm package (newest builds) - default export is the path
   try {
     const ffmpegStatic = require('ffmpeg-static');
@@ -278,7 +282,7 @@ const SESSION_SECRET = process.env.SESSION_SECRET || 'FREEVEE_cloud_secret_jwt_k
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || process.env.GOOGLE_REDIRECT_URI_TV || `${TV_PUBLIC_URL}/auth/google/callback`;
-const TORRENT_STREAM_SERVER = (process.env.TORRENT_STREAM_SERVER || process.env.DOWNLOADER_URL || 'http://download.butfree.online').replace(/\/+$/, '');
+const TORRENT_STREAM_SERVER = (process.env.TORRENT_STREAM_SERVER || process.env.DOWNLOADER_URL || 'http://download.butfree.online:4000').replace(/\/+$/, '');
 
 // Hard-locked resource guardrails for Cloud VPS
 const MAX_CONCURRENT_DOWNLOADS = 1;
@@ -341,7 +345,7 @@ async function initLoopbackProbe() {
       const port = (typeof PORT === 'number' || (typeof PORT === 'string' && /^\d+$/.test(PORT))) ? Number(PORT) : 3000;
       isLoopbackPortOpen = await probeLoopbackPort(port);
       isLoopbackProbeDone = true;
-      console.log(`[Transcoder] Probed ffmpeg input loopback 127.0.0.1:${port} -> ${isLoopbackPortOpen ? 'OPEN (using internal input URL)' : 'CLOSED (using public BASE_URL input URL)'}`);
+      console.log(`[Transcoder] Probed ffmpeg input loopback 127.0.0.1:${port} -> ${isLoopbackPortOpen ? 'OPEN (using internal input URL)' : 'CLOSED (using public TV input URL)'}`);
       return isLoopbackPortOpen;
     })();
   }
@@ -356,8 +360,8 @@ async function getFfmpegInputUrl(sessionId, fileId, req) {
 
   // Prefer the public origin if loopback is definitely closed/unreachable.
   if (isLoopbackPortOpen === false) {
-    if (BASE_URL && (BASE_URL.startsWith('http://') || BASE_URL.startsWith('https://')) && !BASE_URL.includes('localhost') && !BASE_URL.includes('127.0.0.1')) {
-      return `${BASE_URL.replace(/\/+$/, '')}/api/stream/drive-hls-input/${sessionId}/${fileId}`;
+    if (TV_PUBLIC_URL && (TV_PUBLIC_URL.startsWith('http://') || TV_PUBLIC_URL.startsWith('https://')) && !TV_PUBLIC_URL.includes('localhost') && !TV_PUBLIC_URL.includes('127.0.0.1')) {
+      return `${TV_PUBLIC_URL.replace(/\/+$/, '')}/api/stream/drive-hls-input/${sessionId}/${fileId}`;
     }
     if (req) {
       const origin = getHostOrigin(req);
@@ -2544,8 +2548,8 @@ app.get(['/api/stream/drive/:fileId', '/api/stream/drive/:fileId/:fileName'], op
 // manifests (segments get resolved against the wrong base URL), so the
 // drive-hls route streams the playlist at its own URL and rewrites segment
 function getHostOrigin(req) {
-  if (BASE_URL && (BASE_URL.startsWith('http://') || BASE_URL.startsWith('https://')) && !BASE_URL.includes('localhost') && !BASE_URL.includes('127.0.0.1')) {
-    return BASE_URL.replace(/\/+$/, '');
+  if (TV_PUBLIC_URL && (TV_PUBLIC_URL.startsWith('http://') || TV_PUBLIC_URL.startsWith('https://')) && !TV_PUBLIC_URL.includes('localhost') && !TV_PUBLIC_URL.includes('127.0.0.1')) {
+    return TV_PUBLIC_URL.replace(/\/+$/, '');
   }
   if (!req) return 'https://tv.butfree.online';
   const host = req.get?.('host') || req.headers?.host || 'tv.butfree.online';
@@ -5052,7 +5056,7 @@ function getTorrentHeaders(extra = {}) {
   const key = process.env.TORRENT_NODE_KEY || process.env.DOWNLOADER_SECRET_KEY || process.env.NODE_KEY || process.env.TORRENT_DASHBOARD_KEY || process.env.DASHBOARD_KEY || '';
   return {
     'Accept': 'application/json',
-    'Host': 'download.butfree.online',
+
     ...(key ? { 'x-node-key': key, 'x-dashboard-key': key } : {}),
     ...extra
   };
@@ -5066,7 +5070,12 @@ async function getActiveTorrentServer() {
 
   const configured = (process.env.TORRENT_STREAM_SERVER || process.env.DOWNLOADER_URL || '').replace(/\/+$/, '');
   const candidateUrls = [];
-  if (configured) candidateUrls.push(configured);
+  if (configured) {
+    candidateUrls.push(configured);
+    if (!configured.includes(':4000')) candidateUrls.push(`${configured}:4000`);
+  }
+  candidateUrls.push('http://download.butfree.online:4000');
+  candidateUrls.push('http://74.208.22.119:4000');
   if (configured && configured.includes('download.butfree.online')) {
     candidateUrls.push(configured.replace('download.butfree.online', '74.208.22.119'));
   }
@@ -5090,7 +5099,7 @@ async function getActiveTorrentServer() {
     } catch (_) {}
   }
 
-  return configured || 'http://127.0.0.1:4000';
+  return configured || 'http://download.butfree.online:4000';
 }
 
 app.get('/api/torrent/status', async (req, res) => {
