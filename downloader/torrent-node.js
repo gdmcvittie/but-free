@@ -56,6 +56,7 @@ import {
   deleteJob as deleteGameJob,
   clearHistory as clearGameHistory,
   inspectTorrent as inspectGameTorrent,
+  resolveFuckingFastUrl,
   gameNodeStatus
 } from './gameDownloadManager.js';
 
@@ -968,6 +969,18 @@ app.post('/api/game/direct/download', requireAuth, (req, res) => {
     });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/game/resolve-link', requireAuth, async (req, res) => {
+  try {
+    const { url } = req.body || {};
+    if (!url) return res.status(400).json({ success: false, error: 'A url parameter is required' });
+    const directUrl = await resolveFuckingFastUrl(url);
+    res.json({ success: true, directUrl });
+  } catch (err) {
+    console.warn('[Game Resolve Link] Error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

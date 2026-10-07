@@ -186,7 +186,7 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
 
       if (isDirect && isFuckingFastLandingPage(target)) {
         resetFuckingFastCooldown();
-        target = await resolveFuckingFastUrl(target);
+        target = await resolveFuckingFastUrl(target, { downloaderClient: GameDownloaderClient });
       } else if (isDirect && isDataNodesLandingPage(target)) {
         return res.status(400).json({
           success: false,
@@ -267,7 +267,7 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
           const i = ffIndexes[cursor++];
           const ffSrc = String(batchItems[i]?.source || batchItems[i]?.url || '').trim();
           try {
-            const resolved = await resolveFuckingFastUrl(ffSrc);
+            const resolved = await resolveFuckingFastUrl(ffSrc, { downloaderClient: GameDownloaderClient });
             preResolved.set(i, { url: resolved });
           } catch (err) {
             preResolved.set(i, {
@@ -303,7 +303,7 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
             errors.push(prer.error);
             continue;
           } else {
-            target = await resolveFuckingFastUrl(target);
+            target = await resolveFuckingFastUrl(target, { downloaderClient: GameDownloaderClient });
           }
         } else if (isDirect && isDataNodesLandingPage(target)) {
           errors.push({ target, error: 'DataNodes requires interactive browser Turnstile' });

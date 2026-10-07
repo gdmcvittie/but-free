@@ -61,6 +61,19 @@ async function setup() {
     console.log(`[setup-bin] yt-dlp already present at ${destYt}`);
   }
 
+  // 3. Attempt to ensure curl_cffi is available for FuckingFast link resolution
+  try {
+    const { execSync } = await import('child_process');
+    const pyCmd = process.platform === 'win32' ? 'python' : 'python3';
+    execSync(`${pyCmd} -m pip install --break-system-packages curl_cffi || ${pyCmd} -m pip install curl_cffi || pip install curl_cffi`, {
+      stdio: 'ignore',
+      timeout: 30000
+    });
+    console.log('[setup-bin] Verified/installed curl_cffi for FuckingFast link resolution');
+  } catch (_) {
+    // Non-fatal: if pip is not available or restricted, skip silently
+  }
+
   console.log('[setup-bin] Tools setup complete!');
 }
 

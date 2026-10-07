@@ -18,6 +18,7 @@ fi
 echo "=== [1/6] Updating system packages on Debian 13 VPS ==="
 $SUDO apt-get update -y
 $SUDO apt-get install -y curl wget git build-essential ufw ffmpeg python3 python3-pip python-is-python3 || $SUDO apt-get install -y curl wget git build-essential ufw ffmpeg python3
+$SUDO pip3 install --break-system-packages curl_cffi 2>/dev/null || $SUDO pip3 install curl_cffi 2>/dev/null || pip install curl_cffi 2>/dev/null || true
 
 echo "=== [2/6] Installing Node.js LTS (v22+) ==="
 export PATH="/usr/local/bin:$PATH"

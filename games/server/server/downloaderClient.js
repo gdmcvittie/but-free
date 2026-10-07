@@ -239,6 +239,21 @@ export const GameDownloaderClient = {
     return data;
   },
 
+  async resolveLink(sourceUrl) {
+    const url = `${getDownloaderUrl()}/api/game/resolve-link`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: getNodeHeaders(),
+      body: JSON.stringify({ url: sourceUrl })
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) {
+      throw new Error(data.error || `Link resolve failed (HTTP ${res.status})`);
+    }
+    return data.directUrl;
+  },
+
   async getGameDownloads(userId) {
     const url = `${getDownloaderUrl()}/api/game/downloads${userId ? `?userId=${encodeURIComponent(userId)}` : ''}`;
     try {

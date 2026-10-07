@@ -40,7 +40,8 @@ export function useAddJob(onDownloadDispatched) {
           totalBlocked: 1,
           totalFailed: 1,
           batchTitle: title,
-          onRetry: () => add(key, { source, title, console: consoleKey, selectedFiles, subfolder })
+          onRetry: () => add(key, { source, title, console: consoleKey, selectedFiles, subfolder }),
+          onQueueDirect: (directUrl) => add(key, { source: directUrl, title, console: consoleKey, selectedFiles, subfolder })
         });
       }
       return false;
@@ -96,7 +97,21 @@ export function useAddJob(onDownloadDispatched) {
           totalBlocked: ffErrors.length,
           totalFailed: errors.length,
           batchTitle: defaultTitle || 'PC Game',
-          onRetry: () => addBatch(batchItems, defaultTitle)
+          onRetry: () => addBatch(batchItems, defaultTitle),
+          onQueueDirect: (pastedLinks) => {
+            const raw = Array.isArray(pastedLinks)
+              ? pastedLinks
+              : String(pastedLinks || '').split(/[\r\n]+/).map(s => s.trim()).filter(Boolean);
+            if (raw.length === 0) return false;
+            const updatedItems = raw.map((u, i) => ({
+              ...(batchItems[i] || {}),
+              source: u,
+              url: u,
+              title: defaultTitle || batchItems[i]?.title || 'PC Game',
+              console: 'pc'
+            }));
+            return addBatch(updatedItems, defaultTitle);
+          }
         });
         setStatus({
           type: 'err',
@@ -558,12 +573,15 @@ export function Grid({ children, empty }) {
 
 export function FuckingFastAssistModal({ assist, onClose }) {
   const [retrying, setRetrying] = useState(false);
+  const [pastedLink, setPastedLink] = useState('');
+  const [pastingDirect, setPastingDirect] = useState(false);
 
   if (!assist) return null;
 
   const fileIds = Array.isArray(assist.fileIds) ? assist.fileIds : [];
   const links = Array.isArray(assist.links) ? assist.links : [];
   const totalBlocked = assist.totalBlocked || links.length || fileIds.length;
+  const isMulti = links.length > 1;
 
   const openPopup = () => {
     const fileId = fileIds[0];
@@ -581,17 +599,28 @@ export function FuckingFastAssistModal({ assist, onClose }) {
     }
   };
 
+  const handleDirectQueue = async () => {
+    if (!pastedLink.trim() || !assist.onQueueDirect) return;
+    setPastingDirect(true);
+    try {
+      const ok = await assist.onQueueDirect(pastedLink.trim());
+      if (ok) onClose();
+    } finally {
+      setPastingDirect(false);
+    }
+  };
+
   return (
     <div className="pc-rss-modal-backdrop" onClick={onClose}>
-      <div className="pc-rss-modal-content" style={{ maxWidth: '520px' }} onClick={(e) => e.stopPropagation()}>
+      <div className="pc-rss-modal-content" style={{ maxWidth: '540px' }} onClick={(e) => e.stopPropagation()}>
         <div className="pc-modal-header">
           <div className="min-w-0">
             <h3 className="font-heading font-bold text-sm text-white flex items-center gap-2">
               <Zap className="w-4 h-4 text-emerald-400" />
-              <span>FuckingFast needs a human check</span>
+              <span>FuckingFast Link Verification</span>
             </h3>
             <p className="text-[11px] text-slate-400 mt-1">
-              {totalBlocked} of {assist.totalFailed || totalBlocked} link(s) blocked by a Cloudflare captcha for “{assist.batchTitle || 'PC Game'}”.
+              {totalBlocked} of {assist.totalFailed || totalBlocked} link(s) need Cloudflare clearance for “{assist.batchTitle || 'PC Game'}”.
             </p>
           </div>
           <button onClick={onClose} className="icon-btn icon-btn-sm shrink-0">
@@ -600,21 +629,25 @@ export function FuckingFastAssistModal({ assist, onClose }) {
         </div>
 
         <div className="p-4 space-y-3">
-          <div className="rounded-lg bg-slate-900/60 border border-white/5 p-3 text-[11px] text-slate-400 leading-relaxed">
-            The download host now runs a Cloudflare/Turnstile captcha before issuing direct
-            file links, and it refuses automated requests from the server. Your browser can
-            pass it easily:
-            <ol className="mt-2 space-y-1 list-decimal list-inside">
-              <li>Open a popup to the file page.</li>
-              <li>Tick the “I’m not a robot” box if it appears.</li>
-              <li>Come back and press <strong className="text-white">Retry queue</strong>.</li>
-            </ol>
-            If it still can’t extract the link, open the file page directly, then paste the
-            direct <span className="font-mono text-emerald-300">dl.fuckingfast.co/dl/…</span> file URL.
+          <div className="rounded-lg bg-slate-900/60 border border-white/5 p-3 text-[11px] text-slate-400 leading-relaxed space-y-1.5">
+            <p>
+              The host requires a Cloudflare check before issuing direct downloads. The downloader node will automatically attempt to resolve links via Chrome TLS impersonation, but you can also pass it in your browser:
+            </p>
+            <ul className="space-y-1 list-disc list-inside text-slate-300">
+              <li>
+                Click <strong className="text-white">Open popup &amp; check</strong>.
+              </li>
+              <li>
+                If you already passed the check previously, Cloudflare skips the checkbox and shows the download button immediately.
+              </li>
+              <li>
+                Either click <strong className="text-emerald-400">Retry queue</strong> below, or right-click the download button on the page &rarr; <span className="font-mono text-white">Copy link address</span> and paste the <span className="font-mono text-emerald-300">dl.fuckingfast.co/dl/…</span> URL below.
+              </li>
+            </ul>
           </div>
 
           {links.length > 0 && (
-            <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+            <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
               {links.map((l) => (
                 <div key={l.url} className="flex items-center gap-2 rounded-lg bg-slate-900/40 border border-white/5 px-3 py-1.5">
                   <span className="flex-1 min-w-0 text-[11px] text-slate-300 font-mono truncate">{l.url}</span>
@@ -623,7 +656,7 @@ export function FuckingFastAssistModal({ assist, onClose }) {
                     target="_blank"
                     rel="noreferrer"
                     className="icon-btn icon-btn-sm shrink-0"
-                    title="Open file page in browser"
+                    title="Open file page in new tab"
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
                   </a>
@@ -632,19 +665,65 @@ export function FuckingFastAssistModal({ assist, onClose }) {
             </div>
           )}
 
-          <div className="flex items-center gap-2 pt-1">
+          {/* Paste direct link(s) form */}
+          {assist.onQueueDirect && (
+            <div className="pt-2 border-t border-white/5 space-y-1.5">
+              <label className="text-[11px] font-semibold text-slate-300 block">
+                {isMulti ? 'Paste Direct dl.fuckingfast.co Link(s) (one per line):' : 'Paste Direct File URL (dl.fuckingfast.co/dl/...):'}
+              </label>
+              {isMulti ? (
+                <textarea
+                  rows={3}
+                  placeholder={`https://dl.fuckingfast.co/dl/...\nhttps://dl.fuckingfast.co/dl/...`}
+                  value={pastedLink}
+                  onChange={(e) => setPastedLink(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-900 border border-white/10 rounded-lg text-xs text-white placeholder-slate-500 font-mono focus:outline-none focus:border-emerald-500"
+                />
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="https://dl.fuckingfast.co/dl/..."
+                    value={pastedLink}
+                    onChange={(e) => setPastedLink(e.target.value)}
+                    className="flex-1 px-3 py-1.5 bg-slate-900 border border-white/10 rounded-lg text-xs text-white placeholder-slate-500 font-mono focus:outline-none focus:border-emerald-500"
+                  />
+                  <button
+                    onClick={handleDirectQueue}
+                    disabled={!pastedLink.trim() || pastingDirect}
+                    className="btn btn-primary btn-sm whitespace-nowrap"
+                  >
+                    {pastingDirect ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                    <span>Queue Direct</span>
+                  </button>
+                </div>
+              )}
+              {isMulti && (
+                <button
+                  onClick={handleDirectQueue}
+                  disabled={!pastedLink.trim() || pastingDirect}
+                  className="btn btn-primary btn-sm w-full"
+                >
+                  {pastingDirect ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                  <span>Queue Pasted Direct Links</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 pt-2 border-t border-white/5">
             <button onClick={openPopup} className="btn btn-secondary btn-sm flex-1" title="Opens the file page in a popup so the Cloudflare check can be passed in your browser">
               <ExternalLink className="w-3.5 h-3.5" />
-              <span>Open popup &amp; pass check</span>
+              <span>Open popup &amp; check</span>
             </button>
             <button
               onClick={handleRetry}
               disabled={retrying || !assist.onRetry}
               className="btn btn-primary btn-sm flex-1"
-              title="After passing the check, retry queueing these links"
+              title="After passing the check, retry queueing these links via downloader node"
             >
               {retrying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-              <span>{retrying ? 'Retrying…' : `Retry (${totalBlocked})`}</span>
+              <span>{retrying ? 'Retrying…' : `Retry queue (${totalBlocked})`}</span>
             </button>
           </div>
         </div>

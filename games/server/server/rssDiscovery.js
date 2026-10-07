@@ -1359,6 +1359,34 @@ export async function resolveFuckingFastUrl(url, opts = {}) {
   // cache never suppresses a now-working resolver.
   const viaPython = await resolveFuckingFastUrlViaPython(url);
   if (viaPython.ok) return viaPython.url;
+
+  // Strategy 0A: Delegated resolution via Central Downloader Node (IONOS VPS with curl_cffi)
+  const client = opts?.downloaderClient;
+  if (client?.resolveLink) {
+    try {
+      const resolved = await client.resolveLink(url);
+      if (resolved && isFuckingFastDirectUrl(resolved)) {
+        ffBlockCooldownUntil = 0;
+        console.log(`[FuckingFast] resolved via downloader node: ${fileId} -> direct link`);
+        return resolved;
+      }
+    } catch (err) {
+      console.warn(`[FuckingFast] downloader node resolve failed: ${err.message}`);
+    }
+  } else {
+    try {
+      const { GameDownloaderClient } = await import('./downloaderClient.js');
+      if (GameDownloaderClient?.resolveLink) {
+        const resolved = await GameDownloaderClient.resolveLink(url);
+        if (resolved && isFuckingFastDirectUrl(resolved)) {
+          ffBlockCooldownUntil = 0;
+          console.log(`[FuckingFast] resolved via downloader node: ${fileId} -> direct link`);
+          return resolved;
+        }
+      }
+    } catch (_) {}
+  }
+
   if (viaPython.blocked) {
     throw blocked(`FuckingFast ${viaPython.message || 'is blocking automated access'}. Open the link in your browser, pass the check, then paste the direct file URL.`);
   }

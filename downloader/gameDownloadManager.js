@@ -16,7 +16,13 @@ import path from 'path';
 import http from 'http';
 import https from 'https';
 import WebTorrent from 'webtorrent';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import { fileURLToPath } from 'url';
 import { uploadFileToGoogleDrive, findOrCreateFolder } from './driveUploader.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const GAME_DOWNLOADS_DIR = path.join(process.cwd(), 'downloads-games');
 const HISTORY_FILE = path.join(process.cwd(), 'download_history_games.json');
@@ -436,6 +442,105 @@ function pumpDirectQueue() {
   }
 }
 
+const execFileAsync = promisify(execFile);
+const FF_RESOLVER_PY = fs.existsSync(path.join(__dirname, 'ffResolver.py'))
+  ? path.join(__dirname, 'ffResolver.py')
+  : path.join(process.cwd(), 'ffResolver.py');
+
+export function isFuckingFastUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  return url.toLowerCase().includes('fuckingfast.co');
+}
+
+export function isFuckingFastDirectUrl(url) {
+  if (!isFuckingFastUrl(url)) return false;
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    const isDirectHost = host.startsWith('dl.') || host.includes('dl.fuckingfast');
+    return isDirectHost && parsed.pathname.includes('/dl/');
+  } catch (_) {
+    return url.includes('dl.fuckingfast.co') && url.includes('/dl/');
+  }
+}
+
+export function isFuckingFastLandingPage(url) {
+  if (!isFuckingFastUrl(url)) return false;
+  return !isFuckingFastDirectUrl(url);
+}
+
+let ffPythonProbe = null;
+async function findFuckingFastPython() {
+  if (ffPythonProbe !== null) return ffPythonProbe;
+  const candidates = process.env.FF_PYTHON
+    ? [process.env.FF_PYTHON]
+    : ['python3', 'python'];
+  for (const cand of candidates) {
+    if (!cand) continue;
+    try {
+      await execFileAsync(cand, ['-c', 'import curl_cffi'], { timeout: 8000, windowsHide: true });
+      ffPythonProbe = cand;
+      console.log(`[Downloader/FuckingFast] using "${cand}" (curl_cffi) for direct-link resolution`);
+      return cand;
+    } catch (_) { /* try next candidate */ }
+  }
+  ffPythonProbe = false;
+  return false;
+}
+
+export async function resolveFuckingFastUrl(url) {
+  if (!isFuckingFastUrl(url) || isFuckingFastDirectUrl(url)) return url;
+  const cleanUrl = url.split('#')[0];
+  const py = await findFuckingFastPython();
+  if (py && fs.existsSync(FF_RESOLVER_PY)) {
+    try {
+      const { stdout } = await execFileAsync(py, [FF_RESOLVER_PY, cleanUrl], {
+        timeout: 35000,
+        windowsHide: true,
+        maxBuffer: 4 * 1024 * 1024
+      });
+      const line = String(stdout || '')
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .find((l) => /^(DIRECT|BLOCKED|ERROR):/.test(l));
+      if (line && line.startsWith('DIRECT:')) {
+        const direct = line.slice(line.indexOf(':') + 1).trim();
+        return direct;
+      }
+      if (line && line.startsWith('BLOCKED:')) {
+        throw new Error(line.slice(line.indexOf(':') + 1).trim());
+      }
+    } catch (err) {
+      console.warn(`[Downloader/FuckingFast] python resolver error: ${err.message}`);
+    }
+  }
+
+  // Fallback: try basic HTMX POST to /f/{id}/go
+  const fileId = cleanUrl.split('#')[0].split('?')[0].split('/').filter(Boolean).pop();
+  if (!fileId) throw new Error('Could not parse file ID from FuckingFast URL');
+
+  try {
+    const res = await fetch(`https://fuckingfast.co/f/${fileId}/go`, {
+      method: 'POST',
+      headers: {
+        'User-Agent': BROWSER_UA,
+        'Referer': cleanUrl,
+        'Origin': 'https://fuckingfast.co',
+        'HX-Request': 'true'
+      },
+      redirect: 'manual'
+    });
+    const redirectUrl = res.headers.get('hx-redirect') ||
+                        res.headers.get('hx-location') ||
+                        res.headers.get('location');
+    if (redirectUrl && isFuckingFastDirectUrl(redirectUrl)) {
+      return redirectUrl.trim();
+    }
+  } catch (_) {}
+
+  return url;
+}
+
 async function runDirectPhase(job) {
   job.status = 'active';
   job.stage = 'downloading';
@@ -443,6 +548,19 @@ async function runDirectPhase(job) {
   saveHistory();
 
   console.log(`[GameDownloadManager] Direct download starting ${job.id}: "${job.title}" -> ${String(job.directUrl).slice(0, 90)}...`);
+
+  // Auto-resolve FuckingFast landing page if not already resolved
+  if (isFuckingFastLandingPage(job.directUrl)) {
+    try {
+      const resolved = await resolveFuckingFastUrl(job.directUrl);
+      if (isFuckingFastDirectUrl(resolved)) {
+        console.log(`[GameDownloadManager] Resolved FuckingFast landing page to: ${resolved}`);
+        job.directUrl = resolved;
+      }
+    } catch (err) {
+      console.warn(`[GameDownloadManager] Could not pre-resolve FuckingFast URL: ${err.message}`);
+    }
+  }
 
   const savedPath = await streamDirectToFile(job);
   if (job.cancelled) throw new Error('Job cancelled');
