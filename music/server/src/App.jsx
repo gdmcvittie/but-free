@@ -136,6 +136,7 @@ export default function App() {
       } else {
         setUser(null);
         try { localStorage.removeItem('fraudio.cachedUser'); } catch {}
+        if (data.code === 'VIP_ONLY') setAuthError(data.error || 'This suite is for VIPs only.');
       }
     } catch (err) {
       console.warn('[App] Could not verify session:', err);

@@ -196,6 +196,17 @@ document.addEventListener('DOMContentLoaded', () => {
           return;
         }
       }
+      if (response.status === 403) {
+        const data = await response.json().catch(() => ({}));
+        if (data.code === 'VIP_ONLY') {
+          if (authNotice) {
+            authNotice.textContent = data.error || 'This suite is for VIPs only.';
+            authNotice.hidden = false;
+          }
+          document.body.classList.remove('auth-checking');
+          return;
+        }
+      }
     } catch (error) {
       console.info('[Welcome] Google session check unavailable:', error.message);
     } finally {
@@ -203,8 +214,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     document.body.classList.remove('auth-checking');
-    if (authNotice && initialAuthStatus === 'error') {
-      authNotice.textContent = 'Google sign-in was cancelled or could not be completed. Please try again.';
+    if (authNotice && initialAuthStatus) {
+      authNotice.textContent = initialAuthStatus === 'vip_only'
+        ? 'This suite is for VIPs only. This Google account is not on the access list.'
+        : 'Google sign-in was cancelled or could not be completed. Please try again.';
       authNotice.hidden = false;
     }
   }

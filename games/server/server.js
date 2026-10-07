@@ -26,10 +26,10 @@ if (fs.existsSync(rootEnv)) {
 dotenv.config();
 
 const PORT = parseInt(process.env.PORT_GAMES || process.env.PORT || '5500', 10);
-const ADMIN_EMAIL = 'gdmcvittie@gmail.com';
 
 function isAdminUser(user) {
-  return !!user && String(user.email || '').trim().toLowerCase() === ADMIN_EMAIL;
+  const adminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  return !!user && !!adminEmail && String(user.email || '').trim().toLowerCase() === adminEmail;
 }
 
 const app = express();
@@ -129,7 +129,10 @@ const handleOAuthCallback = async (req, res) => {
     res.redirect('/');
   } catch (err) {
     console.error('[FREEPLAY Auth Callback Error]:', err);
-    if (welcomeFlow) return res.redirect(`${welcomeUrl}/?auth_status=error`);
+    if (welcomeFlow) {
+      const status = err.code === 'VIP_ONLY' ? 'vip_only' : 'error';
+      return res.redirect(`${welcomeUrl}/?auth_status=${status}`);
+    }
     res.redirect(`/?auth_error=${encodeURIComponent(err.message || 'Authentication failed')}`);
   }
 };
@@ -140,7 +143,11 @@ app.get('/api/auth/google/callback', handleOAuthCallback);
 // Get current user profile
 app.get('/api/auth/user', (req, res) => {
   if (!req.user) {
-    return res.status(401).json({ authenticated: false, user: null });
+    return res.status(401).json({
+      authenticated: false,
+      user: null,
+      ...(req.vipAccessDenied ? { code: 'VIP_ONLY', error: GoogleAuth.vipOnlyMessage } : {})
+    });
   }
   res.json({
     authenticated: true,
@@ -163,6 +170,9 @@ app.get('/api/welcome/session', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const user = GoogleAuth.verifySessionToken(req.cookies?.freeplay_session);
   if (!user) return res.status(401).json({ authenticated: false, user: null });
+  if (!GoogleAuth.isVipEmail(user.email)) {
+    return res.status(403).json({ authenticated: false, user: null, code: 'VIP_ONLY', error: GoogleAuth.vipOnlyMessage });
+  }
   res.json({
     authenticated: true,
     user: {
@@ -445,7 +455,7 @@ app.post('/api/settings', (req, res) => {
 });
 
 // -------------------------------------------------------------
-// Admin Controls (restricted to gdmcvittie@gmail.com)
+// Admin controls are restricted to the server-configured ADMIN_EMAIL.
 // -------------------------------------------------------------
 
 function requireAdmin(req, res, next) {

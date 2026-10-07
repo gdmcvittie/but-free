@@ -1,6 +1,21 @@
 import crypto from 'crypto';
 import * as Database from './database.js';
 
+const VIP_ONLY_MESSAGE = 'This suite is for VIPs only. This Google account is not on the access list.';
+
+function isVipEmail(email) {
+  const allowedEmails = new Set((process.env.VIP_EMAILS || '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean));
+  const adminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  if (adminEmail) allowedEmails.add(adminEmail);
+  return typeof email === 'string' && allowedEmails.has(email.trim().toLowerCase());
+}
+
+function makeVipOnlyError() {
+  const error = new Error(VIP_ONLY_MESSAGE);
+  error.code = 'VIP_ONLY';
+  return error;
+}
+
 function getClientId() {
   return (process.env.GOOGLE_CLIENT_ID || '').trim();
 }
@@ -88,6 +103,7 @@ export const GoogleAuth = {
     if (!userRes.ok || userData.error) {
       throw new Error(userData.error?.message || 'Failed to fetch Google user profile');
     }
+    if (!isVipEmail(userData.email)) throw makeVipOnlyError();
 
     // 3. Upsert user in database
     const user = Database.upsertUser(userData, {
@@ -181,9 +197,12 @@ export const GoogleAuth = {
       }
     }
 
+    req.vipAccessDenied = false;
     if (token) {
       const user = GoogleAuth.verifySessionToken(token);
-      if (user) {
+      if (user && !isVipEmail(user.email)) {
+        req.vipAccessDenied = true;
+      } else if (user) {
         req.user = user;
         req.userId = user.id;
         return next();
@@ -192,14 +211,20 @@ export const GoogleAuth = {
 
     // Development / single-user convenience fallback: if only 1 user exists in DB, attach it
     const allUsers = Database.getAllUsers();
-    if (allUsers.length === 1 && process.env.AUTO_LOGIN_SINGLE_USER !== 'false') {
-      req.user = allUsers[0];
-      req.userId = allUsers[0].id;
-      return next();
+    if (!req.vipAccessDenied && allUsers.length === 1 && process.env.AUTO_LOGIN_SINGLE_USER !== 'false') {
+      if (isVipEmail(allUsers[0].email)) {
+        req.user = allUsers[0];
+        req.userId = allUsers[0].id;
+        return next();
+      }
+      req.vipAccessDenied = true;
     }
 
     req.user = null;
     req.userId = null;
     next();
-  }
+  },
+
+  isVipEmail,
+  vipOnlyMessage: VIP_ONLY_MESSAGE
 };

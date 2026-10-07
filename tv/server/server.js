@@ -676,6 +676,9 @@ function authenticate(req, res, next) {
   }
   try {
     const payload = jwt.verify(token, SESSION_SECRET);
+    if (!isVipEmail(payload.email)) {
+      return res.status(403).json({ success: false, code: 'VIP_ONLY', error: VIP_ONLY_MESSAGE });
+    }
     req.user = payload;
     next();
   } catch (err) {
@@ -685,18 +688,28 @@ function authenticate(req, res, next) {
 
 function optionalAuth(req, res, next) {
   const token = getAuthToken(req);
+  req.vipAccessDenied = false;
   if (token) {
     try {
-      req.user = jwt.verify(token, SESSION_SECRET);
+      const payload = jwt.verify(token, SESSION_SECRET);
+      if (isVipEmail(payload.email)) req.user = payload;
+      else req.vipAccessDenied = true;
     } catch {}
   }
   next();
 }
 
 // -------------------------------------------------------------
-// Administrator Authorization (Restricted to gdmcvittie@gmail.com)
+// Administrator authorization uses the server-configured ADMIN_EMAIL.
 // -------------------------------------------------------------
-const ADMIN_EMAIL = 'gdmcvittie@gmail.com';
+const ADMIN_EMAIL = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+const VIP_ONLY_MESSAGE = 'This suite is for VIPs only. This Google account is not on the access list.';
+
+function isVipEmail(email) {
+  const allowedEmails = new Set((process.env.VIP_EMAILS || '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean));
+  if (ADMIN_EMAIL) allowedEmails.add(ADMIN_EMAIL);
+  return typeof email === 'string' && allowedEmails.has(email.trim().toLowerCase());
+}
 
 function isAdminUser(user) {
   if (!user) return false;
@@ -707,7 +720,7 @@ function isAdminUser(user) {
       email = u?.email;
     } catch (_) {}
   }
-  return typeof email === 'string' && email.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  return typeof email === 'string' && !!ADMIN_EMAIL && email.trim().toLowerCase() === ADMIN_EMAIL;
 }
 
 function requireAdmin(req, res, next) {
@@ -879,6 +892,10 @@ app.get('/auth/google/callback', async (req, res) => {
       headers: { Authorization: `Bearer ${tokenData.access_token}` }
     });
     const profile = await profileRes.json();
+    if (!profileRes.ok || profile.error) throw new Error(profile.error?.message || 'Failed to fetch Google profile');
+    if (!isVipEmail(profile.email)) {
+      return res.redirect(`/?auth_error=${encodeURIComponent(VIP_ONLY_MESSAGE)}`);
+    }
     const userId = profile.id || profile.email;
 
     const existing = getUserFile(userId, 'user.json', {});
@@ -963,7 +980,11 @@ app.get('/api/debug/probe/:sessionId/:file', (req, res) => {
 
 app.get('/auth/me', optionalAuth, (req, res) => {
   if (!req.user) {
-    return res.json({ authenticated: false, googleConfigured: !!GOOGLE_CLIENT_ID });
+    return res.json({
+      authenticated: false,
+      googleConfigured: !!GOOGLE_CLIENT_ID,
+      ...(req.vipAccessDenied ? { code: 'VIP_ONLY', error: VIP_ONLY_MESSAGE } : {})
+    });
   }
   const user = getUserFile(req.user.id, 'user.json', {});
   const folders = getUserFile(req.user.id, 'folders.json', {});

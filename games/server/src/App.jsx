@@ -78,9 +78,10 @@ export default function App() {
       setUser(data.user || null);
       if (data.user) saveOfflineLibrary(data.user, null);
       return data.user;
-    } catch {
+    } catch (err) {
+      if (err.code === 'VIP_ONLY') setAuthError(err.message || 'This suite is for VIPs only.');
       const cached = loadOfflineLibrary();
-      const offlineUser = isAndroidOfflineMode() || !navigator.onLine ? cached.user : null;
+      const offlineUser = err.code === 'VIP_ONLY' ? null : (isAndroidOfflineMode() || !navigator.onLine ? cached.user : null);
       setUser(offlineUser);
       return offlineUser;
     } finally {

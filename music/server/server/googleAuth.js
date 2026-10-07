@@ -22,8 +22,22 @@ const SCOPES = [
 
 const SESSION_COOKIE = 'fraudio_session';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const VIP_ONLY_MESSAGE = 'This suite is for VIPs only. This Google account is not on the access list.';
 // Refresh the access token this long before it actually expires.
 const REFRESH_BUFFER_MS = 120000;
+
+function isVipEmail(email) {
+  const allowedEmails = new Set((process.env.VIP_EMAILS || '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean));
+  const adminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  if (adminEmail) allowedEmails.add(adminEmail);
+  return typeof email === 'string' && allowedEmails.has(email.trim().toLowerCase());
+}
+
+function makeVipOnlyError() {
+  const error = new Error(VIP_ONLY_MESSAGE);
+  error.code = 'VIP_ONLY';
+  return error;
+}
 
 function redirectUri(req) {
   if (config.google.redirectUri) return config.google.redirectUri;
@@ -86,6 +100,7 @@ export const googleAuth = {
     if (!profileRes.ok || profile.error) {
       throw new Error(profile.error?.message || 'Failed to fetch Google profile');
     }
+    if (!isVipEmail(profile.email)) throw makeVipOnlyError();
 
     return db.upsertUser(
       { id: profile.id, email: profile.email, name: profile.name, avatar: profile.picture },
@@ -172,10 +187,14 @@ export const googleAuth = {
       if (scheme?.toLowerCase() === 'bearer' && value) token = value;
     }
     const user = token ? googleAuth.verifySessionToken(token) : null;
-    req.user = user || null;
-    req.userId = user?.id || null;
+    req.vipAccessDenied = !!user && !isVipEmail(user.email);
+    req.user = user && !req.vipAccessDenied ? user : null;
+    req.userId = req.user?.id || null;
     next();
   },
+
+  isVipEmail,
+  vipOnlyMessage: VIP_ONLY_MESSAGE,
 
   /** The Google-only profile the UI needs (never exposes tokens). */
   publicProfile(user) {

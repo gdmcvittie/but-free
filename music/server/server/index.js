@@ -24,10 +24,9 @@ import { attachClient, broadcast, clientCount, recentEvents } from './events.js'
 import { formatDuration, inferGenreFromText } from './libraryParser.js';
 import { groupAudiobookItems } from './bookGrouper.js';
 
-const ADMIN_EMAIL = 'gdmcvittie@gmail.com';
-
 function isAdminUser(user) {
-  return !!user && String(user.email || '').trim().toLowerCase() === ADMIN_EMAIL;
+  const adminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  return !!user && !!adminEmail && String(user.email || '').trim().toLowerCase() === adminEmail;
 }
 
 /**
@@ -120,7 +119,8 @@ app.get('/api/auth/me', (req, res) => {
   const user = googleAuth.publicProfile(req.user);
   res.json({
     authenticated: Boolean(req.user),
-    user: user ? { ...user, isAdmin: isAdminUser(req.user) } : null
+    user: user ? { ...user, isAdmin: isAdminUser(req.user) } : null,
+    ...(req.vipAccessDenied ? { code: 'VIP_ONLY', error: googleAuth.vipOnlyMessage } : {})
   });
 });
 
@@ -1240,7 +1240,7 @@ app.get('/api/health', async (req, res) => {
 });
 
 // =========================================================================
-// Admin controls (restricted to gdmcvittie@gmail.com)
+// Admin controls are restricted to the server-configured ADMIN_EMAIL.
 // =========================================================================
 
 function requireAdmin(req, res, next) {

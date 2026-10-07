@@ -44,6 +44,7 @@ export default function App() {
           setUser(data.user);
         } else {
           setUser(null);
+          if (data.code === 'VIP_ONLY') setAuthError(data.error || 'This suite is for VIPs only.');
         }
       } else {
         setUser(null);

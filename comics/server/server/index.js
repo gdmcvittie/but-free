@@ -48,10 +48,10 @@ const DownloadManager = require('./downloadManager');
 const OmnibusManager = require('./omnibusManager');
 
 const app = express();
-const ADMIN_EMAIL = 'gdmcvittie@gmail.com';
 
 function isAdminUser(user) {
-  return !!user && String(user.email || '').trim().toLowerCase() === ADMIN_EMAIL;
+  const adminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  return !!user && !!adminEmail && String(user.email || '').trim().toLowerCase() === adminEmail;
 }
 
 app.use(cors());
@@ -111,7 +111,11 @@ app.get('/api/auth/google/callback', async (req, res) => {
 
 app.get('/api/auth/me', (req, res) => {
   if (!req.user) {
-    return res.json({ authenticated: false, user: null });
+    return res.json({
+      authenticated: false,
+      user: null,
+      ...(req.vipAccessDenied ? { code: 'VIP_ONLY', error: GoogleAuth.vipOnlyMessage } : {})
+    });
   }
   res.json({
     authenticated: true,
@@ -847,7 +851,7 @@ app.post('/api/settings', requireLogin, (req, res) => {
 });
 
 // =========================================================================
-// Admin Endpoints (restricted to gdmcvittie@gmail.com)
+// Admin endpoints are restricted to the server-configured ADMIN_EMAIL.
 // =========================================================================
 
 function requireAdmin(req, res, next) {

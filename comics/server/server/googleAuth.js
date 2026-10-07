@@ -1,6 +1,21 @@
 const crypto = require('crypto');
 const Database = require('./database');
 
+const VIP_ONLY_MESSAGE = 'This suite is for VIPs only. This Google account is not on the access list.';
+
+function isVipEmail(email) {
+  const allowedEmails = new Set((process.env.VIP_EMAILS || '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean));
+  const adminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  if (adminEmail) allowedEmails.add(adminEmail);
+  return typeof email === 'string' && allowedEmails.has(email.trim().toLowerCase());
+}
+
+function makeVipOnlyError() {
+  const error = new Error(VIP_ONLY_MESSAGE);
+  error.code = 'VIP_ONLY';
+  return error;
+}
+
 /**
  * Google OAuth2 Authentication Module:
  * Handles OAuth flow, code exchange, token refresh, and user session management.
@@ -94,6 +109,7 @@ const GoogleAuth = {
     if (!userRes.ok || userData.error) {
       throw new Error(userData.error?.message || 'Failed to fetch Google user profile');
     }
+    if (!isVipEmail(userData.email)) throw makeVipOnlyError();
 
     // 3. Save or update user in database
     const user = Database.upsertUser(userData, {
@@ -194,9 +210,12 @@ const GoogleAuth = {
       }
     }
 
+    req.vipAccessDenied = false;
     if (token) {
       const user = GoogleAuth.verifySessionToken(token);
-      if (user) {
+      if (user && !isVipEmail(user.email)) {
+        req.vipAccessDenied = true;
+      } else if (user) {
         req.user = user;
         req.userId = user.id;
         return next();
@@ -208,7 +227,10 @@ const GoogleAuth = {
     req.user = null;
     req.userId = null;
     next();
-  }
+  },
+
+  isVipEmail,
+  vipOnlyMessage: VIP_ONLY_MESSAGE
 };
 
 module.exports = GoogleAuth;
