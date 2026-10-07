@@ -24,6 +24,12 @@ import { attachClient, broadcast, clientCount, recentEvents } from './events.js'
 import { formatDuration, inferGenreFromText } from './libraryParser.js';
 import { groupAudiobookItems } from './bookGrouper.js';
 
+const ADMIN_EMAIL = 'gdmcvittie@gmail.com';
+
+function isAdminUser(user) {
+  return !!user && String(user.email || '').trim().toLowerCase() === ADMIN_EMAIL;
+}
+
 /**
  * FRAUDIO HTTP API.
  *
@@ -111,7 +117,11 @@ app.get('/api/auth/google/callback', async (req, res) => {
 });
 
 app.get('/api/auth/me', (req, res) => {
-  res.json({ authenticated: Boolean(req.user), user: googleAuth.publicProfile(req.user) });
+  const user = googleAuth.publicProfile(req.user);
+  res.json({
+    authenticated: Boolean(req.user),
+    user: user ? { ...user, isAdmin: isAdminUser(req.user) } : null
+  });
 });
 
 app.post('/api/auth/logout', (req, res) => {
@@ -1233,10 +1243,8 @@ app.get('/api/health', async (req, res) => {
 // Admin controls (restricted to gdmcvittie@gmail.com)
 // =========================================================================
 
-const ADMIN_EMAIL = 'gdmcvittie@gmail.com';
-
 function requireAdmin(req, res, next) {
-  if (!req.user || req.user.email?.toLowerCase() !== ADMIN_EMAIL) {
+  if (!isAdminUser(req.user)) {
     return res.status(403).json({ error: 'Admin access required' });
   }
   next();

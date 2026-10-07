@@ -33,7 +33,7 @@ export default function SettingsView({
   const [adminMessage, setAdminMessage] = useState(null);
   const [adminBusy, setAdminBusy] = useState(null); // null | 'app' | 'downloader'
 
-  const isAdmin = !!user && String(user.email || '').toLowerCase().trim() === 'gdmcvittie@gmail.com';
+  const isAdmin = Boolean(user?.isAdmin);
 
   useEffect(() => {
     // Check downloader node health

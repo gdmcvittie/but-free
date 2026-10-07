@@ -20,7 +20,7 @@ function formatUptime(seconds) {
 
 export default function CloudSettingsModal({ isOpen, onClose, user, folders, onUpdateFolders, onScanComplete }) {
   const toast = useToast();
-  const isAdmin = (user?.email || '').trim().toLowerCase() === 'gdmcvittie@gmail.com' || Boolean(user?.isAdmin);
+  const isAdmin = Boolean(user?.isAdmin);
   const [activeTab, setActiveTab] = useState('drive');
   const [pickerType, setPickerType] = useState(null); // 'tv' | 'movies' | null
 

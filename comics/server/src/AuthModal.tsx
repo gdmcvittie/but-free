@@ -7,6 +7,7 @@ export interface GoogleUserProfile {
   name: string;
   email: string;
   avatar?: string;
+  isAdmin?: boolean;
   driveFolderId?: string | null;
   driveFolderName?: string | null;
 }

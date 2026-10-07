@@ -37,7 +37,7 @@ export default function SettingsView({
   const [adminBusy, setAdminBusy] = useState<string | null>(null); // null | 'app' | 'downloader'
   const [adminMessage, setAdminMessage] = useState<string | null>(null);
 
-  const isAdmin = !!user && user.email.toLowerCase().trim() === 'gdmcvittie@gmail.com';
+  const isAdmin = Boolean(user?.isAdmin);
 
   useEffect(() => {
     if (!user) return;

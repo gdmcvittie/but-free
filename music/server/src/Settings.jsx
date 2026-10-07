@@ -20,6 +20,7 @@ function Switch({ checked, onChange }) {
 }
 
 export default function Settings({ user, libraryVersion, onOpenDrivePicker, onLogout, notify }) {
+  const isAdmin = Boolean(user?.isAdmin);
   const inAndroidApp = hasNativeBridge();
   const [settings, setSettings] = useState(null);
   const [offline, setOffline] = useState({ items: [], usage: { bytes: 0, files: 0 } });
@@ -84,10 +85,10 @@ export default function Settings({ user, libraryVersion, onOpenDrivePicker, onLo
   };
 
   useEffect(() => {
-    if (user?.email?.toLowerCase() === 'gdmcvittie@gmail.com') {
+    if (isAdmin) {
       handleFetchAdminCookies();
     }
-  }, [user?.email, handleFetchAdminCookies]);
+  }, [isAdmin, handleFetchAdminCookies]);
 
   const handleRestartStreamer = async () => {
     if (!window.confirm('Restart the torrent / streamer daemon? Active transfers will reconnect.')) return;
@@ -931,15 +932,15 @@ export default function Settings({ user, libraryVersion, onOpenDrivePicker, onLo
         </div>
       </div>
 
-      {/* Admin Server Controls (Only visible to gdmcvittie@gmail.com) */}
-      {user?.email?.toLowerCase() === 'gdmcvittie@gmail.com' && (
+      {/* Admin Server Controls */}
+      {isAdmin && (
         <div className="panel" style={{ border: '1px solid rgba(var(--accent-rgb, 120, 180, 255), 0.35)' }}>
           <div className="panel-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--accent-color)' }}>
             <Server size={16} />
             Server Controls (Admin)
           </div>
           <div className="setting-help" style={{ marginBottom: '1rem' }}>
-            Administrative daemon process controls. Only visible to <strong>{user.email}</strong>.
+            Administrative daemon process controls for authorized administrators.
           </div>
 
           <div className="setting-row">

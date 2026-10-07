@@ -48,6 +48,11 @@ const DownloadManager = require('./downloadManager');
 const OmnibusManager = require('./omnibusManager');
 
 const app = express();
+const ADMIN_EMAIL = 'gdmcvittie@gmail.com';
+
+function isAdminUser(user) {
+  return !!user && String(user.email || '').trim().toLowerCase() === ADMIN_EMAIL;
+}
 
 app.use(cors());
 app.use(express.json());
@@ -115,6 +120,7 @@ app.get('/api/auth/me', (req, res) => {
       name: req.user.name,
       email: req.user.email,
       avatar: req.user.avatar,
+      isAdmin: isAdminUser(req.user),
       driveFolderId: req.user.driveFolderId,
       driveFolderName: req.user.driveFolderName
     }
@@ -844,10 +850,8 @@ app.post('/api/settings', requireLogin, (req, res) => {
 // Admin Endpoints (restricted to gdmcvittie@gmail.com)
 // =========================================================================
 
-const ADMIN_EMAIL = 'gdmcvittie@gmail.com';
-
 function requireAdmin(req, res, next) {
-  if (!req.user || String(req.user.email || '').toLowerCase().trim() !== ADMIN_EMAIL) {
+  if (!isAdminUser(req.user)) {
     return res.status(403).json({ error: 'Admin access required' });
   }
   next();

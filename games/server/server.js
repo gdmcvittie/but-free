@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import crypto from 'node:crypto';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -25,6 +26,11 @@ if (fs.existsSync(rootEnv)) {
 dotenv.config();
 
 const PORT = parseInt(process.env.PORT_GAMES || process.env.PORT || '5500', 10);
+const ADMIN_EMAIL = 'gdmcvittie@gmail.com';
+
+function isAdminUser(user) {
+  return !!user && String(user.email || '').trim().toLowerCase() === ADMIN_EMAIL;
+}
 
 const app = express();
 
@@ -65,10 +71,44 @@ app.get('/auth/google', (req, res) => {
   }
 });
 
+// OAuth entry point used by the butfree landing-page app launcher. This flow
+// returns to the landing domain after issuing the usual FREEPLAY session cookie.
+app.get('/auth/google/welcome', (req, res) => {
+  try {
+    const state = crypto.randomBytes(32).toString('hex');
+    res.cookie('freeplay_welcome_oauth_state', state, {
+      httpOnly: true,
+      secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
+      sameSite: 'lax',
+      maxAge: 10 * 60 * 1000,
+      path: '/'
+    });
+    res.redirect(GoogleAuth.getAuthUrl(req, state));
+  } catch (err) {
+    res.status(500).send(`Google sign-in could not be started: ${err.message}`);
+  }
+});
+
 // Google OAuth callback
 const handleOAuthCallback = async (req, res) => {
   const { code, error } = req.query;
+  const stateCookie = req.cookies?.freeplay_welcome_oauth_state;
+  let welcomeFlow = false;
+
+  if (stateCookie) {
+    const returnedState = typeof req.query.state === 'string' ? req.query.state : '';
+    const expected = Buffer.from(String(stateCookie));
+    const actual = Buffer.from(returnedState);
+    res.clearCookie('freeplay_welcome_oauth_state', { path: '/' });
+    if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) {
+      return res.status(400).send('Google sign-in state validation failed. Please return to butfree.online and try again.');
+    }
+    welcomeFlow = true;
+  }
+
+  const welcomeUrl = (process.env.WELCOME_ORIGIN || 'https://butfree.online').replace(/\/+$/, '');
   if (error || !code) {
+    if (welcomeFlow) return res.redirect(`${welcomeUrl}/?auth_status=error`);
     return res.redirect(`/?auth_error=${encodeURIComponent(error || 'Authorization was cancelled')}`);
   }
 
@@ -81,12 +121,15 @@ const handleOAuthCallback = async (req, res) => {
       httpOnly: true,
       secure: req.secure || req.headers['x-forwarded-proto'] === 'https',
       sameSite: 'lax',
-      maxAge: 30 * 86400 * 1000 // 30 days
+      maxAge: 30 * 86400 * 1000, // 30 days
+      path: '/'
     });
 
+    if (welcomeFlow) return res.redirect(`${welcomeUrl}/?auth_status=connected`);
     res.redirect('/');
   } catch (err) {
     console.error('[FREEPLAY Auth Callback Error]:', err);
+    if (welcomeFlow) return res.redirect(`${welcomeUrl}/?auth_status=error`);
     res.redirect(`/?auth_error=${encodeURIComponent(err.message || 'Authentication failed')}`);
   }
 };
@@ -106,11 +149,34 @@ app.get('/api/auth/user', (req, res) => {
       name: req.user.name,
       email: req.user.email,
       avatar: req.user.avatar,
+      isAdmin: isAdminUser(req.user),
       gamesFolderId: req.user.gamesFolderId,
       gamesFolderName: req.user.gamesFolderName,
       settings: req.user.settings
     }
   });
+});
+
+// A strict session check for the cross-subdomain landing-page launcher. Unlike
+// the legacy app middleware fallback, this requires a real signed OAuth cookie.
+app.get('/api/welcome/session', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const user = GoogleAuth.verifySessionToken(req.cookies?.freeplay_session);
+  if (!user) return res.status(401).json({ authenticated: false, user: null });
+  res.json({
+    authenticated: true,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      avatar: user.avatar
+    }
+  });
+});
+
+app.post('/api/welcome/logout', (req, res) => {
+  res.clearCookie('freeplay_session', { path: '/' });
+  res.json({ success: true });
 });
 
 // Logout
@@ -382,10 +448,8 @@ app.post('/api/settings', (req, res) => {
 // Admin Controls (restricted to gdmcvittie@gmail.com)
 // -------------------------------------------------------------
 
-const ADMIN_EMAIL = 'gdmcvittie@gmail.com';
-
 function requireAdmin(req, res, next) {
-  if (!req.user || String(req.user.email || '').toLowerCase().trim() !== ADMIN_EMAIL) {
+  if (!isAdminUser(req.user)) {
     return res.status(403).json({ error: 'Admin access required' });
   }
   next();
