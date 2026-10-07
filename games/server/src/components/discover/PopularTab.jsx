@@ -87,6 +87,8 @@ export default function PopularTab({ onDownloadDispatched }) {
       setLinksModal({
         pageUrl: link,
         links: (scrape.links || []).map(l => ({ ...l, title: l.title || item.title })),
+        gameSize: scrape.gameSize || null,
+        gameSizeBytes: scrape.gameSizeBytes || null,
         item: { cleanTitle: item.title }
       });
     } catch (err) {
@@ -100,7 +102,9 @@ export default function PopularTab({ onDownloadDispatched }) {
     const ok = await add(l.id || l.url, {
       source: l.url,
       title: l.title || linksModal?.item?.cleanTitle || l.filename || 'PC Game',
-      console: 'pc'
+      console: 'pc',
+      size: l.sizeFormatted || linksModal?.gameSize,
+      sizeBytes: l.bytes || linksModal?.gameSizeBytes
     });
     if (ok) setLinksModal(null);
   };
@@ -245,6 +249,8 @@ export default function PopularTab({ onDownloadDispatched }) {
           pageUrl={linksModal.pageUrl}
           itemTitle={linksModal.item?.cleanTitle || linksModal.item?.title}
           links={linksModal.links}
+          gameSize={linksModal.gameSize}
+          gameSizeBytes={linksModal.gameSizeBytes}
           busyId={busyId}
           doneIds={doneIds}
           onPick={pickLink}

@@ -19,6 +19,36 @@ import {
   saveOfflineLibrary
 } from './utils/offlineGames';
 
+function checkMobileLandscape1080() {
+  if (typeof window === 'undefined') return false;
+  const isLandscape = window.innerWidth > window.innerHeight;
+  if (!isLandscape) return false;
+
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.has('konkr') || urlParams.has('handheld') || urlParams.has('mobile1080')) {
+    return true;
+  }
+
+  // Check mobile / handheld touch context
+  const isTouchMobile = ('ontouchstart' in window) ||
+    (navigator.maxTouchPoints > 0) ||
+    /Android|Mobile|Linux arm|Silk/i.test(navigator.userAgent);
+
+  if (!isTouchMobile) return false;
+
+  const dpr = window.devicePixelRatio || 1;
+  const sw = window.screen?.width || window.innerWidth;
+  const sh = window.screen?.height || window.innerHeight;
+  const maxScreen = Math.max(sw, sh);
+  const minScreen = Math.min(sw, sh);
+
+  const isDirect1080 = maxScreen === 1920 && minScreen === 1080;
+  const isScaled1080 = Math.abs(Math.round(maxScreen * dpr) - 1920) <= 60 && Math.abs(Math.round(minScreen * dpr) - 1080) <= 60;
+  const isInner1080 = Math.abs(Math.round(window.innerWidth * dpr) - 1920) <= 90 && Math.abs(Math.round(window.innerHeight * dpr) - 1080) <= 90;
+
+  return isDirect1080 || isScaled1080 || isInner1080;
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [authChecking, setAuthChecking] = useState(true);
@@ -28,6 +58,24 @@ export default function App() {
   const [games, setGames] = useState([]);
   const [loadingGames, setLoadingGames] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
+  const [isMobileLandscape1080, setIsMobileLandscape1080] = useState(checkMobileLandscape1080);
+
+  useEffect(() => {
+    const handleResize = () => {
+      const match = checkMobileLandscape1080();
+      setIsMobileLandscape1080(match);
+      if (document.documentElement) {
+        document.documentElement.classList.toggle('is-mobile-landscape-1080', match);
+      }
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize, { passive: true });
+    window.addEventListener('orientationchange', handleResize, { passive: true });
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
+    };
+  }, []);
 
   // Console breakdown of the library, drives the Library sidebar dropdown
   const consoles = useMemo(() => {
@@ -212,7 +260,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex flex-col md:flex-row h-screen bg-[#070a12] text-slate-200 overflow-hidden">
+    <div className={`flex flex-col md:flex-row h-screen bg-[#070a12] text-slate-200 overflow-hidden ${isMobileLandscape1080 ? 'mobile-landscape-1080' : ''}`}>
       {/* Sleek Sidebar Navigation */}
       <Sidebar
         currentView={currentView}
@@ -223,6 +271,8 @@ export default function App() {
         onSelectConsole={setLibraryConsole}
         onOpenAuthModal={() => setAuthModalOpen(true)}
         onOpenSettings={() => setCurrentView('settings')}
+        onOpenDrivePicker={() => setDrivePickerOpen(true)}
+        isMobileLandscape1080={isMobileLandscape1080}
       />
 
       {/* Main Content Area */}
@@ -239,6 +289,7 @@ export default function App() {
             isScanning={isScanning}
             user={user}
             onOpenSettings={() => setCurrentView('settings')}
+            isMobileLandscape1080={isMobileLandscape1080}
           />
         )}
 

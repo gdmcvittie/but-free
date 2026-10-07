@@ -57,6 +57,8 @@ export default function FitgirlTab({ onDownloadDispatched }) {
       itemTitle: item.cleanTitle || item.title,
       links: item.downloads || [],
       loading: true,
+      gameSize: item.size || null,
+      gameSizeBytes: item.sizeBytes || null,
       item
     });
 
@@ -67,6 +69,8 @@ export default function FitgirlTab({ onDownloadDispatched }) {
         return {
           ...prev,
           links: data.links || [],
+          gameSize: data.gameSize || prev.gameSize || item.size || null,
+          gameSizeBytes: data.gameSizeBytes || prev.gameSizeBytes || item.sizeBytes || null,
           loading: false
         };
       });
@@ -88,7 +92,9 @@ export default function FitgirlTab({ onDownloadDispatched }) {
       source: l.url,
       title: item?.cleanTitle || item?.title || l.filename || 'PC Game',
       filename: l.filename,
-      console: 'pc'
+      console: 'pc',
+      size: l.sizeFormatted || linksModal?.gameSize || item?.size,
+      sizeBytes: l.bytes || linksModal?.gameSizeBytes || item?.sizeBytes
     });
   };
 
@@ -109,14 +115,15 @@ export default function FitgirlTab({ onDownloadDispatched }) {
     }
   };
 
-  const confirmFiles = async (selectedFiles) => {
+  const confirmFiles = async (selectedFiles, selectedTotalBytes) => {
     const { inspect, item } = filesModal;
     const allSelected = selectedFiles.length === (inspect.files || []).length;
     const ok = await add(`files_${item.id}`, {
       source: item.magnetUrl,
       title: item.cleanTitle || item.title,
       console: 'pc',
-      selectedFiles: allSelected ? undefined : selectedFiles
+      selectedFiles: allSelected ? undefined : selectedFiles,
+      selectedTotalBytes
     });
     if (ok) setFilesModal(null);
   };
@@ -218,12 +225,17 @@ export default function FitgirlTab({ onDownloadDispatched }) {
                   </div>
                   <div className="game-card-sub">
                     <span className="truncate">{(item.pubDate || '').replace(/GMT.*/, '').trim()}</span>
+                    {item.size && (
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-white/5 shrink-0">
+                        {item.size}
+                      </span>
+                    )}
                     <a
                       href={item.link}
                       target="_blank"
                       rel="noreferrer"
                       onClick={(e) => e.stopPropagation()}
-                      className="text-[10px] text-pink-400 hover:text-pink-300 transition font-semibold"
+                      className="text-[10px] text-pink-400 hover:text-pink-300 transition font-semibold ml-auto"
                     >
                       Post ↗
                     </a>
@@ -233,16 +245,19 @@ export default function FitgirlTab({ onDownloadDispatched }) {
                     {item.hasMagnet ? (
                       <div className="flex gap-1.5">
                         <button
-                          onClick={() => add(key, { source: item.magnetUrl, title: item.cleanTitle || item.title, console: 'pc' })}
+                          onClick={() => add(key, { source: item.magnetUrl, title: item.cleanTitle || item.title, console: 'pc', size: item.size, sizeBytes: item.sizeBytes })}
                           disabled={busyId === key || doneIds.has(key)}
                           className={`btn btn-xs flex-1 ${
                             doneIds.has(key)
                               ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 cursor-default'
+                              : item.sizeBytes && item.sizeBytes > 2 * 1024 * 1024 * 1024
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                               : 'btn-primary'
                           }`}
+                          title={item.sizeBytes && item.sizeBytes > 2 * 1024 * 1024 * 1024 ? 'This game is larger than 2 GB and cannot be downloaded remotely via torrent' : 'Download magnet'}
                         >
                           {busyId === key ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : doneIds.has(key) ? <Check className="w-3.5 h-3.5" /> : <Magnet className="w-3.5 h-3.5" />}
-                          <span>{doneIds.has(key) ? 'Queued' : 'Magnet'}</span>
+                          <span>{doneIds.has(key) ? 'Queued' : item.sizeBytes && item.sizeBytes > 2 * 1024 * 1024 * 1024 ? 'Magnet (>2 GB)' : 'Magnet'}</span>
                         </button>
                         <button
                           onClick={() => inspectMagnet(item)}
@@ -283,6 +298,8 @@ export default function FitgirlTab({ onDownloadDispatched }) {
           doneIds={doneIds}
           onPick={pickLink}
           onAddBatch={(batchItems, title) => addBatch(batchItems, title || linksModal.itemTitle)}
+          gameSize={linksModal.gameSize || linksModal.item?.size}
+          gameSizeBytes={linksModal.gameSizeBytes || linksModal.item?.sizeBytes}
         />
       )}
 

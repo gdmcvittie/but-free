@@ -21,6 +21,19 @@ import { promisify } from 'util';
 import { fileURLToPath } from 'url';
 import { uploadFileToGoogleDrive, findOrCreateFolder } from './driveUploader.js';
 
+const MAX_PC_TORRENT_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
+const REMOTE_LIMIT_ERROR = 'This game is too large to download remotely (limit is 2 GB).';
+
+function parseSizeStringToBytes(str) {
+  if (!str) return null;
+  const match = String(str).match(/([0-9]+(?:\.[0-9]+)?)\s*(TB|GB|MB|KB|B)\b/i);
+  if (!match) return null;
+  const num = parseFloat(match[1]);
+  const unit = match[2].toUpperCase();
+  const mult = { B: 1, KB: 1024, MB: 1024 * 1024, GB: 1024 * 1024 * 1024, TB: 1024 * 1024 * 1024 * 1024 };
+  return Math.round(num * (mult[unit] || 1));
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -85,6 +98,12 @@ loadHistory();
 export function addGameTorrentJob(options) {
   const source = options.magnet || options.url || options.torrent;
   if (!source) throw new Error('A magnet URI or .torrent URL is required');
+
+  const isPc = !options.meta?.console || options.meta?.console === 'pc' || options.console === 'pc';
+  const explicitBytes = Number(options.sizeBytes || options.totalBytes) || parseSizeStringToBytes(options.size || options.fileSize);
+  if (isPc && explicitBytes && explicitBytes > MAX_PC_TORRENT_BYTES) {
+    throw new Error(REMOTE_LIMIT_ERROR);
+  }
 
   const id = `gme_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   const job = baseJob(id, options, 'game-torrent');
@@ -374,6 +393,18 @@ async function runGameTorrentPhase(job) {
 
       job.totalBytes = selectedTotal || tt.length || 0;
       job.updatedAt = Date.now();
+
+      const isPc = !job.meta?.console || job.meta?.console === 'pc';
+      if (isPc && job.totalBytes > MAX_PC_TORRENT_BYTES) {
+        console.warn(`[GameDownloadManager] PC game torrent ${job.id} ("${job.title}") exceeds 2 GB (${job.totalBytes} bytes). Halting remote download.`);
+        destroyQuietly(tt);
+        job.status = 'error';
+        job.stage = 'error';
+        job.error = REMOTE_LIMIT_ERROR;
+        job.updatedAt = Date.now();
+        saveHistory();
+        return reject(new Error(REMOTE_LIMIT_ERROR));
+      }
 
       const report = () => {
         if (job.cancelled) return;

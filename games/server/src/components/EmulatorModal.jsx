@@ -413,28 +413,222 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
         setLoadProgress(100);
         setLoadStage('Initializing engine...');
 
-        const safeFileName = (() => {
+        // Canonical Neo Geo driver map matching arcade ROM sets
+        const NEOGEO_DRIVER_MAP = {
+          'burning fight': 'burningf',
+          'burning_fight': 'burningf',
+          'burningf': 'burningf',
+          'metal slug': 'mslug',
+          'metal slug 2': 'mslug2',
+          'metal slug x': 'mslugx',
+          'metal slug 3': 'mslug3',
+          'metal slug 4': 'mslug4',
+          'metal slug 5': 'mslug5',
+          'the king of fighters 94': 'kof94',
+          'the king of fighters 95': 'kof95',
+          'the king of fighters 96': 'kof96',
+          'the king of fighters 97': 'kof97',
+          'the king of fighters 98': 'kof98',
+          'the king of fighters 99': 'kof99',
+          'the king of fighters 2000': 'kof2000',
+          'the king of fighters 2001': 'kof2001',
+          'the king of fighters 2002': 'kof2002',
+          'the king of fighters 2003': 'kof2003',
+          'king of fighters 94': 'kof94',
+          'king of fighters 95': 'kof95',
+          'king of fighters 96': 'kof96',
+          'king of fighters 97': 'kof97',
+          'king of fighters 98': 'kof98',
+          'king of fighters 99': 'kof99',
+          'king of fighters 2000': 'kof2000',
+          'king of fighters 2001': 'kof2001',
+          'king of fighters 2002': 'kof2002',
+          'king of fighters 2003': 'kof2003',
+          'samurai shodown': 'samsho',
+          'samurai shodown 2': 'samsho2',
+          'samurai shodown 3': 'samsho3',
+          'samurai shodown 4': 'samsho4',
+          'samurai shodown 5': 'samsho5',
+          'samurai shodown 5 special': 'samsh5sp',
+          'samurai spirits': 'samsho',
+          'fatal fury': 'fatfury1',
+          'fatal fury 2': 'fatfury2',
+          'fatal fury special': 'fatfursp',
+          'fatal fury 3': 'fatfury3',
+          'real bout fatal fury': 'rbff1',
+          'real bout fatal fury special': 'rbffspec',
+          'real bout fatal fury 2': 'rbff2',
+          'garou': 'garou',
+          'garou mark of the wolves': 'garou',
+          'shock troopers': 'shocktro',
+          'shock troopers 2nd squad': 'shocktr2',
+          'neo turf masters': 'turfmast',
+          'blazing star': 'blazstar',
+          'pulstar': 'pulstar',
+          'windjammers': 'wjammers',
+          'twinkle star sprites': 'twinspri',
+          'puzzle bobble': 'puzzledp',
+          'bust a move': 'pbobblen',
+          'sengoku': 'sengoku',
+          'sengoku 2': 'sengoku2',
+          'sengoku 3': 'sengoku3',
+          'top hunter': 'tophuntr',
+          'waku waku 7': 'wakuwak7',
+          'magician lord': 'maglord',
+          'art of fighting': 'aof',
+          'art of fighting 2': 'aof2',
+          'art of fighting 3': 'aof3',
+          'world heroes': 'wh1',
+          'world heroes 2': 'wh2',
+          'world heroes 2 jet': 'wh2j',
+          'world heroes perfect': 'whp',
+          'super sidekicks': 'ssideki',
+          'super sidekicks 2': 'ssideki2',
+          'super sidekicks 3': 'ssideki3',
+          'neo bomberman': 'neobombe',
+          'strikers 1945 plus': 's1945p',
+          'spinmaster': 'spinmast',
+          'street hoop': 'strhoop',
+          'baseball stars 2': 'bstars2',
+          'baseball stars professional': 'bstars',
+          'cyber lip': 'cyberlip',
+          'ninja commando': 'ncommand',
+          'nightmare in the dark': 'nitd',
+          'matrimelee': 'matrim',
+          'rage of the dragons': 'rotd',
+          'snk vs capcom': 'svc',
+          'kizuna encounter': 'kizuna',
+          'the last blade': 'lastblad',
+          'the last blade 2': 'lastbld2',
+          'breakers revenge': 'breakrev',
+          'blues journey': 'bjourney',
+          'captain tomaday': 'ctomada',
+          'double dragon': 'doubledr',
+          'galaxy fight': 'galaxyfg',
+          'ghost pilots': 'gpilot',
+          'kabuki klash': 'kabukikl',
+          'karnovs revenge': 'karnovr',
+          'king of the monsters': 'kotm',
+          'king of the monsters 2': 'kotm2',
+          'league bowling': 'lbowling',
+          'money idol exchanger': 'miexchng',
+          'mutation nation': 'mutnat',
+          'nam 1975': 'nam1975',
+          'neo drift out': 'neodrift',
+          'neo mr do': 'neomrdo',
+          'ninja combat': 'ncombat',
+          'over top': 'overtop',
+          'panic bomber': 'panicbom',
+          'pop n bounce': 'popbounc',
+          'power spikes 2': 'pspikes2',
+          'prehistoric isle 2': 'preisl2',
+          'puzzle de pon': 'puzzledp',
+          'puzz loop 2': 'pzlloop2',
+          'ragnagard': 'ragnagrd',
+          'robo army': 'roboarmy',
+          'savage reign': 'savagere',
+          'soccer brawl': 'socbrawl',
+          'stake winner': 'stakewin',
+          'stake winner 2': 'stakewn2',
+          'super dodge ball': 'sdodgeb',
+          'thrash rally': 'trally',
+          'top players golf': 'tpgolf',
+          'viewpoint': 'viewpoin',
+          'voltage fighter gowcaizer': 'gowcaizr',
+          'zed blade': 'zedblade',
+          'zupapa': 'zupapa'
+        };
+
+        const isNeoGeo = targetCore === 'fbalpha2012_neogeo' || targetCore === 'fbneo' || (game.console || '').toLowerCase() === 'neo' || (game.console || '').toLowerCase() === 'neogeo' || (game.console || '').toLowerCase() === 'arcade';
+
+        let safeFileName = '';
+        if (isNeoGeo) {
+          const IGNORED_TERMS = new Set(['neo', 'neogeo', 'arcade', 'game', 'rom', 'zip', 'default', 'file']);
+          let resolvedDriver = '';
+
+          const rawFile = (game.filename || game.fileName || '').toLowerCase().replace(/\.(zip|neo|bin)$/i, '').trim();
+          if (rawFile && rawFile.length <= 8 && /^[a-z0-9_]+$/.test(rawFile) && !IGNORED_TERMS.has(rawFile)) {
+            if (Object.values(NEOGEO_DRIVER_MAP).includes(rawFile)) {
+              resolvedDriver = rawFile;
+            } else if (NEOGEO_DRIVER_MAP[rawFile]) {
+              resolvedDriver = NEOGEO_DRIVER_MAP[rawFile];
+            }
+          }
+
+          if (!resolvedDriver) {
+            const candidateStrings = [
+              game.cleanTitle || '',
+              game.title || '',
+              game.filename || '',
+              game.fileName || ''
+            ].filter(Boolean);
+
+            for (const rawStr of candidateStrings) {
+              const clean = rawStr.toLowerCase().replace(/\.(zip|neo|bin)$/i, '').replace(/[^a-z0-9]/g, '');
+              if (!clean || IGNORED_TERMS.has(clean)) continue;
+
+              for (const [key, driver] of Object.entries(NEOGEO_DRIVER_MAP)) {
+                const normKey = key.replace(/[^a-z0-9]/g, '');
+                if (clean === normKey) {
+                  resolvedDriver = driver;
+                  break;
+                }
+              }
+              if (resolvedDriver) break;
+
+              for (const [key, driver] of Object.entries(NEOGEO_DRIVER_MAP)) {
+                const normKey = key.replace(/[^a-z0-9]/g, '');
+                if (normKey.length >= 4 && clean.includes(normKey)) {
+                  resolvedDriver = driver;
+                  break;
+                }
+              }
+              if (resolvedDriver) break;
+
+              if (clean.length >= 6) {
+                for (const [key, driver] of Object.entries(NEOGEO_DRIVER_MAP)) {
+                  const normKey = key.replace(/[^a-z0-9]/g, '');
+                  if (normKey.includes(clean)) {
+                    resolvedDriver = driver;
+                    break;
+                  }
+                }
+              }
+              if (resolvedDriver) break;
+            }
+          }
+
+          if (!resolvedDriver && rawFile && rawFile.length <= 8 && /^[a-z0-9_]+$/.test(rawFile)) {
+            resolvedDriver = rawFile;
+          }
+
+          safeFileName = `${resolvedDriver || 'mslug'}.zip`;
+        } else {
           const fn = game.filename || `${(game.cleanTitle || game.title || 'game')}.bin`;
           const dotIdx = fn.lastIndexOf('.');
-          if (dotIdx <= 0) return `${fn}.sfc`;
-          const base = fn.slice(0, dotIdx).replace(/[^a-zA-Z0-9_\- ]/g, '_').trim() || 'game';
-          return `${base}${fn.slice(dotIdx).toLowerCase()}`;
-        })();
+          if (dotIdx <= 0) {
+            safeFileName = `${fn}.sfc`;
+          } else {
+            const base = fn.slice(0, dotIdx).replace(/[^a-zA-Z0-9_\- ]/g, '_').trim() || 'game';
+            safeFileName = `${base}${fn.slice(dotIdx).toLowerCase()}`;
+          }
+        }
 
         const romFile = new File([blob], safeFileName);
-        const isNeoGeo = targetCore === 'fbalpha2012_neogeo' || targetCore === 'fbneo';
 
         const resolveCoreJs = (core) => `/cores/${core}_libretro.js`;
         const resolveCoreWasm = (core) => `/cores/${core}_libretro.wasm`;
 
         let neogeoBiosFile = null;
+        let neogeoBiosBlob = null;
         if (isNeoGeo) {
-          for (const biosUrl of ['/bios/neogeo.zip', '/cores/neogeo.zip', '/neogeo.zip']) {
+          for (const biosUrl of ['/bios/neogeo.zip', '/cores/neogeo.zip', '/neogeo.zip', 'https://raw.githubusercontent.com/Abdess/retroarch_system/libretro/neogeo.zip', 'https://raw.githubusercontent.com/OpenEmu/OpenEmu-Update/master/Bios/neogeo.zip']) {
             try {
               const bRes = await fetch(biosUrl);
               if (bRes.ok) {
                 const bBlob = await bRes.blob();
                 if (bBlob && bBlob.size > 1000) {
+                  neogeoBiosBlob = bBlob;
                   neogeoBiosFile = new File([bBlob], 'neogeo.zip');
                   break;
                 }
@@ -461,13 +655,79 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
         }
         canvasRef.current = canvas;
 
+        const biosList = (isNeoGeo && neogeoBiosFile) ? [neogeoBiosFile] : (isNeoGeo ? ['/cores/neogeo.zip', '/neogeo.zip'] : undefined);
+        const romList = (isNeoGeo && neogeoBiosFile) ? [romFile, neogeoBiosFile] : romFile;
+
+        // Button layout mapping (supports Konkr Pocket Fit / handheld ABXY buttons)
+        const isHandheldOrKonkr = /Android|Mobile|Linux arm/i.test(navigator.userAgent) || ('ontouchstart' in window);
+        const gamepadButtonConfig = isHandheldOrKonkr ? {
+          input_player1_a_btn: '2',
+          input_player1_b_btn: '3',
+          input_player1_x_btn: '0',
+          input_player1_y_btn: '1'
+        } : {
+          input_player1_a_btn: '0',
+          input_player1_b_btn: '1',
+          input_player1_x_btn: '2',
+          input_player1_y_btn: '3'
+        };
+
         const launchConfig = {
           core: targetCore,
           ...(LOCAL_CORES.has(targetCore) ? { resolveCoreJs, resolveCoreWasm } : {}),
-          ...(neogeoBiosFile ? { bios: [neogeoBiosFile] } : {}),
-          rom: neogeoBiosFile ? [romFile, neogeoBiosFile] : romFile,
+          ...(biosList ? { bios: biosList } : {}),
+          rom: romList,
           element: canvas,
+          beforeLaunch: async (nostalgistInstance) => {
+            try {
+              const Module = nostalgistInstance?.getEmscriptenModule?.() || nostalgistInstance?.getEmscripten?.()?.Module;
+              const FS = nostalgistInstance?.getEmscriptenFS?.() || Module?.FS;
+
+              if (Module && Module.callMain) {
+                const origCallMain = Module.callMain;
+                Module.callMain = function(args) {
+                  if (isNeoGeo) {
+                    const contentPath = `/home/web_user/retroarch/userdata/content/${safeFileName}`;
+                    const configPath = '/home/web_user/retroarch/userdata/retroarch.cfg';
+                    return origCallMain.call(this, ['-c', configPath, contentPath]);
+                  }
+                  return origCallMain.call(this, args);
+                };
+              }
+
+              if (FS && isNeoGeo) {
+                const writeSafe = (targetPath, data) => {
+                  try {
+                    const lastSlash = targetPath.lastIndexOf('/');
+                    if (lastSlash > 0) {
+                      const dir = targetPath.substring(0, lastSlash);
+                      try { FS.mkdirTree(dir); } catch (_) {}
+                    }
+                    FS.writeFile(targetPath, data);
+                  } catch (_) {}
+                };
+
+                const romBuf = await blob.arrayBuffer();
+                const romData = new Uint8Array(romBuf);
+                writeSafe(`/home/web_user/retroarch/userdata/content/${safeFileName}`, romData);
+
+                if (neogeoBiosBlob) {
+                  const biosBuf = await neogeoBiosBlob.arrayBuffer();
+                  const biosData = new Uint8Array(biosBuf);
+                  writeSafe('/home/web_user/retroarch/userdata/system/neogeo.zip', biosData);
+                  writeSafe('/home/web_user/retroarch/userdata/content/neogeo.zip', biosData);
+                } else {
+                  writeSafe('/home/web_user/retroarch/userdata/content/neogeo.zip', romData);
+                }
+              }
+            } catch (fsErr) {
+              console.warn('[Emulator] beforeLaunch FS injection warning:', fsErr);
+            }
+          },
           retroarchConfig: {
+            system_directory: '/home/web_user/retroarch/userdata/system',
+            content_directory: '/home/web_user/retroarch/userdata/content',
+            rgui_browser_directory: '/home/web_user/retroarch/userdata/content',
             video_smooth: false,
             input_player1_up: 'up',
             input_player1_down: 'down',
@@ -481,10 +741,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
             input_player1_r: 'w',
             input_player1_select: 'rshift',
             input_player1_start: 'enter',
-            input_player1_a_btn: '0',
-            input_player1_b_btn: '1',
-            input_player1_x_btn: '2',
-            input_player1_y_btn: '3'
+            ...gamepadButtonConfig
           },
           style: {
             width: '100%',
@@ -505,13 +762,16 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
         try {
           nostalgist = await Nostalgist.launch(launchConfig);
         } catch (launchErr) {
-          // Fallback chain: gb/gbc -> gambatte, sega -> picodrive, else Nostalgist CDN cores
+          // Fallback chain: gb/gbc -> gambatte, sega -> picodrive, neo -> fbneo alternate, else Nostalgist CDN cores
           const cLower = (game.console || '').toLowerCase();
           let retry = null;
           if ((cLower === 'gb' || cLower === 'gbc') && targetCore !== 'gambatte') {
             retry = { ...launchConfig, core: 'gambatte' };
           } else if (['sega', 'genesis', 'gg', 'sms'].includes(cLower)) {
             retry = { ...launchConfig, core: 'picodrive' };
+          } else if (cLower === 'neo' || cLower === 'neogeo' || cLower === 'arcade' || isNeoGeo) {
+            const alternateNeoCore = targetCore === 'fbneo' ? 'fbalpha2012_neogeo' : 'fbneo';
+            retry = { ...launchConfig, core: alternateNeoCore };
           } else {
             retry = { ...launchConfig };
             delete retry.resolveCoreJs;

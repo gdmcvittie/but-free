@@ -11,7 +11,8 @@ export default function LibraryView({
   onScanDrive,
   isScanning = false,
   user,
-  onOpenSettings
+  onOpenSettings,
+  isMobileLandscape1080 = false
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const selectConsole = onSelectConsole || (() => {});
@@ -40,38 +41,40 @@ export default function LibraryView({
   }, [games, selectedConsole, searchQuery]);
 
   return (
-    <div className="flex-1 flex flex-col bg-[#070a12] p-3 sm:p-6 lg:p-8">
+    <div className={`flex-1 flex flex-col bg-[#070a12] ${isMobileLandscape1080 ? 'p-2 sm:p-3' : 'p-3 sm:p-6 lg:p-8'}`}>
       {/* Top Header Row */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <div className={`flex flex-col md:flex-row md:items-center justify-between gap-3 ${isMobileLandscape1080 ? 'mb-2.5' : 'mb-8'}`}>
         <div>
-          <h1 className="font-heading font-extrabold text-3xl text-white tracking-tight flex items-center gap-3">
-            <span>Games Library</span>
-            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
-              {games.length} {games.length === 1 ? 'Game' : 'Games'}
+          <h1 className={`font-heading font-extrabold ${isMobileLandscape1080 ? 'text-lg sm:text-xl' : 'text-3xl'} text-white tracking-tight flex items-center gap-2.5`}>
+            <span>{isMobileLandscape1080 && selectedConsole ? selectedConsole.toUpperCase() : 'Games Library'}</span>
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
+              {filteredGames.length} {filteredGames.length === 1 ? 'Game' : 'Games'}
             </span>
           </h1>
-          <p className="text-sm text-slate-400 mt-1">
-            {user?.gamesFolderName ? (
-              <span className="flex items-center gap-1.5">
-                <HardDrive className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Connected to Google Drive: <strong>{user.gamesFolderName}</strong></span>
-              </span>
-            ) : (
-              'Connect your Google Drive Games folder in Settings to play your collection'
-            )}
-          </p>
+          {!isMobileLandscape1080 && (
+            <p className="text-sm text-slate-400 mt-1">
+              {user?.gamesFolderName ? (
+                <span className="flex items-center gap-1.5">
+                  <HardDrive className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Connected to Google Drive: <strong>{user.gamesFolderName}</strong></span>
+                </span>
+              ) : (
+                'Connect your Google Drive Games folder in Settings to play your collection'
+              )}
+            </p>
+          )}
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-3">
-          <div className="relative min-w-[260px]">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+        <div className="flex items-center gap-2.5">
+          <div className={`relative ${isMobileLandscape1080 ? 'min-w-[180px] max-w-[280px]' : 'min-w-[260px]'}`}>
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
-              placeholder="Search your games..."
+              placeholder="Search games..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-slate-900/80 border border-white/10 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 transition-colors"
+              className="w-full pl-9 pr-3 py-1.5 bg-slate-900/80 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 transition-colors"
             />
           </div>
 
@@ -87,24 +90,26 @@ export default function LibraryView({
         </div>
       </div>
 
-      {/* Consoles / System Filter Bar */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-6 scrollbar-none">
-        {consoles.map(({ key, count }) => {
-          const isSelected = selectedConsole === key;
-          return (
-            <button
-              key={key}
-              onClick={() => selectConsole(key)}
-              className={`filter-chip ${isSelected ? 'active' : ''}`}
-            >
-              <span className="console-key">{key}</span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isSelected ? 'bg-purple-500/30 text-purple-200' : 'bg-white/10 text-slate-400'}`}>
-                {count}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      {/* Consoles / System Filter Bar (Hidden in 1080p landscape since consoles are along the sidebar) */}
+      {!isMobileLandscape1080 && (
+        <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-6 scrollbar-none">
+          {consoles.map(({ key, count }) => {
+            const isSelected = selectedConsole === key;
+            return (
+              <button
+                key={key}
+                onClick={() => selectConsole(key)}
+                className={`filter-chip ${isSelected ? 'active' : ''}`}
+              >
+                <span className="console-key">{key}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isSelected ? 'bg-purple-500/30 text-purple-200' : 'bg-white/10 text-slate-400'}`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Game Cards Grid */}
       {loading ? (

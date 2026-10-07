@@ -39,7 +39,8 @@ export default function DownloadsView({ user, onOpenSettings }) {
         body: JSON.stringify({
           magnet: inputMagnet.trim(),
           title: inputTitle.trim() || 'Custom Game Download',
-          kind: 'game'
+          kind: 'game',
+          console: 'pc'
         })
       });
       setInputMagnet('');

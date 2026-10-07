@@ -19,7 +19,10 @@ import {
   resolveFuckingFastUrl,
   isFuckingFastBlockedError,
   resetFuckingFastCooldown,
-  isDataNodesLandingPage
+  isDataNodesLandingPage,
+  MAX_PC_REMOTE_TORRENT_BYTES,
+  PC_REMOTE_TORRENT_LIMIT_MSG,
+  parseSizeStringToBytes
 } from './rssDiscovery.js';
 
 import {
@@ -170,7 +173,7 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
   app.post('/api/pc/add', async (req, res) => {
     if (!requireGamesFolder(req, res)) return;
 
-    const { source, url: altUrl, title, console: consoleKey, subfolder, selectedFiles } = req.body || {};
+    const { source, url: altUrl, title, console: consoleKey, subfolder, selectedFiles, size, sizeBytes, selectedTotalBytes } = req.body || {};
     let target = String(source || altUrl || '').trim().replace(/&#038;/g, '&').replace(/&amp;/gi, '&');
     if (!target) {
       return res.status(400).json({ success: false, error: 'A magnet, .torrent URL or direct download URL is required' });
@@ -180,6 +183,50 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
     const isMagnet = target.toLowerCase().startsWith('magnet:');
     const isTorrentFile = /\.torrent(\?|#|$)/i.test(target) || /ia[0-9]+_archive\.torrent/i.test(target);
     let isDirect = !isMagnet && !isTorrentFile;
+
+    const isPc = !consoleKey || consoleKey === 'pc';
+
+    // 2GB limit check: PC game torrent/magnet remote downloads cannot exceed 2GB
+    if (isPc && (isMagnet || isTorrentFile)) {
+      const explicitBytes = Number(sizeBytes) || parseSizeStringToBytes(size);
+      const selBytes = Number(selectedTotalBytes);
+
+      if (selBytes && selBytes > MAX_PC_REMOTE_TORRENT_BYTES) {
+        return res.status(400).json({
+          success: false,
+          error: PC_REMOTE_TORRENT_LIMIT_MSG
+        });
+      }
+
+      if (explicitBytes && explicitBytes > MAX_PC_REMOTE_TORRENT_BYTES) {
+        return res.status(400).json({
+          success: false,
+          error: PC_REMOTE_TORRENT_LIMIT_MSG
+        });
+      }
+
+      // If size is not specified upfront, perform a quick metadata inspection via Downloader node
+      if (!explicitBytes && !selBytes) {
+        try {
+          const inspected = await GameDownloaderClient.inspectTorrent(target, 4500);
+          let totalToCheck = inspected.totalBytes || 0;
+          if (Array.isArray(selectedFiles) && selectedFiles.length > 0 && Array.isArray(inspected.files)) {
+            const selSet = new Set(selectedFiles.map(f => String(f).toLowerCase().replace(/\\/g, '/')));
+            totalToCheck = inspected.files
+              .filter(f => selSet.has(f.path?.toLowerCase().replace(/\\/g, '/')) || selSet.has(f.name?.toLowerCase()))
+              .reduce((sum, f) => sum + (f.length || 0), 0);
+          }
+          if (totalToCheck > MAX_PC_REMOTE_TORRENT_BYTES) {
+            return res.status(400).json({
+              success: false,
+              error: PC_REMOTE_TORRENT_LIMIT_MSG
+            });
+          }
+        } catch (_) {
+          // If inspection times out, proceed to queue; Downloader node enforces upon metadata arrival.
+        }
+      }
+    }
 
     try {
       const ctx = buildDispatchContext(req);
@@ -293,6 +340,18 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
       const isMagnet = target.toLowerCase().startsWith('magnet:');
       const isTorrentFile = /\.torrent(\?|#|$)/i.test(target) || /ia[0-9]+_archive\.torrent/i.test(target);
       const isDirect = !isMagnet && !isTorrentFile;
+
+      const isPc = !consoleKey || consoleKey === 'pc';
+      if (isPc && (isMagnet || isTorrentFile)) {
+        const itemBytes = Number(item?.bytes || item?.sizeBytes) || parseSizeStringToBytes(item?.size || item?.fileSize);
+        if (itemBytes && itemBytes > MAX_PC_REMOTE_TORRENT_BYTES) {
+          errors.push({
+            target,
+            error: PC_REMOTE_TORRENT_LIMIT_MSG
+          });
+          continue;
+        }
+      }
 
       try {
         if (isDirect && isFuckingFastLandingPage(target)) {

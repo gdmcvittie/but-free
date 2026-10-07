@@ -13,7 +13,20 @@ export function useAddJob(onDownloadDispatched) {
   const [status, setStatus] = useState(null); // {type:'ok'|'err', message}
   const [ffAssist, setFfAssist] = useState(null); // {fileIds, links, totalBlocked, totalFailed, onRetry, batchTitle}
 
-  const add = useCallback(async (key, { source, title, console: consoleKey, selectedFiles, subfolder }) => {
+  const add = useCallback(async (key, { source, title, console: consoleKey, selectedFiles, subfolder, size, sizeBytes, selectedTotalBytes }) => {
+    const TWO_GB = 2 * 1024 * 1024 * 1024;
+    const isPc = !consoleKey || consoleKey === 'pc';
+    const isTorr = String(source).startsWith('magnet:') || /\.torrent/i.test(String(source));
+    const totalCheck = Number(sizeBytes) || Number(selectedTotalBytes);
+
+    if (isPc && isTorr && totalCheck && totalCheck > TWO_GB) {
+      setStatus({
+        type: 'err',
+        message: 'This game is too large to download remotely (limit is 2 GB).'
+      });
+      return false;
+    }
+
     setBusyId(key);
     setStatus(null);
     try {
@@ -24,7 +37,10 @@ export function useAddJob(onDownloadDispatched) {
           title,
           console: consoleKey || 'pc',
           selectedFiles: selectedFiles || undefined,
-          subfolder: subfolder || undefined
+          subfolder: subfolder || undefined,
+          size,
+          sizeBytes,
+          selectedTotalBytes
         })
       });
       setDoneIds((prev) => new Set([...prev, key]));
@@ -166,10 +182,12 @@ function formatBytes(bytes) {
 
 export function TorrentFilesModal({ open, onClose, inspect, defaultSelected, onConfirm, busy }) {
   const [selected, setSelected] = useState(() => new Set(inspect?.files?.map(f => f.path) || []));
+  const [modalError, setModalError] = useState(null);
 
   if (!open || !inspect) return null;
 
   const toggle = (path) => {
+    setModalError(null);
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(path)) next.delete(path);
@@ -178,9 +196,19 @@ export function TorrentFilesModal({ open, onClose, inspect, defaultSelected, onC
     });
   };
 
+  const TWO_GB = 2 * 1024 * 1024 * 1024;
   const selectedBytes = (inspect.files || [])
     .filter(f => selected.has(f.path))
     .reduce((sum, f) => sum + (f.length || 0), 0);
+  const isTooLarge = selectedBytes > TWO_GB;
+
+  const handleConfirm = () => {
+    if (isTooLarge) {
+      setModalError('This game is too large to download remotely (limit is 2 GB).');
+      return;
+    }
+    onConfirm(Array.from(selected), selectedBytes);
+  };
 
   return (
     <div className="pc-rss-modal-backdrop" onClick={onClose}>
@@ -196,6 +224,20 @@ export function TorrentFilesModal({ open, onClose, inspect, defaultSelected, onC
             <X className="w-4 h-4" />
           </button>
         </div>
+
+        {isTooLarge && (
+          <div className="mx-3 mt-3 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
+            <span>⚠️</span>
+            <span>This selection ({formatBytes(selectedBytes)}) exceeds the 2 GB limit. Remote torrent downloads are limited to 2 GB.</span>
+          </div>
+        )}
+
+        {modalError && (
+          <div className="mx-3 mt-3 p-2.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 text-xs flex items-center justify-between gap-2">
+            <span>{modalError}</span>
+            <button onClick={() => setModalError(null)} className="icon-btn icon-btn-sm">✕</button>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto p-3 space-y-1">
           {(inspect.files || []).map((f) => {
@@ -222,15 +264,16 @@ export function TorrentFilesModal({ open, onClose, inspect, defaultSelected, onC
 
         <div className="p-4 border-t border-white/5 flex items-center justify-between gap-3">
           <span className="text-[11px] text-slate-400">
-            {selected.size} selected • <strong className="text-white">{formatBytes(selectedBytes)}</strong>
+            {selected.size} selected • <strong className={isTooLarge ? 'text-amber-300' : 'text-white'}>{formatBytes(selectedBytes)}</strong>
           </span>
           <button
-            onClick={() => onConfirm(Array.from(selected))}
-            disabled={busy || selected.size === 0}
-            className="btn btn-primary btn-sm"
+            onClick={handleConfirm}
+            disabled={busy || selected.size === 0 || isTooLarge}
+            className={`btn btn-sm ${isTooLarge ? 'bg-amber-600/20 text-amber-300 border border-amber-500/30 cursor-not-allowed' : 'btn-primary'}`}
+            title={isTooLarge ? 'This game is too large to download remotely (limit is 2 GB)' : 'Download selected files to Google Drive'}
           >
             {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-            <span>Download to Drive</span>
+            <span>{isTooLarge ? 'Too Large (> 2 GB)' : 'Download to Drive'}</span>
           </button>
         </div>
       </div>
@@ -253,12 +296,17 @@ export function LinksModal({
   busyId,
   doneIds = new Set(),
   onPick,
-  onAddBatch
+  onAddBatch,
+  gameSize,
+  gameSizeBytes
 }) {
   const [hosterFilter, setHosterFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [batchBusy, setBatchBusy] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
+  const [linkError, setLinkError] = useState(null);
+
+  const TWO_GB = 2 * 1024 * 1024 * 1024;
 
   // Group and count hosters
   const { hosterCounts, magnetCount, torrentCount, ffCount, directCount } = useMemo(() => {
@@ -321,11 +369,23 @@ export function LinksModal({
   const handleQueueAll = async () => {
     if (!onAddBatch || filteredLinks.length === 0) return;
     setBatchBusy(true);
+    setLinkError(null);
     try {
       await onAddBatch(filteredLinks, itemTitle);
     } finally {
       setBatchBusy(false);
     }
+  };
+
+  const handlePickLink = (l) => {
+    const isTorr = l.isMagnet || l.extension === 'TORRENT';
+    const linkBytes = Number(l.bytes) || (isTorr && gameSizeBytes ? gameSizeBytes : null);
+    if (isTorr && linkBytes && linkBytes > TWO_GB) {
+      setLinkError('This game is too large to download remotely (limit is 2 GB). Please pick a direct download link (e.g. FuckingFast) instead.');
+      return;
+    }
+    setLinkError(null);
+    onPick(l);
   };
 
   const handleCopy = (l) => {
@@ -416,6 +476,13 @@ export function LinksModal({
         </div>
 
         {/* Stats summary banner */}
+        {linkError && (
+          <div className="mx-4 mt-3 p-2.5 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 text-xs flex items-center justify-between gap-2">
+            <span>{linkError}</span>
+            <button onClick={() => setLinkError(null)} className="icon-btn icon-btn-sm">✕</button>
+          </div>
+        )}
+
         {!loading && (links || []).length > 0 && (
           <div className="pc-modal-stats-banner">
             <span>
@@ -502,7 +569,7 @@ export function LinksModal({
 
                   {/* Queue Button */}
                   <button
-                    onClick={() => onPick(l)}
+                    onClick={() => handlePickLink(l)}
                     disabled={isBusy || isQueued}
                     className={`btn btn-xs shrink-0 ${
                       isQueued

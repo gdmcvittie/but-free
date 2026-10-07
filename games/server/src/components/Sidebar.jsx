@@ -1,5 +1,25 @@
 import React, { useState } from 'react';
-import { Gamepad2, Compass, Download, Heart, Settings, ChevronDown, History } from 'lucide-react';
+import { Gamepad2, Compass, Download, Heart, Settings, ChevronDown, History, Layers } from 'lucide-react';
+
+const CONSOLE_DISPLAY_NAMES = {
+  nes: 'NES',
+  snes: 'SNES',
+  gb: 'Game Boy',
+  gbc: 'GBC',
+  gba: 'GBA',
+  sega: 'Genesis',
+  genesis: 'Genesis',
+  megadrive: 'Mega Drive',
+  neo: 'Neo Geo',
+  neogeo: 'Neo Geo',
+  arcade: 'Arcade',
+  pce: 'PC Engine',
+  tg16: 'TurboGrafx-16',
+  gg: 'Game Gear',
+  sms: 'Master System',
+  pc: 'PC Games',
+  web: 'Web Games'
+};
 
 export default function Sidebar({
   currentView,
@@ -7,28 +27,26 @@ export default function Sidebar({
   user,
   onOpenAuthModal,
   onOpenSettings,
+  onOpenDrivePicker,
   consoles = [],
   libraryConsole = 'all',
-  onSelectConsole
+  onSelectConsole,
+  isMobileLandscape1080 = false
 }) {
-  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(true);
 
-  // What's New leads, Library expands into the consoles in the library, and
-  // Recently played sits directly under it.
   const navItems = [
     { id: 'discover', label: "What's New", icon: Compass },
     { id: 'library', label: 'Library', icon: Gamepad2, hasConsoles: consoles.length > 0 },
     { id: 'recent', label: 'Recently played', icon: History },
-    { id: 'downloads', label: 'Downloads', icon: Download },
     { id: 'favorites', label: 'Favorites', icon: Heart },
+    { id: 'downloads', label: 'Downloads', icon: Download },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
   const navigate = (item) => {
     if (item.id === 'library' && onSelectConsole) {
-      // The all-library tab is gone: landing on Library starts at the first
-      // alphabetical console, or whichever is currently selected if one is set.
-      onSelectConsole(consoles.length ? consoles[0].key : '');
+      onSelectConsole(consoles.length ? (libraryConsole || consoles[0].key) : '');
     }
     setCurrentView(item.id);
   };
@@ -36,12 +54,11 @@ export default function Sidebar({
   const selectConsole = (consoleKey) => {
     if (onSelectConsole) onSelectConsole(consoleKey);
     setCurrentView('library');
-    setLibraryOpen(true);
   };
 
   return (
     <>
-      {/* Mobile Top App Bar */}
+      {/* Mobile Top App Bar (Hidden in 1080p mobile landscape) */}
       <header className="mobile-header">
         <div className="mobile-title" onClick={() => setCurrentView('library')} style={{ cursor: 'pointer' }}>
           FREE<span style={{ color: '#a855f7' }}>PLAY</span>
@@ -62,8 +79,8 @@ export default function Sidebar({
         </div>
       </header>
 
-      {/* Desktop Sidebar */}
-      <aside className="sidebar desktop-only">
+      {/* Sidebar Navigation */}
+      <aside className={`sidebar ${isMobileLandscape1080 ? 'sidebar-handheld' : 'desktop-only'}`}>
         {/* Brand Header */}
         <div className="sidebar-header-row">
           <div
@@ -77,12 +94,13 @@ export default function Sidebar({
         </div>
 
         {/* Navigation Items */}
-        <nav>
+        <nav className="sidebar-nav-scroll">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = currentView === item.id;
 
-            if (item.hasConsoles) {
+            // In mobile landscape 1080p, we show a dedicated consoles list directly along the side
+            if (item.hasConsoles && !isMobileLandscape1080) {
               return (
                 <div key={item.id} className="nav-group">
                   <div
@@ -108,17 +126,17 @@ export default function Sidebar({
 
                   {libraryOpen && (
                     <div className="nav-submenu">
-                      {consoles.map((console) => (
+                      {consoles.map((c) => (
                         <button
-                          key={console.key}
+                          key={c.key}
                           type="button"
                           className={`nav-submenu-item ${
-                            isActive && libraryConsole === console.key ? 'active' : ''
+                            isActive && libraryConsole === c.key ? 'active' : ''
                           }`}
-                          onClick={() => selectConsole(console.key)}
+                          onClick={() => selectConsole(c.key)}
                         >
-                          <span className="nav-submenu-label">{console.key}</span>
-                          <span className="nav-submenu-count">{console.count}</span>
+                          <span className="nav-submenu-label">{CONSOLE_DISPLAY_NAMES[c.key] || c.key}</span>
+                          <span className="nav-submenu-count">{c.count}</span>
                         </button>
                       ))}
                     </div>
@@ -139,6 +157,34 @@ export default function Sidebar({
               </div>
             );
           })}
+
+          {/* Consoles listed along the side for Mobile Landscape 1920x1080 Handhelds */}
+          {isMobileLandscape1080 && consoles.length > 0 && (
+            <div className="handheld-consoles-section">
+              <div className="handheld-consoles-header">
+                <Layers size={13} className="text-purple-400" />
+                <span>CONSOLES</span>
+              </div>
+              <div className="handheld-consoles-list">
+                {consoles.map((c) => {
+                  const isConsoleActive = currentView === 'library' && libraryConsole === c.key;
+                  const label = CONSOLE_DISPLAY_NAMES[c.key] || c.key.toUpperCase();
+                  return (
+                    <button
+                      key={c.key}
+                      type="button"
+                      className={`handheld-console-item ${isConsoleActive ? 'active' : ''}`}
+                      onClick={() => selectConsole(c.key)}
+                      title={`${label} (${c.count} games)`}
+                    >
+                      <span className="handheld-console-label">{label}</span>
+                      <span className="handheld-console-count">{c.count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </nav>
 
         {/* User Account / Google Sign-In Card at Bottom */}
@@ -146,7 +192,7 @@ export default function Sidebar({
           {user ? (
             <div
               className="sidebar-user-card"
-              onClick={onOpenSettings || onOpenAuthModal}
+              onClick={onOpenSettings || onOpenDrivePicker || onOpenAuthModal}
               title="Click to manage account or switch Google Drive folder"
             >
               <div className="sidebar-user-avatar">
@@ -175,13 +221,13 @@ export default function Sidebar({
                 <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
                 <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
               </svg>
-              <span>Connect Google Drive</span>
+              <span>Connect Drive</span>
             </button>
           )}
         </div>
       </aside>
 
-      {/* Mobile Bottom Navigation Bar (icons only) */}
+      {/* Mobile Bottom Navigation Bar (icons only, hidden in 1080p landscape) */}
       <nav className="mobile-bottom-nav">
         {navItems.map((item) => {
           const Icon = item.icon;

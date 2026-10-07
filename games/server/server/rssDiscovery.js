@@ -33,6 +33,39 @@ export function formatBytes(bytes) {
   return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
+export const MAX_PC_REMOTE_TORRENT_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB
+export const PC_REMOTE_TORRENT_LIMIT_MSG = "This game is too large to download remotely (limit is 2 GB).";
+
+export function parseSizeStringToBytes(str) {
+  if (!str) return null;
+  const match = String(str).match(/([0-9]+(?:\.[0-9]+)?)\s*(TB|GB|MB|KB|B)\b/i);
+  if (!match) return null;
+  const num = parseFloat(match[1]);
+  const unit = match[2].toUpperCase();
+  const mult = {
+    B: 1,
+    KB: 1024,
+    MB: 1024 * 1024,
+    GB: 1024 * 1024 * 1024,
+    TB: 1024 * 1024 * 1024 * 1024
+  };
+  return Math.round(num * (mult[unit] || 1));
+}
+
+export function extractSizeFromText(text) {
+  if (!text) return null;
+  // Match e.g. "Repack Size: from 14.5 GB" or "Download Size: 1.8 GB" or "Original Size: ... Repack Size: 2.3 GB"
+  const repackMatch = text.match(/(?:repack|download|original|game|file)?\s*size[^:\d<]*:\s*(?:from\s*|approx\.?\s*)?([0-9]+(?:\.[0-9]+)?\s*(?:TB|GB|MB|KB|B)\b)/i);
+  if (repackMatch) {
+    return repackMatch[1];
+  }
+  const bracketMatch = text.match(/[\(\[]\s*([0-9]+(?:\.[0-9]+)?\s*(?:TB|GB|MB)\b)\s*[\)\]]/i);
+  if (bracketMatch) {
+    return bracketMatch[1];
+  }
+  return null;
+}
+
 export function decodeHtmlEntities(str) {
   if (!str) return '';
   return String(str)
@@ -637,6 +670,9 @@ export async function fetchFeed(feedUrl) {
     const firstMagnet = downloads.find(d => d.isMagnet);
     const magnetUrl = firstMagnet ? firstMagnet.url : null;
 
+    const rawSizeStr = extractSizeFromText(rawContent || rawDesc || title);
+    const sizeBytes = rawSizeStr ? parseSizeStringToBytes(rawSizeStr) : null;
+
     items.push({
       id: 'pcrss_' + crypto.createHash('md5').update(link || title).digest('hex').substring(0, 14),
       title,
@@ -645,6 +681,8 @@ export async function fetchFeed(feedUrl) {
       pubDate,
       author,
       excerpt: cleanExcerpt,
+      size: rawSizeStr,
+      sizeBytes,
       thumbnail: thumbInfo.url,
       isVideoThumbnail: thumbInfo.isVideo,
       hasMagnet: !!magnetUrl,
@@ -1075,6 +1113,9 @@ export async function scrapeLinksFromPage(pageUrl) {
 
   const html = await response.text();
   const result = scrapeDownloadLinksFromHtml(html, pageUrl);
+  const detectedSizeStr = extractSizeFromText(html);
+  result.gameSize = detectedSizeStr;
+  result.gameSizeBytes = detectedSizeStr ? parseSizeStringToBytes(detectedSizeStr) : null;
 
   const seenUrls = new Set(result.links.map(l => l.url));
 

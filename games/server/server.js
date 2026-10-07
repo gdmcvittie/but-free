@@ -10,7 +10,7 @@ import dotenv from 'dotenv';
 import * as Database from './server/database.js';
 import { GoogleAuth } from './server/googleAuth.js';
 import { GoogleDrive, cleanGameTitle } from './server/googleDrive.js';
-import { sanitizeFolderName } from './server/rssDiscovery.js';
+import { sanitizeFolderName, MAX_PC_REMOTE_TORRENT_BYTES, PC_REMOTE_TORRENT_LIMIT_MSG, parseSizeStringToBytes } from './server/rssDiscovery.js';
 import { DownloaderClient, GameDownloaderClient } from './server/downloaderClient.js';
 import { registerDiscoverRoutes } from './server/discoverRoutes.js';
 import { registerLibraryRoutes } from './server/libraryRoutes.js';
@@ -364,9 +364,18 @@ app.get('/api/downloads', async (req, res) => {
 app.post('/api/downloads/add', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
-  const { magnet, title, console: consoleKey } = req.body || {};
+  const { magnet, title, console: consoleKey, size, sizeBytes } = req.body || {};
   if (!magnet) {
     return res.status(400).json({ error: 'Missing magnet or torrent URL' });
+  }
+
+  const isPc = consoleKey === 'pc' || (!consoleKey && (/^pc$/i.test(consoleKey || '') || /pc/i.test(title || '')));
+  const isTorrent = magnet.toLowerCase().startsWith('magnet:') || /\.torrent(\?|#|$)/i.test(magnet);
+  if (isPc && isTorrent) {
+    const explicitBytes = Number(sizeBytes) || parseSizeStringToBytes(size);
+    if (explicitBytes && explicitBytes > MAX_PC_REMOTE_TORRENT_BYTES) {
+      return res.status(400).json({ error: PC_REMOTE_TORRENT_LIMIT_MSG });
+    }
   }
 
   // Construct webhook + token refresh URLs back to this games server
@@ -379,6 +388,7 @@ app.post('/api/downloads/add', async (req, res) => {
       source: magnet,
       title: title || 'Retro Game',
       console: consoleKey || 'retro',
+      sizeBytes: explicitBytes || undefined,
       subfolder: consoleKey === 'pc' ? `PC/${sanitizeFolderName(cleanGameTitle(title || 'PC Game'))}` : consoleKey || undefined,
       webhookUrl: `${base}/api/webhook/download-complete`,
       tokenRefreshUrl: `${base}/api/downloads/token-refresh`
