@@ -10,7 +10,7 @@ tasks.register('syncFreeplayAssets', Copy) {
     }
     from('../../server/dist') {
         into 'offline-site'
-        exclude 'cores/**', 'freeplay.apk'
+        exclude 'cores/**', 'freeplay.apk', 'FreeplayDownloader-Setup.exe'
     }
     from('../../server/public/cores') {
         into 'cores'

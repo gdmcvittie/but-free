@@ -13,6 +13,7 @@ import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { inspect } from 'util';
 import dotenv from 'dotenv';
+import net from 'net';
 
 const require = createRequire(import.meta.url);
 
@@ -342,7 +343,7 @@ async function initLoopbackProbe() {
   if (isLoopbackProbeDone) return isLoopbackPortOpen;
   if (!loopbackProbePromise) {
     loopbackProbePromise = (async () => {
-      const port = (typeof PORT === 'number' || (typeof PORT === 'string' && /^\d+$/.test(PORT))) ? Number(PORT) : 3000;
+      const port = (typeof PORT === 'number' || (typeof PORT === 'string' && /^\d+$/.test(PORT))) ? Number(PORT) : 3001;
       isLoopbackPortOpen = await probeLoopbackPort(port);
       isLoopbackProbeDone = true;
       console.log(`[Transcoder] Probed ffmpeg input loopback 127.0.0.1:${port} -> ${isLoopbackPortOpen ? 'OPEN (using internal input URL)' : 'CLOSED (using public TV input URL)'}`);
@@ -356,7 +357,7 @@ async function getFfmpegInputUrl(sessionId, fileId, req) {
   // Always wait for the probe so a very-fast-first request cannot pick the
   // wrong input URL before we know whether loopback is reachable.
   await initLoopbackProbe();
-  const port = (typeof PORT === 'number' || (typeof PORT === 'string' && /^\d+$/.test(PORT))) ? PORT : 3000;
+  const port = (typeof PORT === 'number' || (typeof PORT === 'string' && /^\d+$/.test(PORT))) ? PORT : 3001;
 
   // Prefer the public origin if loopback is definitely closed/unreachable.
   if (isLoopbackPortOpen === false) {

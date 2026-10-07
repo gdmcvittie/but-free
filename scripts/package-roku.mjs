@@ -15,7 +15,23 @@ fs.mkdirSync(apksDistDir, { recursive: true });
 
 const rokuZipPath = path.join(apksDistDir, 'roku.zip');
 const zip = new AdmZip();
-zip.addLocalFolder(tvRokuDir);
+
+// Add all files from tv/roku preserving relative posix paths
+const entries = fs.readdirSync(tvRokuDir, { withFileTypes: true });
+for (const entry of entries) {
+  const fullPath = path.join(tvRokuDir, entry.name);
+  if (entry.isDirectory()) {
+    if (entry.name !== '.git' && entry.name !== 'node_modules') {
+      zip.addLocalFolder(fullPath, entry.name);
+    }
+  } else if (entry.isFile()) {
+    const lower = entry.name.toLowerCase();
+    if (!lower.endsWith('.zip') && !lower.endsWith('.tmp') && lower !== 'readme.md' && lower !== '.ds_store') {
+      zip.addLocalFile(fullPath);
+    }
+  }
+}
+
 zip.writeZip(rokuZipPath);
 
 const srvRoku = path.join(tvServerDir, 'public', 'roku.zip');
