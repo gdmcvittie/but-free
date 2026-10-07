@@ -1,0 +1,2975 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
+  <title>Freeplay Downloader</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #090d16;
+      --card-bg: rgba(18, 24, 38, 0.85);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --primary: #8b5cf6;
+      --primary-glow: rgba(139, 92, 246, 0.35);
+      --accent: #ec4899;
+      --accent-cyan: #06b6d4;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --success: #10b981;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: radial-gradient(circle at 10% 20%, #17112c 0%, var(--bg-dark) 90%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding: 24px;
+    }
+    .container {
+      max-width: 1060px;
+      margin: 0 auto;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 24px;
+      background: var(--card-bg);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .logo-badge {
+      width: 48px;
+      height: 48px;
+      background: linear-gradient(135deg, #06b6d4 0%, #8b5cf6 100%);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      box-shadow: 0 4px 16px rgba(6, 182, 212, 0.35);
+    }
+    .brand h1 {
+      font-family: 'Outfit', sans-serif;
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #fff 0%, #cbd5e1 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .brand p {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #34d399;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      background: #10b981;
+      border-radius: 50%;
+      box-shadow: 0 0 10px #10b981;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .card {
+      background: var(--card-bg);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+    .card-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .input-group {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    input[type="text"], select {
+      flex: 1;
+      min-width: 180px;
+      padding: 10px 14px;
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      color: #fff;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input[type="text"]:focus, select:focus {
+      border-color: var(--primary);
+    }
+    select option {
+      background: #121826;
+      color: #fff;
+    }
+    .btn {
+      padding: 10px 18px;
+      border-radius: 8px;
+      border: none;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s;
+      white-space: nowrap;
+      text-decoration: none;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary) 0%, #7c3aed 100%);
+      color: #fff;
+      box-shadow: 0 4px 14px var(--primary-glow);
+    }
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px var(--primary-glow);
+    }
+    .btn-secondary {
+      background: rgba(255,255,255,0.06);
+      color: #e2e8f0;
+      border: 1px solid var(--card-border);
+    }
+    .btn-secondary:hover {
+      background: rgba(255,255,255,0.1);
+      color: #fff;
+    }
+    .btn-sm {
+      padding: 6px 12px;
+      font-size: 12px;
+    }
+    .console-badge {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--card-border);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .console-badge span { color: var(--primary); font-weight: 700; }
+    .alert {
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      display: none;
+    }
+    .alert-success { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .alert-error { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+    .progress-bar-bg {
+      background: rgba(255, 255, 255, 0.1);
+      height: 8px;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 10px;
+    }
+    .progress-bar-fill {
+      background: linear-gradient(90deg, #38bdf8, #818cf8, #c084fc);
+      height: 100%;
+      width: 0%;
+      transition: width 0.25s ease;
+      border-radius: 4px;
+    }
+    .code-box {
+      background: rgba(0,0,0,0.4);
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 13px;
+      color: var(--accent-cyan);
+      border: 1px solid rgba(255,255,255,0.06);
+      word-break: break-all;
+    }
+    .toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 99999;
+      pointer-events: none;
+    }
+    .toast {
+      padding: 12px 18px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+      background: rgba(15, 23, 42, 0.95);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--card-border);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      pointer-events: auto;
+      animation: toastIn 0.25s ease-out;
+      max-width: 380px;
+    }
+    @keyframes toastIn {
+      from { transform: translateX(50px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    .toast.toast-success {
+      border-color: rgba(16, 185, 129, 0.4);
+      background: linear-gradient(135deg, rgba(6, 78, 59, 0.9) 0%, rgba(15, 23, 42, 0.95) 100%);
+    }
+    .toast.toast-error {
+      border-color: rgba(239, 68, 68, 0.4);
+      background: linear-gradient(135deg, rgba(127, 29, 29, 0.9) 0%, rgba(15, 23, 42, 0.95) 100%);
+    }
+    .toast.toast-info {
+      border-color: rgba(56, 189, 248, 0.4);
+      background: linear-gradient(135deg, rgba(12, 74, 110, 0.9) 0%, rgba(15, 23, 42, 0.95) 100%);
+    }
+
+    /* ── PC RSS & Torrent Hub Styles ── */
+    .pc-rss-section {
+      position: relative;
+    }
+    .pc-rss-header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .pc-rss-presets-bar {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 6px;
+      margin-top: 8px;
+    }
+    .pc-rss-preset-btn {
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .pc-rss-preset-btn:hover {
+      background: rgba(6, 182, 212, 0.15);
+      color: #38bdf8;
+      border-color: rgba(6, 182, 212, 0.4);
+    }
+    .pc-rss-queue-panel {
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(6, 182, 212, 0.25);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .pc-rss-queue-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .pc-rss-active-dl {
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(6, 182, 212, 0.3);
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .pc-rss-dl-title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+    .pc-rss-dl-stats-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .pc-rss-queue-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .pc-rss-queue-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 12px;
+    }
+    .pc-popular-games-panel {
+      background: rgba(15, 23, 42, 0.55);
+      border: 1px solid rgba(56, 189, 248, 0.22);
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: 14px;
+    }
+    .pc-popular-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .pc-popular-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 10px;
+      max-height: 320px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+    .pc-popular-grid::-webkit-scrollbar {
+      width: 6px;
+    }
+    .pc-popular-grid::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.16);
+      border-radius: 3px;
+    }
+    .pc-popular-card {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 6px;
+      overflow: hidden;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      transition: all 0.2s ease;
+      user-select: none;
+      position: relative;
+    }
+    .pc-popular-card:hover {
+      transform: translateY(-2px);
+      border-color: #38bdf8;
+      background: rgba(56, 189, 248, 0.1);
+      box-shadow: 0 4px 12px rgba(6, 182, 212, 0.22);
+    }
+    .pc-popular-card.has-fitgirl {
+      border-color: rgba(16, 185, 129, 0.55);
+      background: rgba(16, 185, 129, 0.08);
+    }
+    .pc-popular-card.has-fitgirl::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 48px;
+      background: linear-gradient(135deg, rgba(0, 0, 0, 0.2) 0%, rgba(0, 0, 0, 0.65) 100%);
+      pointer-events: none;
+      z-index: 1;
+    }
+    .pc-popular-card.has-fitgirl:hover {
+      border-color: #10b981;
+      background: rgba(16, 185, 129, 0.15);
+      box-shadow: 0 4px 16px rgba(16, 185, 129, 0.4);
+    }
+    .pc-popular-card.has-fitgirl .pc-popular-thumb {
+      filter: brightness(0.62) saturate(0.85);
+      transition: filter 0.2s ease;
+    }
+    .pc-popular-card.has-fitgirl:hover .pc-popular-thumb {
+      filter: brightness(0.82) saturate(1);
+    }
+    .pc-popular-badge {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      background: linear-gradient(135deg, #10b981, #047857);
+      color: #ffffff;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 3px 6px;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.85), 0 0 10px rgba(16, 185, 129, 0.6);
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+      z-index: 3;
+      pointer-events: none;
+      animation: popInFitgirlBadge 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      letter-spacing: 0.2px;
+      line-height: 1;
+    }
+    @keyframes popInFitgirlBadge {
+      0% { transform: scale(0.5); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .pc-popular-card:active {
+      transform: scale(0.98);
+    }
+    .pc-popular-thumb {
+      width: 100%;
+      height: 48px;
+      object-fit: cover;
+      background: #090d16;
+      display: block;
+      cursor: pointer;
+      transition: filter 0.2s ease;
+    }
+    .pc-popular-title {
+      padding: 6px 7px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #e2e8f0;
+      line-height: 1.25;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-height: 32px;
+    }
+    .pc-rss-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+      gap: 18px;
+      margin-top: 14px;
+    }
+    .pc-rss-card {
+      background: rgba(13, 17, 28, 0.75);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      transition: all 0.25s ease;
+      position: relative;
+    }
+    .pc-rss-card:hover {
+      transform: translateY(-3px);
+      border-color: rgba(6, 182, 212, 0.5);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5), 0 0 15px rgba(6, 182, 212, 0.15);
+    }
+    .pc-rss-media-wrap {
+      position: relative;
+      width: 100%;
+      height: 165px;
+      background: #090d16;
+      overflow: hidden;
+    }
+    .pc-rss-video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .pc-rss-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transition: transform 0.3s ease;
+    }
+    .pc-rss-card:hover .pc-rss-img {
+      transform: scale(1.03);
+    }
+    .pc-rss-video-badge {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(6, 182, 212, 0.9);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 6px;
+      letter-spacing: 0.5px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    }
+    .pc-rss-magnet-badge {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(168, 85, 247, 0.9);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 6px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    }
+    .pc-rss-content {
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex: 1;
+    }
+    .pc-rss-meta-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .pc-rss-title {
+      font-weight: 700;
+      font-size: 14px;
+      color: #fff;
+      line-height: 1.35;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .pc-rss-desc {
+      font-size: 12px;
+      color: #94a3b8;
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      min-height: 48px;
+    }
+    .pc-rss-footer {
+      margin-top: auto;
+      padding-top: 10px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .pc-rss-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.82);
+      backdrop-filter: blur(8px);
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .pc-rss-modal-content {
+      background: #0f172a;
+      border: 1px solid rgba(6, 182, 212, 0.35);
+      border-radius: 14px;
+      max-width: 620px;
+      width: 100%;
+      max-height: 85vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.8), 0 0 25px rgba(6, 182, 212, 0.2);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .pc-rss-link-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      transition: background 0.2s;
+    }
+    .pc-rss-link-row:hover {
+      background: rgba(255, 255, 255, 0.07);
+    }
+    .pc-files-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(255, 255, 255, 0.025);
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 7px 10px;
+      transition: background 0.15s, opacity 0.15s;
+      cursor: pointer;
+      user-select: none;
+    }
+    .pc-files-row:hover {
+      background: rgba(255, 255, 255, 0.06);
+    }
+    .pc-files-row.deselected {
+      opacity: 0.45;
+    }
+    .pc-files-checkbox {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+      accent-color: var(--primary);
+    }
+    .pc-tag-optional {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: rgba(245, 158, 11, 0.18);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    .pc-tag-lang {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: rgba(168, 85, 247, 0.18);
+      color: #c084fc;
+      border: 1px solid rgba(168, 85, 247, 0.35);
+      font-weight: 700;
+    }
+    .pc-tag-english {
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: rgba(16, 185, 129, 0.18);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      font-weight: 700;
+    }
+
+    html { scroll-behavior: smooth; }
+    .folder-highlight {
+      border-color: rgba(6, 182, 212, 0.6) !important;
+      box-shadow: 0 0 18px rgba(6, 182, 212, 0.25) !important;
+    }
+    @keyframes folderWarnPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55); }
+      50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- ── Header ── -->
+    <div class="header">
+      <div class="brand">
+        <div class="logo-badge">⬇️</div>
+        <div>
+          <h1>Freeplay Downloader</h1>
+          <p>FitGirl repacks &amp; Steam releases &bull; 1 download at a time &bull; auto-extract</p>
+        </div>
+      </div>
+      <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <button class="btn btn-secondary btn-sm" id="btnDownloadsFolder" onclick="openDownloadsFolderModal()" title="Set the folder where downloads are saved">📁 Downloads Folder</button>
+      </div>
+    </div>
+
+    <!-- ── PC RSS & Torrent Hub Card ── -->
+    <div class="card pc-rss-section" id="pcRssSection">
+      <div class="pc-rss-header-row">
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <div class="card-title" style="margin: 0;">💻 FitGirl / Steam Downloader</div>
+          <span style="font-size: 11px; background: rgba(6, 182, 212, 0.15); color: #38bdf8; border: 1px solid rgba(6, 182, 212, 0.3); padding: 2px 8px; border-radius: 999px; font-weight: 700;">
+            1 at a time • Downloads Folder
+          </span>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <button class="btn btn-secondary btn-sm" onclick="openDownloadsFolder()">📂 Open Downloads Folder</button>
+          <button class="btn btn-secondary btn-sm" onclick="refreshPcRssFeed()">🔄 Refresh Feed</button>
+        </div>
+      </div>
+
+      <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 8px;">
+        Browse FitGirl repack releases and popular Steam games, scrape mirrors &amp; magnets, and manage your download queue. Everything is saved into your Downloads folder:
+      </div>
+
+      <!-- Popular Releases (Last Week) Grid -->
+      <div class="pc-popular-games-panel" style="margin-bottom: 18px;">
+        <div class="pc-popular-header">
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <span style="font-size: 12px; font-weight: 700; color: #38bdf8;">🔥 Popular Releases (Last Week)</span>
+            <span id="pcPopularGamesCount" style="font-size: 11px; padding: 1px 7px; border-radius: 8px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-weight: 700;"></span>
+            <span style="font-size: 11px; color: var(--text-muted);">(Click any game to search PC RSS &bull; <span style="color: #10b981; font-weight: 600;">✓ FitGirl</span> = download ready)</span>
+            <label style="display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: #cbd5e1; cursor: pointer; user-select: none; margin-left: auto;">
+              <input type="checkbox" id="chkPopularFitGirlOnly" checked onchange="applyPopularFitGirlFilter()" style="cursor: pointer; accent-color: #10b981;">
+              <span>Only show FitGirl-available</span>
+            </label>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="loadPopularGames(true)" style="padding: 2px 8px; font-size: 11px;">🔄 Refresh</button>
+        </div>
+        <div id="pcPopularGamesGrid" class="pc-popular-grid">
+          <div style="grid-column: 1 / -1; text-align: center; padding: 14px; color: var(--text-muted); font-size: 12px;">
+            ⏳ Loading popular releases...
+          </div>
+        </div>
+      </div>
+
+      <!-- FitGirl Repacks Live Game Search -->
+      <div style="background: rgba(6, 182, 212, 0.08); border: 1px solid rgba(6, 182, 212, 0.25); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px;">
+        <div style="font-size: 12px; font-weight: 700; color: #38bdf8; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+          <span style="display: flex; align-items: center; gap: 6px;">🔥 Search FitGirl Repacks:</span>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <label style="display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: #cbd5e1; cursor: pointer; user-select: none;" title="Exclude standalone game update/patch posts so only full game releases are shown">
+              <input type="checkbox" id="chkFilterFitgirlUpdates" checked onchange="toggleFilterFitgirlUpdates()" style="cursor: pointer; accent-color: #06b6d4;">
+              <span>FitGirl filter: Exclude 'Update' Posts</span>
+            </label>
+            <button class="btn btn-secondary btn-sm" onclick="clearFitgirlSearch()" style="padding: 2px 8px; font-size: 11px;">✕ Reset to Latest</button>
+          </div>
+        </div>
+        <div class="input-group" style="margin-bottom: 0;">
+          <input type="text" id="pcFitgirlSearchInput" placeholder="Search for any PC game on FitGirl (e.g. Elden Ring, Resident Evil, GTA, Cyberpunk, Zelda)..." onkeydown="if(event.key==='Enter') searchFitgirlGames()">
+          <button class="btn btn-primary" id="btnFitgirlSearch" onclick="searchFitgirlGames()" style="background: linear-gradient(135deg, #06b6d4, #8b5cf6);">🔍 Search FitGirl</button>
+        </div>
+      </div>
+
+      <!-- Feed URL Input & Search -->
+      <div class="input-group">
+        <input type="text" id="pcRssUrlInput" placeholder="Enter RSS/Atom feed URL (e.g. https://fitgirl-repacks.site/feed/)..." value="https://fitgirl-repacks.site/feed/" onkeydown="if(event.key==='Enter') loadPcRssFeed()">
+        <button class="btn btn-primary" id="btnLoadPcFeed" onclick="loadPcRssFeed()">📥 Fetch Feed</button>
+      </div>
+
+      <!-- Feed Preset Buttons -->
+      <div class="pc-rss-presets-bar">
+        <span style="font-size: 11px; color: var(--text-muted); align-self: center; margin-right: 4px;">Presets:</span>
+        <button class="pc-rss-preset-btn" onclick="selectPcFeedPreset('https://fitgirl-repacks.site/feed/')">🔥 FitGirl Repacks</button>
+      </div>
+
+      <!-- Feed Filter Input -->
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap;">
+        <input type="text" id="pcRssFilterInput" placeholder="Filter loaded feed items by title..." oninput="filterPcRssItemsLocally()" style="max-width: 320px;">
+        <span id="pcRssItemsCount" style="font-size: 12px; color: var(--text-muted);">0 releases</span>
+      </div>
+
+      <!-- Alert -->
+      <div id="pcRssAlert" class="alert"></div>
+
+      <!-- RSS Items Grid -->
+      <div id="pcRssGrid" class="pc-rss-grid">
+        <div style="grid-column: 1 / -1; text-align: center; padding: 40px 20px; color: var(--text-muted);">
+          Enter an RSS feed URL above or click a preset to explore games.
+        </div>
+      </div>
+
+      <!-- Paste any direct link / magnet manually (same handler as freeplayDL:// links) -->
+      <div style="background: rgba(16, 185, 129, 0.07); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px;">
+        <div style="font-size: 12px; font-weight: 700; color: #34d399; margin-bottom: 8px;">
+          🔗 Paste any magnet / direct download link (also what freeplayDL:// links hand to the app):
+        </div>
+        <div class="input-group" style="margin-bottom: 0;">
+          <input type="text" id="manualLinkInput" placeholder="magnet:?xt=urn:btih:... or https://fuckingfast.co/..." onkeydown="if(event.key==='Enter') queueManualLink()">
+          <button class="btn btn-primary" id="btnQueueManual" onclick="queueManualLink()" style="background: linear-gradient(135deg, #10b981, #059669);">📥 Add to Queue</button>
+        </div>
+      </div>
+
+      <!-- Real-Time Torrent & Direct Download Queue Panel -->
+      <div class="pc-rss-queue-panel" id="pcTorrentQueuePanel">
+        <div class="pc-rss-queue-header">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 14px; font-weight: 700; color: #fff;">📥 Download Queue</span>
+            <span id="pcTorrentQueueBadge" style="font-size: 11px; padding: 2px 7px; border-radius: 10px; background: rgba(6, 182, 212, 0.2); color: #38bdf8; font-weight: 700;">0</span>
+          </div>
+          <span style="font-size: 11px; color: var(--text-muted);">Saved to: <code id="queueFolderLabel">your Downloads folder</code> • 1 download at a time • auto-extracts when done</span>
+        </div>
+
+        <!-- Active Torrent / Direct Download Item -->
+        <div id="pcActiveTorrentBox" style="display: none;">
+          <div class="pc-rss-active-dl">
+            <div class="pc-rss-dl-title-row">
+              <div style="display: flex; align-items: center; gap: 8px; overflow: hidden;">
+                <span class="status-dot"></span>
+                <span style="font-weight: 700; font-size: 13px; color: #fff; text-overflow: ellipsis; white-space: nowrap; overflow: hidden;" id="pcActiveDlTitle">Downloading...</span>
+              </div>
+              <div style="display: flex; gap: 6px; flex-shrink: 0;">
+                <button class="btn btn-secondary btn-sm" id="pcActiveDlFilesBtn" onclick="openFileSelectionForActiveTorrent()" style="color: #c084fc; border-color: rgba(192,132,252,0.3); padding: 4px 8px; font-size: 11px;">📁 Files</button>
+                <button class="btn btn-secondary btn-sm" id="pcActiveDlPasteBtn" onclick="pasteDirectLinkForActive()" style="display: none; color: #34d399; border-color: rgba(52,211,153,0.3); padding: 4px 8px; font-size: 11px;" title="Paste resolved direct download link from browser">🔗 Paste Direct Link</button>
+                <button class="btn btn-secondary btn-sm" id="pcActiveDlOpenBtn" onclick="openActiveLinkInBrowser()" style="display: none; color: #38bdf8; border-color: rgba(56,189,248,0.3); padding: 4px 8px; font-size: 11px;" title="Open landing page in your browser to get the direct link">↗ Open in Browser</button>
+                <button class="btn btn-secondary btn-sm" onclick="cancelActiveTorrent()" style="color: #f87171; border-color: rgba(248,113,113,0.3); padding: 4px 8px; font-size: 11px;">✕ Stop &amp; Remove</button>
+              </div>
+            </div>
+            <div class="progress-bar-bg" style="margin-top: 4px;">
+              <div class="progress-bar-fill" id="pcActiveDlFill" style="width: 0%; background: linear-gradient(90deg, #06b6d4, #8b5cf6, #ec4899);"></div>
+            </div>
+            <div class="pc-rss-dl-stats-row">
+              <span id="pcActiveDlProgress">0%</span>
+              <span id="pcActiveDlSpeed">0 MB/s</span>
+              <span id="pcActiveDlPeers">0 peers</span>
+              <span id="pcActiveDlBytes">0 MB</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Waiting Queue Items -->
+        <div id="pcWaitingQueueBox" class="pc-rss-queue-list">
+          <div style="color: var(--text-muted); font-size: 12px; text-align: center; padding: 8px;" id="pcQueueEmptyMsg">
+            No active downloads. Scrape an RSS item or click a mirror below to start downloading.
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── PC RSS Links Scraper Modal ── -->
+  <div id="pcRssLinksModal" class="pc-rss-modal-backdrop" style="display: none;">
+    <div class="pc-rss-modal-content" style="max-width: 680px; width: 95%;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div style="font-size: 16px; font-weight: 700; color: #fff;" id="pcModalTitle">Webpage Download Link Scraper</div>
+        <button class="btn btn-secondary btn-sm" onclick="closePcRssModal()">✕ Close</button>
+      </div>
+      <div style="font-size: 13px; color: var(--text-muted);" id="pcModalSubtitle">
+        Deep scanning page for all download mirrors, direct hosters &amp; magnets:
+      </div>
+
+      <!-- Filter bar -->
+      <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--card-border);">
+        <select id="pcModalHosterFilter" onchange="filterPcModalLinks()" style="padding: 4px 8px; font-size: 12px; border-radius: 6px; background: rgba(0,0,0,0.4); border: 1px solid var(--card-border); color: #fff;">
+          <option value="FuckingFast">⚡ FuckingFast</option>
+          <option value="all">All Mirrors (0)</option>
+        </select>
+        <button class="btn btn-primary btn-sm" id="btnQueueAllFilteredLinks" onclick="queueAllFilteredModalLinks()" style="background: linear-gradient(135deg, #10b981, #059669); border: none; font-size: 11px; padding: 5px 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 5px;" title="Add all currently filtered links to download queue">
+          📥 Add All Links (<span id="pcModalFilteredCount">0</span>)
+        </button>
+        <input type="text" id="pcModalSearchInput" placeholder="Filter mirrors & links..." oninput="filterPcModalLinks()" style="margin-left: auto; max-width: 180px; padding: 4px 8px; font-size: 12px; border-radius: 6px; background: rgba(0,0,0,0.4); border: 1px solid var(--card-border); color: #fff;">
+      </div>
+
+      <div id="pcModalStatusBanner" style="font-size: 12px; padding: 8px 12px; border-radius: 8px; display: none;"></div>
+      <div id="pcModalLinksList" style="display: flex; flex-direction: column; gap: 8px; max-height: 380px; overflow-y: auto; padding-right: 4px;">
+        <div style="text-align: center; padding: 20px; color: var(--text-muted);">Loading available links...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── PC Torrent File Selection Modal ── -->
+  <div id="pcTorrentFilesModal" class="pc-rss-modal-backdrop" style="display: none;">
+    <div class="pc-rss-modal-content" style="max-width: 720px; width: 95%;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div style="font-size: 16px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px;">
+          <span id="pcFilesModalTitle">📁 Select Files to Download</span>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="closePcTorrentFilesModal()">✕ Close</button>
+      </div>
+      <div style="font-size: 13px; color: var(--text-muted);" id="pcFilesModalSubtitle">
+        Inspect files inside this torrent and deselect optional components or unneeded language packs:
+      </div>
+
+      <!-- Quick filter actions bar -->
+      <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--card-border);">
+        <button class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 4px 8px;" onclick="pcFilesToggleAll(true)">☑️ Select All</button>
+        <button class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 4px 8px;" onclick="pcFilesSelectCoreOnly()" title="Deselect optional language packs and bonus files">🎯 Core &amp; English Only</button>
+        <button class="btn btn-secondary btn-sm" style="font-size: 11px; padding: 4px 8px;" onclick="pcFilesToggleAll(false)">⬜ Deselect All</button>
+        <input type="text" id="pcFilesSearchInput" placeholder="Filter files..." oninput="filterPcFilesList()" style="margin-left: auto; max-width: 170px; padding: 4px 8px; font-size: 12px; border-radius: 6px; background: rgba(0,0,0,0.3); border: 1px solid var(--card-border); color: #fff;">
+      </div>
+
+      <!-- Status & Stats Banner -->
+      <div id="pcFilesStatsBanner" style="font-size: 12px; padding: 8px 12px; border-radius: 8px; background: rgba(139, 92, 246, 0.15); color: #c4b5fd; border: 1px solid rgba(139, 92, 246, 0.3);">
+        Loading torrent metadata & file list...
+      </div>
+
+      <!-- Scrollable Files List -->
+      <div id="pcFilesModalList" style="display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow-y: auto; padding-right: 4px;"></div>
+
+      <!-- Modal Footer Actions -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--card-border);">
+        <div id="pcFilesSelectedSummary" style="font-size: 12px; color: var(--text-muted);">0 files selected</div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-secondary btn-sm" onclick="closePcTorrentFilesModal()">Cancel</button>
+          <button class="btn btn-primary btn-sm" id="btnConfirmFileSelection" onclick="confirmPcFilesSelection()">⬇️ Download Selected Files</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Downloads Folder Modal ── -->
+  <div id="downloadsFolderModal" class="pc-rss-modal-backdrop" style="display: none;">
+    <div class="pc-rss-modal-content" style="max-width: 620px; width: 95%;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div style="font-size: 16px; font-weight: 700; color: #fff;">📥 Downloads Folder</div>
+        <button class="btn btn-secondary btn-sm" onclick="closeDownloadsFolderModal()">✕ Close</button>
+      </div>
+      <div style="font-size: 13px; color: var(--text-muted);">
+        Choose where all downloads are saved. Torrents and direct downloads land in a sub-folder per game, and archives are extracted automatically.
+      </div>
+      <div class="input-group" style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <input type="text" id="downloadsFolderInput" placeholder="C:\Users\you\Downloads\Games" onkeydown="if(event.key==='Enter') saveDownloadsFolderFromInput()" style="flex:1; min-width: 200px;">
+        <button class="btn btn-primary btn-sm" id="btnPickFolder" onclick="chooseDownloadsFolder()">📂 Choose Folder</button>
+      </div>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <button class="btn btn-secondary btn-sm" onclick="saveDownloadsFolderFromInput()">💾 Save Path</button>
+        <button class="btn btn-secondary btn-sm" onclick="openDownloadsFolder()">↗ Open Folder</button>
+        <button class="btn btn-secondary btn-sm" onclick="closeDownloadsFolderModal()">✕ Close</button>
+      </div>
+      <div id="folderAlert" class="alert"></div>
+      <div id="folderInfoBox" style="display:none; font-size: 12px; color: var(--text-muted);">
+        Current folder: <span class="code-box" id="currentFolderLabel" style="display:inline-block; padding: 3px 10px;"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script>
+    // ══════════════════════════════════════════════════════════════════════
+    // Shared helpers
+    // ══════════════════════════════════════════════════════════════════════
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      if (!container) return;
+      const toast = document.createElement('div');
+      toast.className = 'toast toast-' + type;
+      const icon = type === 'success' ? '✅' : (type === 'error' ? '❌' : 'ℹ️');
+      toast.innerHTML = '<span>' + icon + '</span><span>' + message + '</span>';
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.transition = 'opacity 0.3s, transform 0.3s';
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(30px)';
+        setTimeout(() => toast.remove(), 300);
+      }, 4000);
+    }
+
+    function showFolderAlert(message, type) {
+      const el = document.getElementById('folderAlert');
+      if (!el) return;
+      el.className = 'alert alert-' + (type || 'success');
+      el.style.display = 'block';
+      el.textContent = message;
+      setTimeout(() => { el.style.display = 'none'; }, 5000);
+    }
+
+    function formatSpeed(bytesPerSec) {
+      if (!bytesPerSec || bytesPerSec <= 0) return '0 B/s';
+      var mb = bytesPerSec / (1024 * 1024);
+      if (mb >= 1) return mb.toFixed(1) + ' MB/s';
+      return (bytesPerSec / 1024).toFixed(0) + ' KB/s';
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes || isNaN(bytes)) return '0 MB';
+      var gb = bytes / (1024 * 1024 * 1024);
+      if (gb >= 1) return gb.toFixed(2) + ' GB';
+      var mb = bytes / (1024 * 1024);
+      if (mb >= 1) return mb.toFixed(1) + ' MB';
+      return (bytes / 1024).toFixed(0) + ' KB';
+    }
+
+    function formatDateStr(dateStr) {
+      if (!dateStr) return '';
+      try {
+        var d = new Date(dateStr);
+        if (isNaN(d.getTime())) return dateStr;
+        return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      } catch (_) {
+        return '';
+      }
+    }
+
+    function handlePcRssImgError(img) {
+      if (!img) return;
+      var proxy = img.dataset.proxy;
+      if (proxy && !img.dataset.proxied) {
+        img.dataset.proxied = '1';
+        img.src = proxy;
+      } else {
+        img.onerror = null;
+        img.style.display = 'none';
+        if (img.parentElement) {
+          img.parentElement.innerHTML = '<span style="font-size:42px;display:flex;align-items:center;justify-content:center;height:100%;">💻</span>';
+        }
+      }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // Downloads folder management
+    // ══════════════════════════════════════════════════════════════════════
+    var downloadsConfigured = false;
+
+    function openDownloadsFolderModal() {
+      var modal = document.getElementById('downloadsFolderModal');
+      if (modal) modal.style.display = 'flex';
+      loadDownloadsFolder();
+    }
+
+    function closeDownloadsFolderModal() {
+      var modal = document.getElementById('downloadsFolderModal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    async function loadDownloadsFolder() {
+      try {
+        var res = await fetch('/api/downloads-folder');
+        var data = await res.json();
+        if (data && data.success) {
+          downloadsConfigured = !!data.configured;
+          var input = document.getElementById('downloadsFolderInput');
+          if (input && data.folder) input.value = data.folder;
+          var label = document.getElementById('currentFolderLabel');
+          var infoBox = document.getElementById('folderInfoBox');
+          if (label) label.textContent = data.folder || '';
+          if (infoBox) infoBox.style.display = data.folder ? 'block' : 'none';
+          var qLabel = document.getElementById('queueFolderLabel');
+          if (qLabel) qLabel.textContent = data.folder || 'your Downloads folder';
+          var btn = document.getElementById('btnDownloadsFolder');
+          if (btn) {
+            if (!downloadsConfigured) {
+              btn.textContent = '⚠️ Set Downloads Folder';
+              btn.style.background = 'rgba(239, 68, 68, 0.2)';
+              btn.style.border = '1px solid rgba(239, 68, 68, 0.55)';
+              btn.style.color = '#fca5a5';
+              btn.style.animation = 'folderWarnPulse 1.6s ease-in-out infinite';
+              btn.title = 'No downloads folder set - click to choose one';
+            } else {
+              var base = (data.folder || '').split(/[\\/]/).filter(Boolean).pop() || data.folder;
+              btn.textContent = '📁 ' + base;
+              btn.style.background = '';
+              btn.style.border = '';
+              btn.style.color = '';
+              btn.style.animation = '';
+              btn.title = data.folder || '';
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[Folder] Load failed:', err.message);
+      }
+    }
+
+    async function chooseDownloadsFolder() {
+      try {
+        var pickRes = await fetch('/api/downloads-folder/pick', { method: 'POST' });
+        var pickData = await pickRes.json();
+        if (!pickData || !pickData.success) {
+          showFolderAlert('Native folder picker is unavailable - type the folder path and click Save Path.', 'error');
+          var input = document.getElementById('downloadsFolderInput');
+          if (input) input.focus();
+          return;
+        }
+        if (pickData.canceled || !pickData.folder) return;
+        await applyDownloadsFolder(pickData.folder);
+      } catch (err) {
+        showFolderAlert('Could not open folder picker: ' + err.message, 'error');
+      }
+    }
+
+    async function saveDownloadsFolderFromInput() {
+      var input = document.getElementById('downloadsFolderInput');
+      var folder = input ? input.value.trim() : '';
+      if (!folder) {
+        showFolderAlert('Enter a folder path first', 'error');
+        return;
+      }
+      await applyDownloadsFolder(folder);
+    }
+
+    async function applyDownloadsFolder(folder) {
+      try {
+        var res = await fetch('/api/downloads-folder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folder: folder })
+        });
+        var data = await res.json();
+        if (data && data.success) {
+          downloadsConfigured = true;
+          showFolderAlert('Downloads will be saved to: ' + data.folder, 'success');
+          showToast('Downloads folder set to ' + data.folder, 'success');
+          loadDownloadsFolder();
+          refreshPcTorrentQueueUI();
+        } else {
+          showFolderAlert((data && data.error) || 'Failed to set folder', 'error');
+        }
+      } catch (err) {
+        showFolderAlert('Error: ' + err.message, 'error');
+      }
+    }
+
+    function openDownloadsFolder() {
+      fetch('/api/pc-rss/open-folder', { method: 'POST' })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (data && data.success) {
+            showToast('Opened downloads folder in Explorer', 'info');
+          } else {
+            showToast('Downloads folder: ' + (data && data.folder ? data.folder : 'not set'), 'info');
+          }
+        })
+        .catch(function(err) { showToast('Could not open folder: ' + err.message, 'error'); });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // Deep link handling (freeplayDL:// links handed over by the Electron
+    // main process, or manual pastes via queueManualLink)
+    // ══════════════════════════════════════════════════════════════════════
+    window.onDeepLink = function(payload) {
+      if (!payload) return;
+      if (payload.type === 'queued') {
+        showToast(payload.message || 'Deep link added to download queue', 'success');
+      } else if (payload.type === 'error') {
+        showToast(payload.message || 'Deep link could not be processed', 'error');
+      } else if (payload.type === 'cold-start') {
+        // The main process also forwards cold-start links to the server itself.
+        showToast('Opening link: ' + payload.url, 'info');
+      } else if (payload.type === 'scrape') {
+        showToast(payload.message || 'Scanning page for download links...', 'info');
+        openPcScrapeModal(payload.url || '', payload.title || 'Deep Link', []);
+        return;
+      }
+      refreshPcTorrentQueueUI();
+      var panel = document.getElementById('pcTorrentQueuePanel');
+      if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+
+    async function queueManualLink() {
+      var input = document.getElementById('manualLinkInput');
+      var raw = input ? input.value.trim() : '';
+      if (!raw) {
+        showToast('Paste a magnet or direct download link first', 'info');
+        return;
+      }
+      var btn = document.getElementById('btnQueueManual');
+      if (btn) { btn.disabled = true; btn.textContent = '⏳ Adding...'; }
+      try {
+        var res = await fetch('/api/deep-link/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: raw })
+        });
+        var data = await res.json();
+        if (data && data.success && data.type === 'page-scrape') {
+          showToast(data.message || 'Scanning page for download links...', 'info');
+          if (input) input.value = '';
+          openPcScrapeModal(data.pageUrl || raw, data.title || 'Deep Link', []);
+        } else if (data && data.success) {
+          showToast(data.message || 'Added to download queue', 'success');
+          if (input) input.value = '';
+          refreshPcTorrentQueueUI();
+        } else {
+          throw new Error((data && data.error) || 'Failed to add link');
+        }
+      } catch (err) {
+        showToast('Error: ' + err.message, 'error');
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '📥 Add to Queue'; }
+      }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // PC RSS & Torrent Hub Controller
+    // ══════════════════════════════════════════════════════════════════════
+    var pcRssFeedItems = [];
+    var pcActiveTorrentItem = null;
+
+    function selectPcFeedPreset(presetUrl) {
+      var input = document.getElementById('pcRssUrlInput');
+      if (input) input.value = presetUrl;
+      loadPcRssFeed(presetUrl);
+    }
+
+    function searchFitgirlGames() {
+      var searchInput = document.getElementById('pcFitgirlSearchInput');
+      var q = searchInput ? searchInput.value.trim() : '';
+      if (!q) {
+        showToast('Please enter a game name to search on FitGirl', 'info');
+        return;
+      }
+      var searchUrl = 'https://fitgirl-repacks.site/feed/?s=' + encodeURIComponent(q);
+      var urlInput = document.getElementById('pcRssUrlInput');
+      if (urlInput) urlInput.value = searchUrl;
+      showToast('Searching FitGirl for "' + q + '"...', 'info');
+      loadPcRssFeed(searchUrl);
+
+      var targetEl = document.getElementById('pcRssFilterInput') || document.getElementById('pcRssGrid');
+      if (targetEl) {
+        targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+
+    function clearFitgirlSearch() {
+      var searchInput = document.getElementById('pcFitgirlSearchInput');
+      if (searchInput) searchInput.value = '';
+      selectPcFeedPreset('https://fitgirl-repacks.site/feed/');
+    }
+
+    function selectPopularGame(title) {
+      if (!title) return;
+      var searchInput = document.getElementById('pcFitgirlSearchInput');
+      if (searchInput) {
+        searchInput.value = title;
+      }
+      searchFitgirlGames();
+
+      var targetEl = document.getElementById('pcRssFilterInput') || document.getElementById('pcRssGrid');
+      if (targetEl) {
+        targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+
+    function findPopularCard(title) {
+      var grid = document.getElementById('pcPopularGamesGrid');
+      if (!grid || !title) return null;
+      var cards = grid.querySelectorAll('.pc-popular-card');
+      for (var i = 0; i < cards.length; i++) {
+        if (cards[i].dataset.title === title) return cards[i];
+      }
+      return null;
+    }
+
+    function markCardFitgirlAvailable(card, title, info) {
+      if (!card || card.classList.contains('has-fitgirl')) return;
+      card.classList.add('has-fitgirl');
+      card.dataset.fitgirl = 'yes';
+      var matchText = (info && info.title) ? info.title : (title || '');
+      card.title = (title || '') + ' - FitGirl Available: ' + matchText + ' (Click to search & download)';
+
+      if (!card.querySelector('.pc-popular-badge')) {
+        var badge = document.createElement('div');
+        badge.className = 'pc-popular-badge';
+        badge.title = 'FitGirl Repack available! Click to view mirrors & download.';
+        badge.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><polyline points="20 6 9 17 4 12"></polyline></svg><span>FitGirl</span>';
+        card.appendChild(badge);
+      }
+    }
+
+    function applyPopularFitGirlFilter() {
+      var chk = document.getElementById('chkPopularFitGirlOnly');
+      var onlyFitGirl = chk ? chk.checked : true;
+      var grid = document.getElementById('pcPopularGamesGrid');
+      if (!grid) return;
+      var cards = grid.querySelectorAll('.pc-popular-card');
+      cards.forEach(function(card) {
+        if (!onlyFitGirl) {
+          card.style.display = '';
+          return;
+        }
+        var state = card.dataset.fitgirl || '';
+        // Hide only once we definitively know it is NOT on FitGirl
+        card.style.display = (state === 'no') ? 'none' : '';
+      });
+    }
+
+    function updatePopularFitgirlCount() {
+      var countBadge = document.getElementById('pcPopularGamesCount');
+      var grid = document.getElementById('pcPopularGamesGrid');
+      if (!countBadge || !grid) return;
+      var total = grid.querySelectorAll('.pc-popular-card').length;
+      var available = grid.querySelectorAll('.pc-popular-card.has-fitgirl').length;
+      if (total === 0) return;
+      if (available > 0) {
+        countBadge.innerHTML = total + ' releases &bull; <span style="color:#10b981;font-weight:700;">' + available + ' on FitGirl</span>';
+      } else {
+        countBadge.textContent = total + ' releases';
+      }
+    }
+
+    function checkPopularFitgirlAvailability(items) {
+      if (!Array.isArray(items) || items.length === 0) return;
+      var titlesToCheck = [];
+
+      items.forEach(function(item) {
+        if (!item || !item.title) return;
+        var title = item.title;
+        var card = findPopularCard(title);
+
+        // 1. Check if backend already gave cached hit
+        if (item.fitgirlAvailable) {
+          try {
+            sessionStorage.setItem('fg_avail_' + title, JSON.stringify({ available: true, title: item.fitgirlMatchTitle, link: item.fitgirlLink }));
+          } catch (_) {}
+          if (card) markCardFitgirlAvailable(card, title, item);
+          return;
+        }
+
+        // 2. Check if client sessionStorage already has result
+        try {
+          var localCached = sessionStorage.getItem('fg_avail_' + title);
+          if (localCached) {
+            var parsed = JSON.parse(localCached);
+            if (parsed && parsed.available && card) {
+              markCardFitgirlAvailable(card, title, parsed);
+            } else if (parsed && !parsed.available && card) {
+              card.dataset.fitgirl = 'no';
+            }
+            return;
+          }
+        } catch (_) {}
+
+        titlesToCheck.push(title);
+      });
+
+      updatePopularFitgirlCount();
+      applyPopularFitGirlFilter();
+
+      if (titlesToCheck.length === 0) return;
+
+      // Check remaining titles in progressive batches of 6
+      var chunkSize = 6;
+      var index = 0;
+
+      async function runNextBatch() {
+        if (index >= titlesToCheck.length) return;
+        var chunk = titlesToCheck.slice(index, index + chunkSize);
+        index += chunkSize;
+
+        try {
+          var resp = await fetch('/api/pc-rss/check-fitgirl-batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ titles: chunk })
+          });
+          if (resp.ok) {
+            var data = await resp.json();
+            if (data && data.results) {
+              Object.keys(data.results).forEach(function(title) {
+                var res = data.results[title];
+                try {
+                  sessionStorage.setItem('fg_avail_' + title, JSON.stringify(res));
+                } catch (_) {}
+                if (res && res.available) {
+                  var c = findPopularCard(title);
+                  if (c) markCardFitgirlAvailable(c, title, res);
+                } else if (res && !res.available) {
+                  var nc = findPopularCard(title);
+                  if (nc) nc.dataset.fitgirl = 'no';
+                }
+              });
+              updatePopularFitgirlCount();
+              applyPopularFitGirlFilter();
+            }
+          }
+        } catch (err) {
+          console.warn('[FitGirl Check] Batch check error:', err);
+        }
+
+        setTimeout(runNextBatch, 300);
+      }
+
+      runNextBatch();
+    }
+
+    async function loadPopularGames(forceRefresh) {
+      var grid = document.getElementById('pcPopularGamesGrid');
+      var countBadge = document.getElementById('pcPopularGamesCount');
+      if (!grid) return;
+      if (forceRefresh) {
+        try {
+          Object.keys(sessionStorage).forEach(function(k) {
+            if (k.startsWith('fg_avail_')) sessionStorage.removeItem(k);
+          });
+        } catch (_) {}
+        grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 14px; color: var(--text-muted); font-size: 12px;">⏳ Refreshing popular releases...</div>';
+      }
+      try {
+        var res = await fetch('/api/pc-rss/popular-games' + (forceRefresh ? '?refresh=true' : ''));
+        var data = await res.json();
+        if (!data || !data.success || !Array.isArray(data.items) || data.items.length === 0) {
+          if (countBadge) countBadge.textContent = '';
+          grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 12px; color: var(--text-muted); font-size: 12px;">No releases found</div>';
+          return;
+        }
+        if (countBadge) {
+          countBadge.textContent = data.items.length + ' releases';
+        }
+        grid.innerHTML = '';
+        data.items.forEach(function(item) {
+          var card = document.createElement('div');
+          card.className = 'pc-popular-card';
+          card.dataset.title = item.title || '';
+          card.title = item.title || '';
+
+          var thumbUrl = item.thumbnail || (item.appId ? 'https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/' + item.appId + '/header.jpg' : '');
+          if (thumbUrl) {
+            var img = document.createElement('img');
+            img.className = 'pc-popular-thumb';
+            img.referrerPolicy = 'no-referrer';
+            img.src = thumbUrl;
+            img.alt = item.title || '';
+            img.loading = 'lazy';
+            img.onerror = function() {
+              if (item.appId && !this.dataset.triedHeader) {
+                this.dataset.triedHeader = 'true';
+                this.src = 'https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/' + item.appId + '/header.jpg';
+              } else if (item.appId && !this.dataset.triedCf) {
+                this.dataset.triedCf = 'true';
+                this.src = 'https://cdn.cloudflare.steamstatic.com/steam/apps/' + item.appId + '/header.jpg';
+              } else if (!this.dataset.triedProxy) {
+                this.dataset.triedProxy = 'true';
+                this.src = '/api/proxy-image?url=' + encodeURIComponent(this.src);
+              } else {
+                this.style.opacity = '0.3';
+              }
+            };
+            img.onclick = function(e) {
+              e.stopPropagation();
+              selectPopularGame(item.title);
+            };
+            card.appendChild(img);
+          } else {
+            var noArt = document.createElement('div');
+            noArt.className = 'pc-popular-thumb';
+            noArt.style.cssText = 'display:flex;align-items:center;justify-content:center;color:#64748b;font-size:10px;';
+            noArt.textContent = 'No Art';
+            card.appendChild(noArt);
+          }
+
+          var titleEl = document.createElement('div');
+          titleEl.className = 'pc-popular-title';
+          titleEl.textContent = item.title || 'Untitled Game';
+          card.appendChild(titleEl);
+
+          card.onclick = function() {
+            selectPopularGame(item.title);
+          };
+
+          grid.appendChild(card);
+        });
+
+        checkPopularFitgirlAvailability(data.items);
+      } catch (err) {
+        console.error('Failed to load popular releases:', err);
+        if (countBadge) countBadge.textContent = '';
+        grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 12px; color: #f87171; font-size: 12px;">Failed to load releases</div>';
+      }
+    }
+
+    function refreshPcRssFeed() {
+      var input = document.getElementById('pcRssUrlInput');
+      var url = input ? input.value.trim() : '';
+      loadPcRssFeed(url);
+    }
+
+    async function loadPcRssFeed(customUrl) {
+      var input = document.getElementById('pcRssUrlInput');
+      var feedUrl = (customUrl || (input ? input.value : '') || '').trim();
+      var grid = document.getElementById('pcRssGrid');
+      var btn = document.getElementById('btnLoadPcFeed');
+
+      if (!feedUrl) {
+        showToast('Please enter an RSS feed URL', 'error');
+        return;
+      }
+
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ Loading...';
+      }
+
+      grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 50px 20px; color: var(--text-muted);">' +
+                       '<div style="font-size: 28px; margin-bottom: 8px;">⏳</div>Fetching and parsing RSS feed releases...</div>';
+
+      try {
+        var res = await fetch('/api/pc-rss/feed?url=' + encodeURIComponent(feedUrl));
+        var data = await res.json();
+
+        if (!data || !data.success || !data.feed) {
+          throw new Error((data && data.error) ? data.error : 'Failed to fetch RSS feed');
+        }
+
+        pcRssFeedItems = data.feed.items || [];
+        applyPcRssFiltersAndRender();
+      } catch (err) {
+        grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 40px 20px; color: #f87171;">' +
+                         '<div style="font-size: 28px; margin-bottom: 8px;">⚠️</div>Failed to load feed: ' + err.message + '</div>';
+        showToast('Error loading RSS feed: ' + err.message, 'error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '📥 Fetch Feed';
+        }
+      }
+    }
+
+    function isFitgirlUpdateTitleClient(title) {
+      if (!title) return false;
+      var lower = title.toLowerCase().trim();
+      if (lower.indexOf('update') === -1) return false;
+      if (lower.startsWith('update:') || lower.startsWith('updates:') || lower.startsWith('update -') || lower.startsWith('update –')) return true;
+      if (lower.indexOf('update to v') !== -1 || lower.indexOf('update to version') !== -1) return true;
+      if (lower.indexOf('update only') !== -1 || lower.indexOf('patch / update') !== -1 || lower.indexOf('update / patch') !== -1 || lower.indexOf('updates pack') !== -1) return true;
+      if (lower.indexOf('– update') !== -1 || lower.indexOf('- update') !== -1 || lower.indexOf(': update') !== -1) return true;
+      if (lower.indexOf('(update') !== -1 || lower.indexOf('[update') !== -1) return true;
+      return false;
+    }
+
+    function getFilteredPcRssItems() {
+      var chk = document.getElementById('chkFilterFitgirlUpdates');
+      var excludeUpdates = chk ? chk.checked : true;
+      var items = pcRssFeedItems || [];
+      if (excludeUpdates) {
+        items = items.filter(function(item) {
+          return !item.isUpdate && !isFitgirlUpdateTitleClient(item.title);
+        });
+      }
+      return items;
+    }
+
+    function showFilteredFitgirlUpdates() {
+      var c = document.getElementById('chkFilterFitgirlUpdates');
+      if (c) {
+        c.checked = false;
+        applyPcRssFiltersAndRender();
+      }
+    }
+
+    function toggleFilterFitgirlUpdates() {
+      applyPcRssFiltersAndRender();
+    }
+
+    function filterPcRssItemsLocally() {
+      applyPcRssFiltersAndRender();
+    }
+
+    function applyPcRssFiltersAndRender() {
+      var baseItems = getFilteredPcRssItems();
+      var filterInput = document.getElementById('pcRssFilterInput');
+      var query = (filterInput && filterInput.value ? filterInput.value : '').toLowerCase().trim();
+      var finalItems = baseItems;
+      if (query) {
+        finalItems = baseItems.filter(function(item) {
+          return (item.title && item.title.toLowerCase().indexOf(query) !== -1) ||
+                 (item.excerpt && item.excerpt.toLowerCase().indexOf(query) !== -1);
+        });
+      }
+
+      var countEl = document.getElementById('pcRssItemsCount');
+      if (countEl) {
+        var totalAll = (pcRssFeedItems || []).length;
+        var filteredOutUpdates = totalAll - baseItems.length;
+        if (filteredOutUpdates > 0) {
+          countEl.innerHTML = finalItems.length + ' releases <span style="color:#06b6d4;font-size:11px;font-weight:600;">(' + filteredOutUpdates + ' update' + (filteredOutUpdates > 1 ? 's' : '') + ' filtered)</span>';
+        } else {
+          countEl.textContent = finalItems.length + ' releases';
+        }
+      }
+
+      renderPcRssGrid(finalItems);
+    }
+
+    function renderPcRssGrid(items) {
+      var grid = document.getElementById('pcRssGrid');
+      if (!items || items.length === 0) {
+        var allItems = pcRssFeedItems || [];
+        var hasHiddenUpdates = allItems.some(function(it) { return it.isUpdate || isFitgirlUpdateTitleClient(it.title); });
+        var msg = 'No matching releases found.';
+        if (hasHiddenUpdates) {
+          msg = 'No full game releases found (' + allItems.length + ' update posts filtered).<br><br>' +
+                '<button class="btn btn-secondary btn-sm" onclick="showFilteredFitgirlUpdates()">Show Filtered Updates</button>';
+        }
+        grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 40px 20px; color: var(--text-muted);">' + msg + '</div>';
+        return;
+      }
+
+      grid.innerHTML = '';
+      items.forEach(function(item) {
+        var card = document.createElement('div');
+        card.className = 'pc-rss-card';
+
+        // 1. Media Preview: WebM Video or Image Poster
+        var mediaHtml = '';
+        if (item.isVideoThumbnail || (item.thumbnail && item.thumbnail.toLowerCase().indexOf('.webm') !== -1)) {
+          mediaHtml = '<div class="pc-rss-media-wrap">' +
+                      '  <video src="' + item.thumbnail + '" class="pc-rss-video" autoplay loop muted playsinline></video>' +
+                      '  <span class="pc-rss-video-badge">▶ WebM Video</span>' +
+                      (item.pubDate ? '<span class="pc-rss-magnet-badge" style="background:rgba(0,0,0,0.65);">' + formatDateStr(item.pubDate) + '</span>' : '') +
+                      '</div>';
+        } else if (item.thumbnail) {
+          var safeThumb = String(item.thumbnail).replace(/"/g, '&quot;');
+          var proxySrc = '/api/proxy-image?url=' + encodeURIComponent(item.thumbnail);
+          var safeProxy = proxySrc.replace(/"/g, '&quot;');
+          mediaHtml = '<div class="pc-rss-media-wrap">' +
+                      '  <img src="' + safeThumb + '" alt="" class="pc-rss-img" loading="lazy" referrerpolicy="no-referrer" data-proxy="' + safeProxy + '" onerror="handlePcRssImgError(this)" />' +
+                      (item.pubDate ? '<span class="pc-rss-magnet-badge" style="background:rgba(0,0,0,0.65);">' + formatDateStr(item.pubDate) + '</span>' : '') +
+                      '</div>';
+        } else {
+          mediaHtml = '<div class="pc-rss-media-wrap" style="display:flex;align-items:center;justify-content:center;background:radial-gradient(circle,#1e293b,#0f172a);">' +
+                      '  <span style="font-size:42px;">💻</span>' +
+                      (item.pubDate ? '<span class="pc-rss-magnet-badge" style="background:rgba(0,0,0,0.65);">' + formatDateStr(item.pubDate) + '</span>' : '') +
+                      '</div>';
+        }
+
+        var content = document.createElement('div');
+        content.className = 'pc-rss-content';
+
+        var metaRow = document.createElement('div');
+        metaRow.className = 'pc-rss-meta-row';
+        var feedSpan = document.createElement('span');
+        feedSpan.textContent = item.feedTitle || 'PC Release';
+        var authorSpan = document.createElement('span');
+        authorSpan.textContent = item.author ? ('by ' + item.author) : '';
+        metaRow.appendChild(feedSpan);
+        metaRow.appendChild(authorSpan);
+        content.appendChild(metaRow);
+
+        var titleEl = document.createElement('div');
+        titleEl.className = 'pc-rss-title';
+        titleEl.textContent = item.title || 'Untitled Game';
+        titleEl.title = item.title || '';
+        content.appendChild(titleEl);
+
+        var descEl = document.createElement('div');
+        descEl.className = 'pc-rss-desc';
+        descEl.textContent = item.excerpt || 'No description available for this release.';
+        content.appendChild(descEl);
+
+        var footer = document.createElement('div');
+        footer.className = 'pc-rss-footer';
+
+        if (item.magnetUrl) {
+          var magBtn = document.createElement('button');
+          magBtn.className = 'btn btn-primary btn-sm';
+          magBtn.style.background = 'linear-gradient(135deg,#06b6d4,#8b5cf6)';
+          magBtn.textContent = 'Torrent';
+          magBtn.title = 'Download Magnet directly via Torrent Queue';
+          magBtn.onclick = function() {
+            queueTorrentDownload(item.magnetUrl, item.title);
+          };
+          footer.appendChild(magBtn);
+
+          var selFilesBtn = document.createElement('button');
+          selFilesBtn.className = 'btn btn-secondary btn-sm';
+          selFilesBtn.style.color = '#c084fc';
+          selFilesBtn.style.borderColor = 'rgba(192, 132, 252, 0.4)';
+          selFilesBtn.textContent = 'Files';
+          selFilesBtn.title = 'Select files inside this torrent before downloading';
+          selFilesBtn.onclick = function() {
+            openFileSelectionForNewTorrent(item.magnetUrl, item.title);
+          };
+          footer.appendChild(selFilesBtn);
+        }
+
+        var scrapeBtn = document.createElement('button');
+        scrapeBtn.className = 'btn btn-secondary btn-sm';
+        scrapeBtn.style.borderColor = 'rgba(6, 182, 212, 0.4)';
+        scrapeBtn.textContent = 'Links';
+        scrapeBtn.title = 'Deep scan original webpage for all mirrors & download links';
+        scrapeBtn.onclick = function() {
+          openPcScrapeModal(item.link, item.title, item.downloads);
+        };
+        footer.appendChild(scrapeBtn);
+
+        if (item.link) {
+          var extLink = document.createElement('a');
+          extLink.className = 'btn btn-secondary btn-sm';
+          extLink.style.marginLeft = 'auto';
+          extLink.style.padding = '6px 9px';
+          extLink.title = 'Open article in browser';
+          extLink.href = item.link;
+          extLink.target = '_blank';
+          extLink.rel = 'noopener noreferrer';
+          extLink.textContent = '↗';
+          footer.appendChild(extLink);
+        }
+
+        content.appendChild(footer);
+
+        card.innerHTML = mediaHtml;
+        card.appendChild(content);
+        grid.appendChild(card);
+      });
+    }
+
+    // ── Links Scraper Modal ──────────────────────────────────────────────
+    var pcScrapedModalLinks = [];
+    var pcModalGameTitle = '';
+    var currentFilteredModalLinks = [];
+
+    function filterPcModalLinks() {
+      var hosterSel = document.getElementById('pcModalHosterFilter');
+      var searchInput = document.getElementById('pcModalSearchInput');
+      var listEl = document.getElementById('pcModalLinksList');
+      var addAllBtn = document.getElementById('btnQueueAllFilteredLinks');
+      var countSpan = document.getElementById('pcModalFilteredCount');
+      if (!listEl) return;
+
+      var selectedHoster = hosterSel ? hosterSel.value : 'all';
+      var query = searchInput ? (searchInput.value || '').trim().toLowerCase() : '';
+
+      var filtered = pcScrapedModalLinks.filter(function(l) {
+        if (selectedHoster !== 'all') {
+          var isMag = l.isMagnet || (l.url && l.url.indexOf('magnet:') === 0);
+          if (selectedHoster === 'magnet' && !isMag) return false;
+          if (selectedHoster !== 'magnet' && l.hoster !== selectedHoster) return false;
+        }
+        if (query) {
+          var nameMatch = (l.filename && l.filename.toLowerCase().indexOf(query) !== -1);
+          var hosterMatch = (l.hoster && l.hoster.toLowerCase().indexOf(query) !== -1);
+          var extMatch = (l.extension && l.extension.toLowerCase().indexOf(query) !== -1);
+          var urlMatch = (l.url && l.url.toLowerCase().indexOf(query) !== -1);
+          if (!nameMatch && !hosterMatch && !extMatch && !urlMatch) return false;
+        }
+        return true;
+      });
+
+      currentFilteredModalLinks = filtered;
+
+      if (countSpan) {
+        countSpan.textContent = filtered.length;
+      }
+      if (addAllBtn) {
+        addAllBtn.disabled = filtered.length === 0;
+        addAllBtn.style.opacity = filtered.length === 0 ? '0.5' : '1';
+        addAllBtn.innerHTML = '📥 Add All Links (' + filtered.length + ')';
+      }
+
+      renderPcModalLinksRows(filtered);
+    }
+
+    async function queueAllFilteredModalLinks() {
+      if (!currentFilteredModalLinks || currentFilteredModalLinks.length === 0) {
+        showToast('No links matching current filter to add', 'info');
+        return;
+      }
+
+      var addAllBtn = document.getElementById('btnQueueAllFilteredLinks');
+      if (addAllBtn) {
+        addAllBtn.disabled = true;
+        addAllBtn.innerHTML = '⏳ Adding ' + currentFilteredModalLinks.length + ' links...';
+      }
+
+      var batchPayload = currentFilteredModalLinks.map(function(l) {
+        var isMag = l.isMagnet || (l.url && l.url.indexOf('magnet:') === 0);
+        var isTorr = !isMag && l.extension === 'TORRENT';
+        return {
+          url: l.url,
+          title: pcModalGameTitle || l.filename || 'PC Game',
+          filename: l.filename || pcModalGameTitle,
+          isDirect: !isMag && !isTorr,
+          hoster: l.hoster
+        };
+      });
+
+      try {
+        var res = await fetch('/api/pc-rss/torrent/add-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: batchPayload })
+        });
+        var data = await res.json();
+        if (data && data.success) {
+          showToast('Added ' + (data.count || batchPayload.length) + ' links for "' + pcModalGameTitle + '" to Download Queue!', 'success');
+          if (addAllBtn) {
+            addAllBtn.innerHTML = '✓ All Added (' + (data.count || batchPayload.length) + ')';
+            addAllBtn.style.background = 'rgba(16, 185, 129, 0.2)';
+            addAllBtn.style.color = '#34d399';
+            addAllBtn.style.border = '1px solid rgba(16, 185, 129, 0.4)';
+          }
+          document.querySelectorAll('#pcModalLinksList .pc-rss-link-row').forEach(function(row) {
+            var primaryBtn = row.querySelector('.btn-primary');
+            if (primaryBtn) {
+              primaryBtn.textContent = '✓ Queued';
+              primaryBtn.style.background = 'rgba(16, 185, 129, 0.2)';
+              primaryBtn.style.color = '#34d399';
+              primaryBtn.style.border = '1px solid rgba(16, 185, 129, 0.4)';
+            }
+          });
+          refreshPcTorrentQueueUI();
+        } else {
+          throw new Error((data && data.error) ? data.error : 'Failed to add batch to queue');
+        }
+      } catch (err) {
+        showToast('Error queueing batch links: ' + err.message, 'error');
+        if (addAllBtn) {
+          addAllBtn.disabled = false;
+          addAllBtn.innerHTML = '📥 Add All Links (' + currentFilteredModalLinks.length + ')';
+        }
+      }
+    }
+
+    function renderPcModalLinksRows(links) {
+      var listEl = document.getElementById('pcModalLinksList');
+      if (!listEl) return;
+
+      if (!links || links.length === 0) {
+        listEl.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-muted);">' +
+                           'No matching download links found for the selected filter.</div>';
+        return;
+      }
+
+      listEl.innerHTML = '';
+      links.forEach(function(l) {
+        var row = document.createElement('div');
+        row.className = 'pc-rss-link-row';
+
+        var isMag = l.isMagnet || (l.url && l.url.indexOf('magnet:') === 0);
+        var isTorr = !isMag && l.extension === 'TORRENT';
+
+        var extBadge = document.createElement('span');
+        if (isMag) {
+          extBadge.className = 'console-badge';
+          extBadge.style.background = 'rgba(168,85,247,0.2)';
+          extBadge.style.color = '#c084fc';
+          extBadge.style.borderColor = 'rgba(168,85,247,0.4)';
+          extBadge.style.fontSize = '11px';
+          extBadge.textContent = '🧲 MAGNET';
+        } else if (isTorr) {
+          extBadge.className = 'console-badge';
+          extBadge.style.background = 'rgba(6,182,212,0.2)';
+          extBadge.style.color = '#38bdf8';
+          extBadge.style.borderColor = 'rgba(6,182,212,0.4)';
+          extBadge.style.fontSize = '11px';
+          extBadge.textContent = '📦 TORRENT';
+        } else {
+          extBadge.className = 'console-badge';
+          extBadge.style.background = 'rgba(16,185,129,0.18)';
+          extBadge.style.color = '#34d399';
+          extBadge.style.borderColor = 'rgba(16,185,129,0.35)';
+          extBadge.style.fontSize = '11px';
+          extBadge.textContent = l.hoster || l.extension || 'MIRROR';
+        }
+
+        var leftDiv = document.createElement('div');
+        leftDiv.style.display = 'flex';
+        leftDiv.style.alignItems = 'center';
+        leftDiv.style.gap = '10px';
+        leftDiv.style.minWidth = '0';
+        leftDiv.style.flex = '1';
+
+        var infoDiv = document.createElement('div');
+        infoDiv.style.minWidth = '0';
+        infoDiv.style.overflow = 'hidden';
+
+        var nameLine = document.createElement('div');
+        nameLine.style.fontWeight = '600';
+        nameLine.style.fontSize = '13px';
+        nameLine.style.color = '#fff';
+        nameLine.style.textOverflow = 'ellipsis';
+        nameLine.style.whiteSpace = 'nowrap';
+        nameLine.style.overflow = 'hidden';
+        nameLine.textContent = l.filename || pcModalGameTitle || 'Download Link';
+        nameLine.title = l.filename || pcModalGameTitle;
+
+        var hosterLine = document.createElement('div');
+        hosterLine.style.fontSize = '11px';
+        hosterLine.style.color = 'var(--text-muted)';
+        hosterLine.textContent = (l.sizeFormatted ? l.sizeFormatted + ' • ' : '') + (l.hoster || (isMag ? 'BitTorrent Magnet' : 'Download Mirror'));
+
+        infoDiv.appendChild(nameLine);
+        infoDiv.appendChild(hosterLine);
+        leftDiv.appendChild(extBadge);
+        leftDiv.appendChild(infoDiv);
+        row.appendChild(leftDiv);
+
+        if (isMag || isTorr) {
+          var btnGroup = document.createElement('div');
+          btnGroup.style.display = 'flex';
+          btnGroup.style.gap = '6px';
+          btnGroup.style.alignItems = 'center';
+          btnGroup.style.flexShrink = '0';
+
+          var filesBtn = document.createElement('button');
+          filesBtn.className = 'btn btn-secondary btn-sm';
+          filesBtn.style.color = '#c084fc';
+          filesBtn.style.borderColor = 'rgba(192, 132, 252, 0.4)';
+          filesBtn.textContent = '📁 Select Files';
+          filesBtn.title = 'Inspect files and choose optional components or languages';
+          filesBtn.onclick = function() {
+            openFileSelectionForNewTorrent(l.url, l.filename || pcModalGameTitle);
+          };
+
+          var dlBtn = document.createElement('button');
+          dlBtn.className = 'btn btn-primary btn-sm';
+          dlBtn.textContent = isMag ? '⚡ Add to Queue' : '📥 Add to Queue';
+          dlBtn.title = 'Add entire torrent to download queue';
+          dlBtn.onclick = function() {
+            queueTorrentDownload(l.url, l.filename || pcModalGameTitle, dlBtn);
+          };
+
+          btnGroup.appendChild(filesBtn);
+          btnGroup.appendChild(dlBtn);
+          row.appendChild(btnGroup);
+        } else {
+          var btnGroup = document.createElement('div');
+          btnGroup.style.display = 'flex';
+          btnGroup.style.gap = '6px';
+          btnGroup.style.alignItems = 'center';
+          btnGroup.style.flexShrink = '0';
+
+          var queueBtn = document.createElement('button');
+          queueBtn.className = 'btn btn-primary btn-sm';
+          queueBtn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+          queueBtn.style.border = 'none';
+          queueBtn.textContent = '📥 Add to Queue';
+          queueBtn.title = 'Download directly to your Downloads folder via server queue (1-at-a-time)';
+          queueBtn.onclick = function() {
+            queueDirectDownload(l.url, pcModalGameTitle, l.filename, l.hoster, queueBtn);
+          };
+
+          var copyBtn = document.createElement('button');
+          copyBtn.className = 'btn btn-secondary btn-sm';
+          copyBtn.textContent = '📋 Copy';
+          copyBtn.title = 'Copy direct URL to clipboard';
+          copyBtn.onclick = function() {
+            copyDlLink(l.url, l.filename);
+          };
+
+          var extLink = document.createElement('a');
+          extLink.className = 'btn btn-secondary btn-sm';
+          extLink.style.padding = '5px 8px';
+          extLink.href = l.url;
+          extLink.target = '_blank';
+          extLink.rel = 'noopener noreferrer';
+          extLink.textContent = '↗';
+          extLink.title = 'Open direct download in browser';
+
+          btnGroup.appendChild(queueBtn);
+          btnGroup.appendChild(copyBtn);
+          btnGroup.appendChild(extLink);
+          row.appendChild(btnGroup);
+        }
+
+        listEl.appendChild(row);
+      });
+    }
+
+    function updateHosterDropdownOptions(links, preferFuckingFast) {
+      var hosterSel = document.getElementById('pcModalHosterFilter');
+      if (!hosterSel) return;
+      var curVal = hosterSel.value;
+
+      var hosterCounts = {};
+      var magnetCount = 0;
+
+      links.forEach(function(l) {
+        var isMag = l.isMagnet || (l.url && l.url.indexOf('magnet:') === 0);
+        if (isMag) {
+          magnetCount++;
+        } else {
+          var h = l.hoster || 'Direct File';
+          hosterCounts[h] = (hosterCounts[h] || 0) + 1;
+        }
+      });
+
+      var html = '<option value="all">All Mirrors (' + links.length + ')</option>';
+      if (hosterCounts['FuckingFast']) {
+        html += '<option value="FuckingFast">⚡ FuckingFast (' + hosterCounts['FuckingFast'] + ')</option>';
+      }
+      if (magnetCount > 0) {
+        html += '<option value="magnet">🧲 BitTorrent Magnet (' + magnetCount + ')</option>';
+      }
+      Object.keys(hosterCounts).sort().forEach(function(h) {
+        if (h === 'FuckingFast') return;
+        html += '<option value="' + h.replace(/"/g, '&quot;') + '">' + h + ' (' + hosterCounts[h] + ')</option>';
+      });
+
+      hosterSel.innerHTML = html;
+
+      // Default to FuckingFast if present!
+      if (preferFuckingFast || !curVal || curVal === 'all' || curVal === 'FuckingFast') {
+        if (hosterCounts['FuckingFast']) {
+          hosterSel.value = 'FuckingFast';
+        } else if (curVal && hosterSel.querySelector('option[value="' + curVal.replace(/"/g, '\\"') + '"]')) {
+          hosterSel.value = curVal;
+        } else {
+          hosterSel.value = 'all';
+        }
+      } else if (curVal && hosterSel.querySelector('option[value="' + curVal.replace(/"/g, '\\"') + '"]')) {
+        hosterSel.value = curVal;
+      } else if (hosterCounts['FuckingFast']) {
+        hosterSel.value = 'FuckingFast';
+      } else {
+        hosterSel.value = 'all';
+      }
+    }
+
+    function copyDlLink(url, filename) {
+      if (!url) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(function() {
+          showToast('Copied download link to clipboard!', 'success');
+        }).catch(function() {
+          showToast('Failed to copy to clipboard', 'error');
+        });
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = url;
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          document.execCommand('copy');
+          showToast('Copied download link to clipboard!', 'success');
+        } catch (_) {
+          showToast('Failed to copy to clipboard', 'error');
+        }
+        document.body.removeChild(ta);
+      }
+    }
+
+    async function openPcScrapeModal(pageUrl, gameTitle, initialLinks) {
+      var currentUrl = pageUrl || '';
+      pcModalGameTitle = gameTitle || 'PC Game';
+      var modal = document.getElementById('pcRssLinksModal');
+      var titleEl = document.getElementById('pcModalTitle');
+      var subtitleEl = document.getElementById('pcModalSubtitle');
+      var bannerEl = document.getElementById('pcModalStatusBanner');
+      var listEl = document.getElementById('pcModalLinksList');
+      var searchInput = document.getElementById('pcModalSearchInput');
+      if (searchInput) searchInput.value = '';
+
+      titleEl.textContent = 'Webpage Download Link Scraper: ' + pcModalGameTitle;
+      subtitleEl.textContent = currentUrl ? ('Deep scanning: ' + currentUrl) : 'Scraped Mirrors & Download Links';
+      modal.style.display = 'flex';
+
+      // 1. If initial links were attached to the RSS item, display them immediately!
+      var seenUrls = new Set();
+      pcScrapedModalLinks = [];
+
+      if (Array.isArray(initialLinks) && initialLinks.length > 0) {
+        initialLinks.forEach(function(l) {
+          if (l.url && !seenUrls.has(l.url)) {
+            seenUrls.add(l.url);
+            pcScrapedModalLinks.push(l);
+          }
+        });
+        updateHosterDropdownOptions(pcScrapedModalLinks, true);
+        updateModalBanner(bannerEl, pcScrapedModalLinks, false);
+        filterPcModalLinks();
+      } else {
+        bannerEl.style.display = 'none';
+        listEl.innerHTML = '<div style="text-align: center; padding: 25px; color: var(--text-muted);">' +
+                           '<div style="font-size: 26px; margin-bottom: 6px;">🔍</div>Deep scanning page for all download mirrors, hosters & magnets...</div>';
+      }
+
+      if (!currentUrl) return;
+
+      try {
+        var res = await fetch('/api/pc-rss/scrape-links?url=' + encodeURIComponent(currentUrl));
+        var data = await res.json();
+
+        if (!data || !data.success) {
+          throw new Error((data && data.error) ? data.error : 'Failed to scrape download links');
+        }
+
+        var remoteLinks = data.links || [];
+        remoteLinks.forEach(function(l) {
+          if (l.url && !seenUrls.has(l.url)) {
+            seenUrls.add(l.url);
+            pcScrapedModalLinks.push(l);
+          }
+        });
+
+        // Group magnets/torrents first, then direct mirrors
+        var magnets = pcScrapedModalLinks.filter(function(l) { return l.isMagnet || (l.url && l.url.indexOf('magnet:') === 0); });
+        var torrents = pcScrapedModalLinks.filter(function(l) { return !l.isMagnet && l.extension === 'TORRENT'; });
+        var mirrors = pcScrapedModalLinks.filter(function(l) { return !l.isMagnet && l.extension !== 'TORRENT'; });
+        pcScrapedModalLinks = magnets.concat(torrents, mirrors);
+
+        updateHosterDropdownOptions(pcScrapedModalLinks, true);
+        updateModalBanner(bannerEl, pcScrapedModalLinks, true);
+        filterPcModalLinks();
+      } catch (err) {
+        if (pcScrapedModalLinks.length === 0) {
+          bannerEl.style.display = 'block';
+          bannerEl.style.background = 'rgba(239, 68, 68, 0.15)';
+          bannerEl.style.color = '#f87171';
+          bannerEl.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+          bannerEl.textContent = 'Scraper error: ' + err.message;
+          listEl.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-muted);"><a href="' + currentUrl + '" target="_blank" style="color:#38bdf8;">Open page in browser ↗</a></div>';
+        }
+      }
+    }
+
+    function updateModalBanner(bannerEl, links, isComplete) {
+      if (!bannerEl) return;
+      if (!links || links.length === 0) {
+        bannerEl.style.display = 'block';
+        bannerEl.style.background = 'rgba(239, 68, 68, 0.15)';
+        bannerEl.style.color = '#f87171';
+        bannerEl.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+        bannerEl.textContent = 'No download links or magnets were detected on this page.';
+        return;
+      }
+
+      var magnetCount = links.filter(function(l) { return l.isMagnet || (l.url && l.url.indexOf('magnet:') === 0); }).length;
+      var torrentCount = links.filter(function(l) { return !l.isMagnet && l.extension === 'TORRENT'; }).length;
+      var directCount = links.length - magnetCount - torrentCount;
+
+      bannerEl.style.display = 'block';
+      bannerEl.style.background = 'rgba(6, 182, 212, 0.12)';
+      bannerEl.style.color = '#38bdf8';
+      bannerEl.style.border = '1px solid rgba(6, 182, 212, 0.3)';
+
+      var parts = [];
+      if (magnetCount > 0) parts.push('🧲 ' + magnetCount + ' Magnet' + (magnetCount > 1 ? 's' : ''));
+      if (torrentCount > 0) parts.push('📦 ' + torrentCount + ' Torrent' + (torrentCount > 1 ? 's' : ''));
+      if (directCount > 0) parts.push('⬇️ ' + directCount + ' Direct Mirror' + (directCount > 1 ? 's' : ''));
+
+      bannerEl.innerHTML = '⚡ <strong>' + links.length + ' Download Links Found</strong> (' + parts.join(' • ') + ') • Choose an option below:';
+    }
+
+    function closePcRssModal() {
+      var modal = document.getElementById('pcRssLinksModal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    // ── Queue Management Client logic ────────────────────────────────────
+    async function queueTorrentDownload(url, title, btn) {
+      var targetUrl = url || '';
+      var targetTitle = title || 'PC Game Torrent';
+
+      try {
+        var res = await fetch('/api/pc-rss/torrent/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: targetUrl, title: targetTitle })
+        });
+        var data = await res.json();
+        if (data && data.success) {
+          showToast('Added "' + ((data.item && data.item.title) ? data.item.title : targetTitle) + '" to Torrent Queue!', 'success');
+          if (btn) {
+            btn.textContent = '✓ Queued';
+            btn.style.background = 'rgba(6, 182, 212, 0.2)';
+            btn.style.color = '#38bdf8';
+            btn.style.border = '1px solid rgba(6, 182, 212, 0.4)';
+          }
+          refreshPcTorrentQueueUI();
+        } else {
+          throw new Error((data && data.error) ? data.error : 'Failed to add torrent');
+        }
+      } catch (err) {
+        showToast('Error queueing torrent: ' + err.message, 'error');
+      }
+    }
+
+    async function queueDirectDownload(url, title, filename, hoster, btn) {
+      var targetUrl = url || '';
+      var targetTitle = title || filename || 'PC Game Direct Download';
+
+      try {
+        var res = await fetch('/api/pc-rss/torrent/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: targetUrl,
+            title: targetTitle,
+            filename: filename || targetTitle,
+            isDirect: true,
+            hoster: hoster
+          })
+        });
+        var data = await res.json();
+        if (data && data.success) {
+          showToast('Added "' + ((data.item && data.item.title) ? data.item.title : targetTitle) + '" to Download Queue!', 'success');
+          if (btn) {
+            btn.textContent = '✓ Queued';
+            btn.style.background = 'rgba(16, 185, 129, 0.2)';
+            btn.style.color = '#34d399';
+            btn.style.border = '1px solid rgba(16, 185, 129, 0.4)';
+          }
+          refreshPcTorrentQueueUI();
+        } else {
+          throw new Error((data && data.error) ? data.error : 'Failed to add download');
+        }
+      } catch (err) {
+        showToast('Error queueing download: ' + err.message, 'error');
+      }
+    }
+
+    async function deletePcTorrent(id) {
+      try {
+        var res = await fetch('/api/pc-rss/torrent/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: id })
+        });
+        var data = await res.json();
+        if (data && data.success) {
+          showToast('Download removed from queue', 'info');
+          refreshPcTorrentQueueUI();
+        }
+      } catch (err) {
+        showToast('Error deleting item: ' + err.message, 'error');
+      }
+    }
+
+    async function cancelActiveTorrent() {
+      if (pcActiveTorrentItem) {
+        deletePcTorrent(pcActiveTorrentItem.id);
+      }
+    }
+
+    async function refreshPcTorrentQueueUI() {
+      try {
+        var res = await fetch('/api/pc-rss/torrent/queue');
+        if (!res.ok) return;
+        var data = await res.json();
+        var queue = (data && data.queue) ? data.queue : [];
+        pcActiveTorrentItem = (data && data.activeTorrent) ? data.activeTorrent : null;
+
+        if (data && data.downloadsFolder) {
+          var qLabel = document.getElementById('queueFolderLabel');
+          if (qLabel) qLabel.textContent = data.downloadsFolder;
+        }
+
+        var badge = document.getElementById('pcTorrentQueueBadge');
+        if (badge) badge.textContent = queue.length;
+
+        var activeBox = document.getElementById('pcActiveTorrentBox');
+        var emptyMsg = document.getElementById('pcQueueEmptyMsg');
+        var waitingBox = document.getElementById('pcWaitingQueueBox');
+
+        // Render Active Download
+        if (pcActiveTorrentItem) {
+          if (activeBox) activeBox.style.display = 'block';
+          var titleSpan = document.getElementById('pcActiveDlTitle');
+          if (titleSpan) titleSpan.textContent = pcActiveTorrentItem.title || 'Downloading...';
+          var activeFilesBtn = document.getElementById('pcActiveDlFilesBtn');
+          if (activeFilesBtn) {
+            activeFilesBtn.style.display = pcActiveTorrentItem.isDirect ? 'none' : 'inline-block';
+          }
+          updatePcTorrentProgressUI(pcActiveTorrentItem);
+        } else {
+          if (activeBox) activeBox.style.display = 'none';
+        }
+
+        // Render Waiting Queue
+        if (waitingBox) {
+          var waitingItems = queue.filter(function(t) {
+            return !pcActiveTorrentItem || t.id !== pcActiveTorrentItem.id;
+          });
+
+          if (waitingItems.length === 0 && !pcActiveTorrentItem) {
+            if (emptyMsg) {
+              emptyMsg.style.display = 'block';
+              emptyMsg.textContent = 'No active downloads. Scrape an RSS item or click a mirror below to start downloading.';
+            }
+            waitingBox.querySelectorAll('.pc-rss-queue-item').forEach(function(el) { el.remove(); });
+          } else if (waitingItems.length === 0 && pcActiveTorrentItem) {
+            if (emptyMsg) {
+              emptyMsg.style.display = 'block';
+              emptyMsg.textContent = 'No waiting items. Currently downloading 1 item.';
+            }
+            waitingBox.querySelectorAll('.pc-rss-queue-item').forEach(function(el) { el.remove(); });
+          } else {
+            if (emptyMsg) emptyMsg.style.display = 'none';
+            waitingBox.querySelectorAll('.pc-rss-queue-item').forEach(function(el) { el.remove(); });
+            waitingItems.forEach(function(t, i) {
+              var itemEl = document.createElement('div');
+              itemEl.className = 'pc-rss-queue-item';
+
+              var left = document.createElement('div');
+              left.style.display = 'flex';
+              left.style.alignItems = 'center';
+              left.style.gap = '8px';
+              left.style.minWidth = '0';
+              left.style.flex = '1';
+
+              var badgeSpan = document.createElement('span');
+              badgeSpan.className = 'console-badge';
+              badgeSpan.style.fontSize = '10px';
+              badgeSpan.style.padding = '2px 6px';
+              if (t.isDirect) {
+                badgeSpan.style.background = 'rgba(16, 185, 129, 0.2)';
+                badgeSpan.style.color = '#34d399';
+                badgeSpan.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+                badgeSpan.textContent = '#' + (i + 1) + ' 🌐 ' + (t.hoster || 'DIRECT');
+              } else {
+                badgeSpan.textContent = '#' + (i + 1) + ' 🧲 QUEUED';
+              }
+
+              var nameSpan = document.createElement('span');
+              nameSpan.style.fontWeight = '600';
+              nameSpan.style.color = '#fff';
+              nameSpan.style.overflow = 'hidden';
+              nameSpan.style.textOverflow = 'ellipsis';
+              nameSpan.style.whiteSpace = 'nowrap';
+              nameSpan.textContent = t.title;
+              nameSpan.title = t.title;
+
+              left.appendChild(badgeSpan);
+              left.appendChild(nameSpan);
+              itemEl.appendChild(left);
+
+              var btnWrap = document.createElement('div');
+              btnWrap.style.display = 'flex';
+              btnWrap.style.gap = '6px';
+              btnWrap.style.alignItems = 'center';
+
+              if (!t.isDirect) {
+                var filesBtn = document.createElement('button');
+                filesBtn.className = 'btn btn-secondary btn-sm';
+                filesBtn.style.color = '#c084fc';
+                filesBtn.style.padding = '3px 8px';
+                filesBtn.style.fontSize = '11px';
+                filesBtn.textContent = '📁 Files';
+                filesBtn.title = 'Change selected files for this queued torrent';
+                filesBtn.onclick = function() {
+                  openFileSelectionForQueueItem(t.id);
+                };
+                btnWrap.appendChild(filesBtn);
+              } else {
+                var pasteBtn = document.createElement('button');
+                pasteBtn.className = 'btn btn-secondary btn-sm';
+                pasteBtn.style.color = '#34d399';
+                pasteBtn.style.borderColor = 'rgba(52,211,153,0.3)';
+                pasteBtn.style.padding = '3px 8px';
+                pasteBtn.style.fontSize = '11px';
+                pasteBtn.textContent = '🔗 Paste Link';
+                pasteBtn.title = 'Paste direct download URL (e.g. from your browser)';
+                pasteBtn.onclick = function() {
+                  var raw = prompt('Paste direct download URL (e.g. FuckingFast direct link or https://node*.datanodes.to:8443/d/...):');
+                  if (raw && raw.trim()) {
+                    fetch('/api/pc-rss/torrent/update-url', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ id: t.id, url: raw.trim() })
+                    }).then(function(r) { return r.json(); })
+                      .then(function(d) {
+                        if (d && d.success) {
+                          showToast('Updated direct download URL!', 'success');
+                          refreshPcTorrentQueueUI();
+                        }
+                      }).catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+                  }
+                };
+                btnWrap.appendChild(pasteBtn);
+              }
+
+              var remBtn = document.createElement('button');
+              remBtn.className = 'btn btn-secondary btn-sm';
+              remBtn.style.color = '#f87171';
+              remBtn.style.padding = '3px 8px';
+              remBtn.style.fontSize = '11px';
+              remBtn.textContent = '✕ Remove';
+              remBtn.onclick = function() {
+                deletePcTorrent(t.id);
+              };
+
+              btnWrap.appendChild(remBtn);
+              itemEl.appendChild(btnWrap);
+
+              waitingBox.appendChild(itemEl);
+            });
+          }
+        }
+      } catch (_) {}
+    }
+
+    function updatePcTorrentProgressUI(data) {
+      if (!data) return;
+      var progress = data.progress !== undefined ? data.progress : 0;
+      var fill = document.getElementById('pcActiveDlFill');
+      var progText = document.getElementById('pcActiveDlProgress');
+      var speedText = document.getElementById('pcActiveDlSpeed');
+      var peersText = document.getElementById('pcActiveDlPeers');
+      var bytesText = document.getElementById('pcActiveDlBytes');
+      var activeFilesBtn = document.getElementById('pcActiveDlFilesBtn');
+
+      if (activeFilesBtn && data.isDirect !== undefined) {
+        activeFilesBtn.style.display = data.isDirect ? 'none' : 'inline-block';
+      }
+
+      var activePasteBtn = document.getElementById('pcActiveDlPasteBtn');
+      var activeOpenBtn = document.getElementById('pcActiveDlOpenBtn');
+      if (activePasteBtn) activePasteBtn.style.display = data.isDirect ? 'inline-block' : 'none';
+      if (activeOpenBtn) activeOpenBtn.style.display = data.isDirect ? 'inline-block' : 'none';
+
+      if (fill) fill.style.width = Math.min(100, Math.max(0, progress)) + '%';
+      if (progText) progText.textContent = progress + '%';
+      if (speedText) {
+        if (data.downloadSpeed) {
+          speedText.textContent = formatSpeed(data.downloadSpeed);
+        } else if (data.errorMessage) {
+          speedText.textContent = data.errorMessage;
+        } else {
+          speedText.textContent = 'Connecting...';
+        }
+      }
+      if (peersText) {
+        if (data.isDirect) {
+          peersText.textContent = '🌐 ' + (data.hoster || 'Direct HTTP');
+          peersText.style.color = '#34d399';
+        } else {
+          peersText.textContent = (data.numPeers || 0) + ' peers';
+          peersText.style.color = '';
+        }
+      }
+      if (bytesText) {
+        if (data.downloadedBytes && data.totalBytes) {
+          bytesText.textContent = formatBytes(data.downloadedBytes) + ' / ' + formatBytes(data.totalBytes);
+        } else if (data.downloadedBytes) {
+          bytesText.textContent = formatBytes(data.downloadedBytes);
+        } else {
+          bytesText.textContent = '';
+        }
+      }
+    }
+
+    function pasteDirectLinkForActive() {
+      if (!pcActiveTorrentItem) return;
+      var promptText = 'Paste the direct download link (e.g. FuckingFast direct link or https://node*.datanodes.to:8443/d/...):';
+      var raw = prompt(promptText);
+      if (raw && raw.trim()) {
+        fetch('/api/pc-rss/torrent/update-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: pcActiveTorrentItem.id, url: raw.trim() })
+        }).then(function(r) { return r.json(); })
+          .then(function(d) {
+            if (d && d.success) {
+              showToast('Direct download link updated! Starting stream...', 'success');
+              refreshPcTorrentQueueUI();
+            } else {
+              showToast('Failed to update URL: ' + ((d && d.error) || 'Unknown error'), 'error');
+            }
+          }).catch(function(e) { showToast('Error: ' + e.message, 'error'); });
+      }
+    }
+
+    function openActiveLinkInBrowser() {
+      if (!pcActiveTorrentItem) return;
+      var u = pcActiveTorrentItem.originalUrl || pcActiveTorrentItem.url;
+      if (u) window.open(u, '_blank');
+    }
+
+    // ── PC Torrent File Selection Modal Client Logic ──
+    var currentInspectContext = null; // { mode: 'new'|'queue', url, title, id }
+    var currentInspectFiles = [];
+    var currentSelectedFilePaths = new Set();
+
+    function openFileSelectionForActiveTorrent() {
+      if (pcActiveTorrentItem) {
+        openFileSelectionForQueueItem(pcActiveTorrentItem.id);
+      } else {
+        showToast('No torrent is currently active', 'info');
+      }
+    }
+
+    function closePcTorrentFilesModal() {
+      var modal = document.getElementById('pcTorrentFilesModal');
+      if (modal) modal.style.display = 'none';
+      currentInspectContext = null;
+      currentInspectFiles = [];
+      currentSelectedFilePaths.clear();
+    }
+
+    function detectFileBadgeInfo(filePath) {
+      var norm = String(filePath || '').toLowerCase().split(String.fromCharCode(92)).join('/');
+      var base = norm.substring(norm.lastIndexOf('/') + 1);
+
+      // 1. English language
+      if (base.includes('english') || base.includes('en_us') || base.includes('en-us') || base.includes('voice_en') || base.includes('voices_en')) {
+        return { tag: 'ENGLISH', label: 'English Voice/Text' };
+      }
+      // 2. Other language packs (FitGirl, DODI, repacks)
+      var langs = ['german', 'french', 'spanish', 'russian', 'japanese', 'chinese', 'brazilian', 'italian', 'polish', 'korean', 'arabic', 'portuguese', 'turkish', 'czech', 'selective-'];
+      for (var i = 0; i < langs.length; i++) {
+        if (base.includes(langs[i])) {
+          return { tag: 'LANG', label: 'Language Pack' };
+        }
+      }
+      // 3. Optional / Bonus
+      if (base.includes('optional') || base.includes('bonus') || base.includes('soundtrack') || base.includes('artbook') || base.includes('wallpaper') || base.includes('credits') || base.includes('ost')) {
+        return { tag: 'OPTIONAL', label: 'Optional / Bonus' };
+      }
+      return null;
+    }
+
+    async function openFileSelectionForNewTorrent(url, title) {
+      var modal = document.getElementById('pcTorrentFilesModal');
+      var titleEl = document.getElementById('pcFilesModalTitle');
+      var subtitleEl = document.getElementById('pcFilesModalSubtitle');
+      var bannerEl = document.getElementById('pcFilesStatsBanner');
+      var listEl = document.getElementById('pcFilesModalList');
+      var confirmBtn = document.getElementById('btnConfirmFileSelection');
+      var searchInput = document.getElementById('pcFilesSearchInput');
+
+      currentInspectContext = { mode: 'new', url: url, title: title || 'PC Game' };
+      currentInspectFiles = [];
+      currentSelectedFilePaths.clear();
+
+      if (searchInput) searchInput.value = '';
+      if (confirmBtn) {
+        confirmBtn.textContent = '⬇️ Download Selected Files';
+        confirmBtn.disabled = true;
+      }
+
+      titleEl.textContent = '📁 Select Files: ' + (title || 'PC Game');
+      subtitleEl.textContent = 'Inspect files inside this torrent and deselect optional components or unneeded languages:';
+      bannerEl.style.display = 'block';
+      bannerEl.style.background = 'rgba(139, 92, 246, 0.15)';
+      bannerEl.style.color = '#c4b5fd';
+      bannerEl.style.borderColor = 'rgba(139, 92, 246, 0.3)';
+      bannerEl.innerHTML = '⏳ <strong>Connecting to BitTorrent swarm...</strong> Resolving metadata and file list (takes a few seconds)...';
+
+      listEl.innerHTML = '<div style="text-align: center; padding: 40px 20px; color: var(--text-muted);">' +
+                         '<div style="font-size: 28px; margin-bottom: 8px;">⏳</div>Fetching torrent metadata from swarm...</div>';
+      modal.style.display = 'flex';
+
+      try {
+        var res = await fetch('/api/pc-rss/torrent/inspect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: url })
+        });
+        var data = await res.json();
+        if (!data || !data.success || !Array.isArray(data.files) || data.files.length === 0) {
+          throw new Error((data && data.error) ? data.error : 'No files found in torrent metadata');
+        }
+
+        currentInspectFiles = data.files;
+        if (data.name) {
+          currentInspectContext.title = data.name;
+          titleEl.textContent = '📁 Select Files: ' + data.name;
+        }
+
+        // Default: select all files initially
+        currentSelectedFilePaths.clear();
+        currentInspectFiles.forEach(function(f) {
+          currentSelectedFilePaths.add(f.path);
+        });
+
+        bannerEl.style.background = 'rgba(16, 185, 129, 0.12)';
+        bannerEl.style.color = '#34d399';
+        bannerEl.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+        bannerEl.innerHTML = '✅ Found <strong>' + currentInspectFiles.length + ' files</strong> (Total: ' + formatBytes(data.totalBytes) + '). Uncheck files you do not need, or click <em>"🎯 Core & English Only"</em> to skip language packs.';
+
+        if (confirmBtn) confirmBtn.disabled = false;
+        renderPcFilesModalList();
+      } catch (err) {
+        bannerEl.style.background = 'rgba(239, 68, 68, 0.15)';
+        bannerEl.style.color = '#f87171';
+        bannerEl.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+        bannerEl.innerHTML = '⚠️ <strong>Could not inspect metadata yet:</strong> ' + err.message +
+                             '<div style="margin-top: 6px;"><button class="btn btn-secondary btn-sm" onclick="openFileSelectionForNewTorrent(currentInspectContext.url, currentInspectContext.title)">🔄 Retry</button> ' +
+                             '<button class="btn btn-primary btn-sm" onclick="queueTorrentDownload(currentInspectContext.url, currentInspectContext.title)">⚡ Queue All Files Anyway</button></div>';
+        listEl.innerHTML = '<div style="text-align: center; padding: 25px; color: var(--text-muted);">Peer discovery timed out or torrent has few seeders. You can retry or download all files directly.</div>';
+      }
+    }
+
+    async function openFileSelectionForQueueItem(id) {
+      var modal = document.getElementById('pcTorrentFilesModal');
+      var titleEl = document.getElementById('pcFilesModalTitle');
+      var subtitleEl = document.getElementById('pcFilesModalSubtitle');
+      var bannerEl = document.getElementById('pcFilesStatsBanner');
+      var listEl = document.getElementById('pcFilesModalList');
+      var confirmBtn = document.getElementById('btnConfirmFileSelection');
+      var searchInput = document.getElementById('pcFilesSearchInput');
+
+      currentInspectContext = { mode: 'queue', id: id };
+      currentInspectFiles = [];
+      currentSelectedFilePaths.clear();
+
+      if (searchInput) searchInput.value = '';
+      if (confirmBtn) {
+        confirmBtn.textContent = '💾 Save File Selection';
+        confirmBtn.disabled = true;
+      }
+
+      titleEl.textContent = '📁 Manage Torrent Files';
+      subtitleEl.textContent = 'Update file selection. Deselected files will not be downloaded to disk:';
+      bannerEl.style.display = 'block';
+      bannerEl.style.background = 'rgba(139, 92, 246, 0.15)';
+      bannerEl.style.color = '#c4b5fd';
+      bannerEl.style.borderColor = 'rgba(139, 92, 246, 0.3)';
+      bannerEl.innerHTML = '⏳ <strong>Loading files...</strong>';
+
+      listEl.innerHTML = '<div style="text-align: center; padding: 40px 20px; color: var(--text-muted);">' +
+                         '<div style="font-size: 28px; margin-bottom: 8px;">⏳</div>Loading file list...</div>';
+      modal.style.display = 'flex';
+
+      try {
+        var res = await fetch('/api/pc-rss/torrent/inspect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: id })
+        });
+        var data = await res.json();
+        if (!data || !data.success || !Array.isArray(data.files) || data.files.length === 0) {
+          throw new Error((data && data.error) ? data.error : 'No files found for this torrent');
+        }
+
+        currentInspectFiles = data.files;
+        if (data.name) titleEl.textContent = '📁 Select Files: ' + data.name;
+
+        currentSelectedFilePaths.clear();
+        if (Array.isArray(data.selectedFiles) && data.selectedFiles.length > 0) {
+          var selSet = new Set(data.selectedFiles.map(function(p) { return p.toLowerCase().split(String.fromCharCode(92)).join('/'); }));
+          currentInspectFiles.forEach(function(f) {
+            var normP = f.path.toLowerCase().split(String.fromCharCode(92)).join('/');
+            var normN = f.name.toLowerCase();
+            if (selSet.has(normP) || selSet.has(normN)) {
+              currentSelectedFilePaths.add(f.path);
+            }
+          });
+        } else {
+          currentInspectFiles.forEach(function(f) {
+            currentSelectedFilePaths.add(f.path);
+          });
+        }
+
+        bannerEl.style.background = 'rgba(16, 185, 129, 0.12)';
+        bannerEl.style.color = '#34d399';
+        bannerEl.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+        bannerEl.innerHTML = '✅ Torrent contains <strong>' + currentInspectFiles.length + ' files</strong> (Total: ' + formatBytes(data.totalBytes) + '). Changes take effect immediately.';
+
+        if (confirmBtn) confirmBtn.disabled = false;
+        renderPcFilesModalList();
+      } catch (err) {
+        bannerEl.style.background = 'rgba(239, 68, 68, 0.15)';
+        bannerEl.style.color = '#f87171';
+        bannerEl.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+        bannerEl.innerHTML = '⚠️ <strong>Could not load file list:</strong> ' + err.message;
+        listEl.innerHTML = '<div style="text-align: center; padding: 25px; color: var(--text-muted);">Please wait until the torrent discovers peers and retrieves metadata.</div>';
+      }
+    }
+
+    function renderPcFilesModalList() {
+      var listEl = document.getElementById('pcFilesModalList');
+      var searchInput = document.getElementById('pcFilesSearchInput');
+      var query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+
+      listEl.innerHTML = '';
+      if (!currentInspectFiles || currentInspectFiles.length === 0) {
+        listEl.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-muted);">No files to display</div>';
+        updatePcFilesSummary();
+        return;
+      }
+
+      var filtered = currentInspectFiles;
+      if (query) {
+        filtered = currentInspectFiles.filter(function(f) {
+          return f.name.toLowerCase().includes(query) || f.path.toLowerCase().includes(query);
+        });
+      }
+
+      if (filtered.length === 0) {
+        listEl.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-muted);">No files match "' + query + '"</div>';
+        updatePcFilesSummary();
+        return;
+      }
+
+      filtered.forEach(function(f) {
+        var isChecked = currentSelectedFilePaths.has(f.path);
+        var badgeInfo = detectFileBadgeInfo(f.path);
+
+        var row = document.createElement('div');
+        row.className = 'pc-files-row' + (isChecked ? '' : ' deselected');
+
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'pc-files-checkbox';
+        cb.checked = isChecked;
+        cb.onclick = function(e) {
+          e.stopPropagation();
+          toggleSinglePcFile(f.path, cb.checked);
+        };
+
+        var infoDiv = document.createElement('div');
+        infoDiv.style.flex = '1';
+        infoDiv.style.minWidth = '0';
+        infoDiv.style.overflow = 'hidden';
+
+        var topRow = document.createElement('div');
+        topRow.style.display = 'flex';
+        topRow.style.alignItems = 'center';
+        topRow.style.gap = '6px';
+
+        var nameSpan = document.createElement('span');
+        nameSpan.style.fontWeight = '600';
+        nameSpan.style.fontSize = '12px';
+        nameSpan.style.color = '#fff';
+        nameSpan.style.textOverflow = 'ellipsis';
+        nameSpan.style.whiteSpace = 'nowrap';
+        nameSpan.style.overflow = 'hidden';
+        nameSpan.textContent = f.name;
+        nameSpan.title = f.path;
+        topRow.appendChild(nameSpan);
+
+        if (badgeInfo) {
+          var badgeSpan = document.createElement('span');
+          if (badgeInfo.tag === 'ENGLISH') badgeSpan.className = 'pc-tag-english';
+          else if (badgeInfo.tag === 'LANG') badgeSpan.className = 'pc-tag-lang';
+          else badgeSpan.className = 'pc-tag-optional';
+          badgeSpan.textContent = badgeInfo.label;
+          topRow.appendChild(badgeSpan);
+        }
+
+        var pathSpan = document.createElement('div');
+        pathSpan.style.fontSize = '10px';
+        pathSpan.style.color = 'var(--text-muted)';
+        pathSpan.style.textOverflow = 'ellipsis';
+        pathSpan.style.whiteSpace = 'nowrap';
+        pathSpan.style.overflow = 'hidden';
+        pathSpan.textContent = f.path;
+
+        infoDiv.appendChild(topRow);
+        infoDiv.appendChild(pathSpan);
+
+        var sizeDiv = document.createElement('div');
+        sizeDiv.style.fontSize = '12px';
+        sizeDiv.style.fontFamily = 'monospace';
+        sizeDiv.style.color = '#cbd5e1';
+        sizeDiv.style.flexShrink = '0';
+        sizeDiv.textContent = formatBytes(f.length);
+
+        row.appendChild(cb);
+        row.appendChild(infoDiv);
+        row.appendChild(sizeDiv);
+
+        row.onclick = function() {
+          var nextState = !cb.checked;
+          cb.checked = nextState;
+          toggleSinglePcFile(f.path, nextState);
+        };
+
+        listEl.appendChild(row);
+      });
+
+      updatePcFilesSummary();
+    }
+
+    function toggleSinglePcFile(filePath, checked) {
+      if (checked) {
+        currentSelectedFilePaths.add(filePath);
+      } else {
+        currentSelectedFilePaths.delete(filePath);
+      }
+      renderPcFilesModalList();
+    }
+
+    function filterPcFilesList() {
+      renderPcFilesModalList();
+    }
+
+    function pcFilesToggleAll(state) {
+      if (state) {
+        currentInspectFiles.forEach(function(f) {
+          currentSelectedFilePaths.add(f.path);
+        });
+      } else {
+        currentSelectedFilePaths.clear();
+      }
+      renderPcFilesModalList();
+    }
+
+    function pcFilesSelectCoreOnly() {
+      currentSelectedFilePaths.clear();
+      var deselectedCount = 0;
+      currentInspectFiles.forEach(function(f) {
+        var info = detectFileBadgeInfo(f.path);
+        if (info && (info.tag === 'LANG' || info.tag === 'OPTIONAL')) {
+          deselectedCount++;
+        } else {
+          currentSelectedFilePaths.add(f.path);
+        }
+      });
+      renderPcFilesModalList();
+      showToast('Selected Core files & English pack (Deselected ' + deselectedCount + ' optional/language files)', 'info');
+    }
+
+    function updatePcFilesSummary() {
+      var summaryEl = document.getElementById('pcFilesSelectedSummary');
+      if (!summaryEl) return;
+      var total = currentInspectFiles.length;
+      var selCount = currentSelectedFilePaths.size;
+      var selBytes = 0;
+
+      currentInspectFiles.forEach(function(f) {
+        if (currentSelectedFilePaths.has(f.path)) {
+          selBytes += (f.length || 0);
+        }
+      });
+
+      summaryEl.textContent = selCount + ' of ' + total + ' files selected (' + formatBytes(selBytes) + ')';
+    }
+
+    async function confirmPcFilesSelection() {
+      if (!currentInspectContext) return;
+      if (currentSelectedFilePaths.size === 0) {
+        alert('Please select at least 1 file to download.');
+        return;
+      }
+
+      var confirmBtn = document.getElementById('btnConfirmFileSelection');
+      if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = '⏳ Processing...';
+      }
+
+      var selectedList = Array.from(currentSelectedFilePaths);
+
+      try {
+        if (currentInspectContext.mode === 'new') {
+          var res = await fetch('/api/pc-rss/torrent/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              url: currentInspectContext.url,
+              title: currentInspectContext.title,
+              selectedFiles: selectedList,
+              files: currentInspectFiles
+            })
+          });
+          var data = await res.json();
+          if (data && data.success) {
+            showToast('Added "' + (currentInspectContext.title || 'PC Game') + '" (' + selectedList.length + ' files selected) to Torrent Queue!', 'success');
+            closePcTorrentFilesModal();
+            closePcRssModal();
+            refreshPcTorrentQueueUI();
+          } else {
+            throw new Error((data && data.error) ? data.error : 'Failed to add selective torrent');
+          }
+        } else if (currentInspectContext.mode === 'queue') {
+          var res = await fetch('/api/pc-rss/torrent/select-files', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: currentInspectContext.id,
+              selectedFiles: selectedList
+            })
+          });
+          var data = await res.json();
+          if (data && data.success) {
+            showToast('Updated file selection (' + selectedList.length + ' files) for torrent!', 'success');
+            closePcTorrentFilesModal();
+            refreshPcTorrentQueueUI();
+          } else {
+            throw new Error((data && data.error) ? data.error : 'Failed to update file selection');
+          }
+        }
+      } catch (err) {
+        showToast('Error: ' + err.message, 'error');
+        if (confirmBtn) {
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = 'Retry';
+        }
+      }
+    }
+
+    // ── SSE live updates ─────────────────────────────────────────────────
+    function setupSSE() {
+      try {
+        var evtSource = new EventSource('/api/events');
+
+        evtSource.addEventListener('torrent_progress', (e) => {
+          try {
+            const data = JSON.parse(e.data).data || {};
+            updatePcTorrentProgressUI(data);
+          } catch (_) {}
+        });
+
+        evtSource.addEventListener('torrent_queue_update', (e) => {
+          try {
+            refreshPcTorrentQueueUI();
+          } catch (_) {}
+        });
+
+        evtSource.addEventListener('torrent_completed', (e) => {
+          try {
+            const data = JSON.parse(e.data).data || {};
+            showToast(data.message || 'Download finished!', 'success');
+            refreshPcTorrentQueueUI();
+          } catch (_) {}
+        });
+
+        evtSource.addEventListener('torrent_extracting', (e) => {
+          try {
+            const data = JSON.parse(e.data).data || {};
+            showToast('Extracting game archives for "' + (data.title || 'Game') + '"...', 'info');
+            refreshPcTorrentQueueUI();
+          } catch (_) {}
+        });
+
+        evtSource.addEventListener('torrent_failed', (e) => {
+          try {
+            const data = JSON.parse(e.data).data || {};
+            showToast('❌ Download failed: ' + (data.message || data.title || 'unknown error'), 'error');
+            refreshPcTorrentQueueUI();
+          } catch (_) {}
+        });
+
+        evtSource.addEventListener('deep_link_received', (e) => {
+          try {
+            const data = JSON.parse(e.data).data || {};
+            showToast('🔗 Link received: "' + (data.title || data.url) + '" added to queue', 'success');
+            refreshPcTorrentQueueUI();
+          } catch (_) {}
+        });
+
+        evtSource.addEventListener('downloads_folder_changed', (e) => {
+          try {
+            loadDownloadsFolder();
+          } catch (_) {}
+        });
+      } catch (_) {}
+    }
+
+    // ── Init ─────────────────────────────────────────────────────────────
+    setupSSE();
+    loadDownloadsFolder();
+    refreshPcTorrentQueueUI();
+    loadPopularGames();
+    loadPcRssFeed();
+
+    // Poll fallback (also nudges the queue runner if SSE drops)
+    setInterval(refreshPcTorrentQueueUI, 5000);
+
+    fetch('/api/health')
+      .then(function(r) { return r.json(); })
+      .then(function(h) {
+        var el = document.getElementById('headerStatus');
+        if (el && h && h.status === 'ok') {
+          el.textContent = 'Connected : ' + (h.port || '');
+        }
+      })
+      .catch(function() {
+        var el = document.getElementById('headerStatus');
+        if (el) el.textContent = 'Offline';
+      });
+  </script>
+</body>
+</html>

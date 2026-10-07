@@ -20,7 +20,8 @@ const APPS = [
   { name: 'Music (fraudio)', dir: path.join(root, 'music', 'server') },
   { name: 'TV Server (freevee)', dir: path.join(root, 'tv', 'server') },
   { name: 'TV FireTV (freevee)', dir: path.join(root, 'tv', 'firetv') },
-  { name: 'Central Downloader', dir: path.join(root, 'downloader') }
+  { name: 'Central Downloader', dir: path.join(root, 'downloader') },
+  { name: 'Freeplay Downloader (PC)', dir: path.join(root, 'freeplay-downloader') }
 ];
 
 const isWin = process.platform === 'win32';

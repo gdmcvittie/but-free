@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Magnet, Layers, Search, Loader2, Download, Check, FileArchive,
-  Rss, RefreshCw, ListChecks, ArrowRight
+  Layers, Search, Download, Rss, RefreshCw
 } from 'lucide-react';
 import { fetchJson } from '../../utils/api';
-import { useAddJob, JobStatusBanner, LinksModal, TorrentFilesModal, FuckingFastAssistModal, Grid } from './shared';
+import { JobStatusBanner, Grid } from './shared';
 
 const DEFAULT_FEED = 'https://fitgirl-repacks.site/feed/';
 
@@ -15,11 +14,7 @@ export default function FitgirlTab({ onDownloadDispatched }) {
   const [searchInput, setSearchInput] = useState('');
   const [activeFeedUrl, setActiveFeedUrl] = useState(DEFAULT_FEED);
 
-  const [linksModal, setLinksModal] = useState(null); // {pageUrl, links, item}
-  const [filesModal, setFilesModal] = useState(null); // {inspect, item, source}
-  const [inspectingId, setInspectingId] = useState(null);
-
-  const { add, addBatch, busyId, doneIds, status, setStatus, ffAssist, setFfAssist } = useAddJob(onDownloadDispatched);
+  const [status, setStatus] = useState(null);
 
   const loadFeed = useCallback(async (url) => {
     setLoading(true);
@@ -49,83 +44,6 @@ export default function FitgirlTab({ onDownloadDispatched }) {
     const url = `https://fitgirl-repacks.site/feed/?s=${encodeURIComponent(q)}`;
     setActiveFeedUrl(url);
     loadFeed(url);
-  };
-
-  const openMirrors = async (item) => {
-    setLinksModal({
-      pageUrl: item.link,
-      itemTitle: item.cleanTitle || item.title,
-      links: item.downloads || [],
-      loading: true,
-      gameSize: item.size || null,
-      gameSizeBytes: item.sizeBytes || null,
-      item
-    });
-
-    try {
-      const data = await fetchJson(`/api/pc/scrape-links?url=${encodeURIComponent(item.link)}`);
-      setLinksModal((prev) => {
-        if (!prev || prev.item?.id !== item.id) return prev;
-        return {
-          ...prev,
-          links: data.links || [],
-          gameSize: data.gameSize || prev.gameSize || item.size || null,
-          gameSizeBytes: data.gameSizeBytes || prev.gameSizeBytes || item.sizeBytes || null,
-          loading: false
-        };
-      });
-    } catch (err) {
-      setLinksModal((prev) => {
-        if (!prev || prev.item?.id !== item.id) return prev;
-        return {
-          ...prev,
-          loading: false,
-          error: err.message
-        };
-      });
-    }
-  };
-
-  const pickLink = async (l) => {
-    const item = linksModal?.item;
-    await add(l.id || l.url, {
-      source: l.url,
-      title: item?.cleanTitle || item?.title || l.filename || 'PC Game',
-      filename: l.filename,
-      console: 'pc',
-      size: l.sizeFormatted || linksModal?.gameSize || item?.size,
-      sizeBytes: l.bytes || linksModal?.gameSizeBytes || item?.sizeBytes
-    });
-  };
-
-  const inspectMagnet = async (item) => {
-    if (!item.magnetUrl) return;
-    setInspectingId(item.id);
-    setError(null);
-    try {
-      const inspect = await fetchJson('/api/pc/inspect', {
-        method: 'POST',
-        body: JSON.stringify({ url: item.magnetUrl })
-      });
-      setFilesModal({ inspect, item });
-    } catch (err) {
-      setError(`Inspect failed: ${err.message}`);
-    } finally {
-      setInspectingId(null);
-    }
-  };
-
-  const confirmFiles = async (selectedFiles, selectedTotalBytes) => {
-    const { inspect, item } = filesModal;
-    const allSelected = selectedFiles.length === (inspect.files || []).length;
-    const ok = await add(`files_${item.id}`, {
-      source: item.magnetUrl,
-      title: item.cleanTitle || item.title,
-      console: 'pc',
-      selectedFiles: allSelected ? undefined : selectedFiles,
-      selectedTotalBytes
-    });
-    if (ok) setFilesModal(null);
   };
 
   return (
@@ -164,6 +82,21 @@ export default function FitgirlTab({ onDownloadDispatched }) {
         </div>
       )}
 
+      <div className="glass-panel p-4 flex flex-col sm:flex-row sm:items-center gap-3 border border-cyan-500/20 bg-cyan-500/5">
+        <div className="flex-1 text-xs text-slate-300 leading-relaxed">
+          PC game downloads are handled by the <span className="font-semibold text-white">Freeplay Downloader</span> desktop app.
+          Install it once, then hit <span className="font-semibold text-white">Download</span> on any release below.
+        </div>
+        <a
+          href="/FreeplayDownloader-Setup.exe"
+          download
+          className="btn btn-primary btn-xs whitespace-nowrap text-center"
+        >
+          <Download className="w-3.5 h-3.5" />
+          <span>Download FreeplayDownloader-Setup.exe</span>
+        </a>
+      </div>
+
       <JobStatusBanner status={status} onClear={() => setStatus(null)} />
       {error && (
         <JobStatusBanner status={{ type: 'err', message: error }} onClear={() => setError(null)} />
@@ -178,7 +111,6 @@ export default function FitgirlTab({ onDownloadDispatched }) {
       ) : (
         <Grid empty={!loading && (!feed || feed.items.length === 0) ? 'No releases found for this feed/search.' : ''}>
           {(feed?.items || []).map((item) => {
-            const key = item.id;
             return (
               <div key={item.id} className="game-card group">
                 <div className="game-card-poster">
@@ -242,42 +174,15 @@ export default function FitgirlTab({ onDownloadDispatched }) {
                   </div>
 
                   <div className="pt-1 mt-auto flex flex-col gap-1.5">
-                    {item.hasMagnet ? (
-                      <div className="flex gap-1.5">
-                        <button
-                          onClick={() => add(key, { source: item.magnetUrl, title: item.cleanTitle || item.title, console: 'pc', size: item.size, sizeBytes: item.sizeBytes })}
-                          disabled={busyId === key || doneIds.has(key)}
-                          className={`btn btn-xs flex-1 ${
-                            doneIds.has(key)
-                              ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 cursor-default'
-                              : item.sizeBytes && item.sizeBytes > 2 * 1024 * 1024 * 1024
-                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                              : 'btn-primary'
-                          }`}
-                          title={item.sizeBytes && item.sizeBytes > 2 * 1024 * 1024 * 1024 ? 'This game is larger than 2 GB and cannot be downloaded remotely via torrent' : 'Download magnet'}
-                        >
-                          {busyId === key ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : doneIds.has(key) ? <Check className="w-3.5 h-3.5" /> : <Magnet className="w-3.5 h-3.5" />}
-                          <span>{doneIds.has(key) ? 'Queued' : item.sizeBytes && item.sizeBytes > 2 * 1024 * 1024 * 1024 ? 'Magnet (>2 GB)' : 'Magnet'}</span>
-                        </button>
-                        <button
-                          onClick={() => inspectMagnet(item)}
-                          disabled={inspectingId === item.id}
-                          className="btn btn-secondary btn-xs"
-                          title="Pick files inside torrent"
-                        >
-                          {inspectingId === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ListChecks className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
-                    ) : null}
-
-                    <button
-                      onClick={() => openMirrors(item)}
-                      className="btn btn-secondary btn-xs w-full"
-                      title="Deep scan webpage for all download mirrors, FuckingFast links & magnets"
+                    <a
+                      href={`freeplayDL://${item.link}`}
+                      className="btn btn-primary btn-xs w-full text-center"
+                      title="Send this release to the Freeplay Downloader app"
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      <FileArchive className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>Mirrors & Links</span>
-                    </button>
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download</span>
+                    </a>
                   </div>
                 </div>
               </div>
@@ -286,34 +191,6 @@ export default function FitgirlTab({ onDownloadDispatched }) {
         </Grid>
       )}
 
-      {linksModal && (
-        <LinksModal
-          open
-          onClose={() => setLinksModal(null)}
-          pageUrl={linksModal.pageUrl}
-          itemTitle={linksModal.itemTitle || linksModal.item?.cleanTitle || linksModal.item?.title}
-          links={linksModal.links}
-          loading={linksModal.loading}
-          busyId={busyId}
-          doneIds={doneIds}
-          onPick={pickLink}
-          onAddBatch={(batchItems, title) => addBatch(batchItems, title || linksModal.itemTitle)}
-          gameSize={linksModal.gameSize || linksModal.item?.size}
-          gameSizeBytes={linksModal.gameSizeBytes || linksModal.item?.sizeBytes}
-        />
-      )}
-
-      {filesModal && (
-        <TorrentFilesModal
-          open
-          onClose={() => setFilesModal(null)}
-          inspect={filesModal.inspect}
-          busy={busyId === `files_${filesModal.item.id}`}
-          onConfirm={confirmFiles}
-        />
-      )}
-
-      <FuckingFastAssistModal assist={ffAssist} onClose={() => setFfAssist(null)} />
     </div>
   );
 }

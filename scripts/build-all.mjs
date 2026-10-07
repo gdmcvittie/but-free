@@ -344,6 +344,28 @@ if (!only || only === 'games') {
   console.log('==================================================================');
   const gamesServerDir = path.join(root, 'games', 'server');
   const gamesAndroidDir = path.join(root, 'games', 'android');
+  const freeplayDownloaderDir = path.join(root, 'freeplay-downloader');
+
+  // Build the Freeplay Downloader desktop app and stage its installer for the games server
+  if (fs.existsSync(freeplayDownloaderDir)) {
+    console.log('[Games] Building Freeplay Downloader desktop app (Electron)...');
+    if (!runCommand('npm', ['run', 'build'], freeplayDownloaderDir)) {
+      throw new Error('Freeplay Downloader build failed.');
+    }
+    const electronDist = path.join(freeplayDownloaderDir, 'dist_electron');
+    const setupExe = fs.existsSync(electronDist)
+      ? fs.readdirSync(electronDist)
+          .filter(f => f.toLowerCase().includes('setup') && f.toLowerCase().endsWith('.exe'))
+          .sort()[0]
+      : null;
+    if (!setupExe) {
+      throw new Error(`FreeplayDownloader-Setup exe not found in ${electronDist}`);
+    }
+    const publicDir = path.join(gamesServerDir, 'public');
+    fs.mkdirSync(publicDir, { recursive: true });
+    fs.copyFileSync(path.join(electronDist, setupExe), path.join(publicDir, 'FreeplayDownloader-Setup.exe'));
+    console.log(`✓ Copied ${setupExe} -> games/server/public/FreeplayDownloader-Setup.exe`);
+  }
 
   if (fs.existsSync(gamesServerDir)) {
     if (fs.existsSync(gamesAndroidDir)) {

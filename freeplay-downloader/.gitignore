@@ -1,0 +1,6 @@
+node_modules/
+dist_electron/
+config.json
+torrent_queue.json
+downloads/
+*.log

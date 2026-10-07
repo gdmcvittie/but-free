@@ -10,7 +10,8 @@
     "tv/server",
     "tv/firetv",
     "games/server",
-    "downloader"
+    "downloader",
+    "freeplay-downloader"
   ],
   "scripts": {
     "postinstall": "node scripts/install-all.mjs",

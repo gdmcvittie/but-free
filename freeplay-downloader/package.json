@@ -1,0 +1,73 @@
+{
+  "name": "freeplay-downloader",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "FitGirl / Steam repack downloader - slimmed down from my-games-server",
+  "main": "electron-main.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "electron:dev": "electron .",
+    "electron:build": "electron-builder --win && node scripts/post-electron-build.js",
+    "build:electron": "npm run electron:build",
+    "build": "npm run electron:build"
+  },
+  "dependencies": {
+    "7zip-bin": "^5.2.0",
+    "7zip-min": "^3.0.1",
+    "adm-zip": "^0.6.0",
+    "express": "^5.2.1",
+    "webtorrent": "^2.6.2"
+  },
+  "devDependencies": {
+    "electron": "^43.1.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.freeplay.downloader",
+    "productName": "Freeplay Downloader",
+    "npmRebuild": false,
+    "directories": {
+      "output": "dist_electron"
+    },
+    "files": [
+      "server.js",
+      "package.json",
+      "electron-main.js",
+      "lib/**/*",
+      "stream/**/*",
+      "public/**/*",
+      "node_modules/7zip-bin/**/*",
+      "node_modules/7zip-min/**/*"
+    ],
+    "protocols": [
+      {
+        "name": "Freeplay Downloader Download Link",
+        "schemes": [
+          "freeplayDL"
+        ]
+      }
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "**/node_modules/7zip-bin/**/*"
+    ],
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        }
+      ],
+      "category": "Network"
+    }
+  }
+}
