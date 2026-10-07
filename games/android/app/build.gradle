@@ -5,9 +5,12 @@ plugins {
 def bundledAssetsDir = layout.buildDirectory.dir('generated/freeplayAssets')
 
 tasks.register('syncFreeplayAssets', Copy) {
+    doFirst {
+        delete bundledAssetsDir.get().asFile
+    }
     from('../../server/dist') {
         into 'offline-site'
-        exclude 'cores/**'
+        exclude 'cores/**', 'freeplay.apk'
     }
     from('../../server/public/cores') {
         into 'cores'

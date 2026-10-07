@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Nostalgist } from 'nostalgist';
 import {
-  X, Play, Pause, RotateCcw, Maximize2, Minimize2, Gamepad2,
+  X, Play, Pause, RotateCcw, Maximize2, Minimize2,
   Save, FolderInput, Heart, Download, Globe, Loader2
 } from 'lucide-react';
 import { fetchJson } from '../utils/api';
@@ -41,6 +41,16 @@ const CORE_FOR_CONSOLE = {
   neogeo: 'fbalpha2012_neogeo',
   arcade: 'fbalpha2012_neogeo'
 };
+
+function hasConnectedGamepad() {
+  try {
+    if (window.FreeplayAndroid?.hasController?.()) return true;
+    return typeof navigator.getGamepads === 'function'
+      && Array.from(navigator.getGamepads()).some((pad) => pad && pad.connected);
+  } catch {
+    return false;
+  }
+}
 
 function openSaveStateDB() {
   return new Promise((resolve, reject) => {
@@ -103,12 +113,8 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768 || window.innerHeight <= 500);
-  const [hasPhysicalGamepad, setHasPhysicalGamepad] = useState(() => {
-    if (typeof navigator !== 'undefined' && typeof navigator.getGamepads === 'function') {
-      return Array.from(navigator.getGamepads()).some((p) => p !== null && p.connected);
-    }
-    return false;
-  });
+  const [orientation, setOrientation] = useState(() => window.innerHeight > window.innerWidth ? 'portrait' : 'landscape');
+  const [hasPhysicalGamepad, setHasPhysicalGamepad] = useState(hasConnectedGamepad);
 
   const isWebGame = !!(game?.isWebGame || game?.console === 'web' || (game?.webUrl || '').startsWith('http'));
   const isPcGame = !isWebGame && (game?.console === 'pc' || game?.isPcGame);
@@ -119,7 +125,10 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
   }, []);
 
   useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth <= 768 || window.innerHeight <= 500);
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768 || window.innerHeight <= 500);
+      setOrientation(window.innerHeight > window.innerWidth ? 'portrait' : 'landscape');
+    };
     window.addEventListener('resize', handleResize);
     window.addEventListener('orientationchange', handleResize);
     return () => {
@@ -131,16 +140,46 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
   useEffect(() => {
     const onPadConnected = () => setHasPhysicalGamepad(true);
     const onPadDisconnected = () => {
-      const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-      setHasPhysicalGamepad(Array.from(pads).some(p => p !== null && p.connected));
+      setHasPhysicalGamepad(hasConnectedGamepad());
+    };
+    const onNativeControllerChanged = (event) => {
+      setHasPhysicalGamepad(!!event.detail?.connected || hasConnectedGamepad());
     };
     window.addEventListener('gamepadconnected', onPadConnected);
     window.addEventListener('gamepaddisconnected', onPadDisconnected);
+    window.addEventListener('freeplay:controllerchange', onNativeControllerChanged);
     return () => {
       window.removeEventListener('gamepadconnected', onPadConnected);
       window.removeEventListener('gamepaddisconnected', onPadDisconnected);
+      window.removeEventListener('freeplay:controllerchange', onNativeControllerChanged);
     };
   }, []);
+
+  useEffect(() => {
+    window.__freeplayAndroidKey = (type, key, code, keyCode) => {
+      const browserPadConnected = typeof navigator.getGamepads === 'function'
+        && Array.from(navigator.getGamepads()).some((pad) => pad && pad.connected);
+      if (browserPadConnected) return;
+      const event = new KeyboardEvent(type, { key, code, bubbles: true, cancelable: true, composed: true });
+      try { Object.defineProperty(event, 'keyCode', { value: keyCode, configurable: true }); } catch { /* legacy engine */ }
+      try { Object.defineProperty(event, 'which', { value: keyCode, configurable: true }); } catch { /* legacy engine */ }
+      const canvas = document.querySelector('.game-canvas');
+      if (canvas) {
+        try { canvas.focus({ preventScroll: true }); } catch { canvas.focus(); }
+        canvas.dispatchEvent(event);
+      } else {
+        window.dispatchEvent(event);
+      }
+    };
+    return () => { delete window.__freeplayAndroidKey; };
+  }, []);
+
+  useEffect(() => {
+    const bridge = window.FreeplayAndroid;
+    if (!bridge?.setImmersiveMode) return undefined;
+    bridge.setImmersiveMode(!isWebGame && !isPcGame && hasPhysicalGamepad);
+    return () => bridge.setImmersiveMode(false);
+  }, [hasPhysicalGamepad, isWebGame, isPcGame]);
 
   // -------------------------------------------------------------
   // Keyboard event dispatcher (virtual on-screen buttons route here)
@@ -442,10 +481,10 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
             input_player1_r: 'w',
             input_player1_select: 'rshift',
             input_player1_start: 'enter',
-            input_player1_a_btn: '2',
-            input_player1_b_btn: '3',
-            input_player1_x_btn: '0',
-            input_player1_y_btn: '1'
+            input_player1_a_btn: '0',
+            input_player1_b_btn: '1',
+            input_player1_x_btn: '2',
+            input_player1_y_btn: '3'
           },
           style: {
             width: '100%',
@@ -708,76 +747,37 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
     </div>
   );
 
-  const headerBar = (
-    <div className="flex items-center justify-between px-4 py-2.5 bg-slate-950/80 border-b border-white/10 z-10">
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="w-8 h-8 rounded-lg bg-purple-600/30 border border-purple-500/40 flex items-center justify-center text-purple-300 shrink-0">
-          <Gamepad2 className="w-4 h-4" />
-        </div>
-        <div className="min-w-0">
-          <h2 className="text-sm font-bold text-white font-heading truncate max-w-[240px]">{game.title}</h2>
-          <div className="flex items-center gap-2 text-[11px] text-slate-400">
-            <span className="uppercase text-purple-400 font-bold">{game.consoleName || game.console}</span>
-            <span>•</span>
-            <span>Google Drive • WASM Core</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-1.5 shrink-0">
+  const headerBar = (className = '') => (
+    <div className={`freeplay-game-toolbar ${className}`}>
+      <div className="freeplay-game-toolbar-actions">
+        <button onClick={handleTogglePause} disabled={isLoading} className="icon-btn icon-btn-sm" title={isPaused ? 'Resume' : 'Pause'} aria-label={isPaused ? 'Resume' : 'Pause'}>
+          {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+        </button>
+        <button onClick={handleReset} disabled={isLoading} className="icon-btn icon-btn-sm" title="Reset" aria-label="Reset">
+          <RotateCcw className="w-4 h-4" />
+        </button>
+        <button onClick={handleSaveState} disabled={isLoading} className="icon-btn icon-btn-sm" title="Save State" aria-label="Save state">
+          <Save className="w-4 h-4" />
+        </button>
+        <button onClick={handleLoadState} disabled={isLoading} className="icon-btn icon-btn-sm" title="Load State" aria-label="Load state">
+          <FolderInput className="w-4 h-4" />
+        </button>
+        <button onClick={toggleFullscreen} className="icon-btn icon-btn-sm" title="Fullscreen" aria-label="Fullscreen">
+          {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+        </button>
         {onToggleFavorite && (
           <button
             onClick={() => onToggleFavorite(game.id)}
             className={`icon-btn icon-btn-sm ${isFav ? 'active' : ''}`}
-            title="Favorite"
+            title={isFav ? 'Remove Favorite' : 'Add Favorite'}
+            aria-label={isFav ? 'Remove favorite' : 'Add favorite'}
           >
             <Heart className={`w-4 h-4 ${isFav ? 'fill-amber-400' : ''}`} />
           </button>
         )}
-        <button
-          onClick={handleTogglePause}
-          disabled={isLoading}
-          className="icon-btn icon-btn-sm"
-          title={isPaused ? 'Resume' : 'Pause'}
-        >
-          {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
-        </button>
-        <button
-          onClick={handleReset}
-          disabled={isLoading}
-          className="icon-btn icon-btn-sm"
-          title="Reset"
-        >
-          <RotateCcw className="w-4 h-4" />
-        </button>
-        <button
-          onClick={handleSaveState}
-          disabled={isLoading}
-          className="icon-btn icon-btn-sm"
-          title="Save State"
-        >
-          <Save className="w-4 h-4" />
-        </button>
-        <button
-          onClick={handleLoadState}
-          disabled={isLoading}
-          className="icon-btn icon-btn-sm"
-          title="Load State"
-        >
-          <FolderInput className="w-4 h-4" />
-        </button>
-        <button
-          onClick={toggleFullscreen}
-          className="icon-btn icon-btn-sm"
-          title="Fullscreen"
-        >
-          {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-        </button>
-        <button
-          onClick={onClose}
-          className="icon-btn icon-btn-sm danger"
-          title="Exit Game"
-        >
+      </div>
+      <div className="freeplay-game-toolbar-exit">
+        <button onClick={onClose} className="icon-btn icon-btn-sm danger" title="Exit Game" aria-label="Exit game">
           <X className="w-4 h-4" />
         </button>
       </div>
@@ -813,35 +813,64 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
     </div>
   );
 
-  // Mobile: retro handheld layout with on-screen controls
-  if (isMobile && !hasPhysicalGamepad) {
+  // Portrait handheld layout: screen above the Game Boy-style controls.
+  if (isMobile && orientation === 'portrait' && !hasPhysicalGamepad) {
     return (
-      <div ref={containerRef} className="fixed inset-0 z-50 bg-black flex flex-col animate-in">
-        {headerBar}
-        {screenArea}
-        <div className="shrink-0 bg-slate-950 border-t border-white/10 px-4 pt-2 pb-4 select-none">
-          <div className="flex items-center justify-between max-w-md mx-auto">
+      <div ref={containerRef} className="gb-portrait-chassis">
+        {headerBar('gb-portrait-header')}
+        <div className="gb-portrait-screen-bezel">
+          <div className="gb-screen-top-bar">
+            <span className="gb-screen-status"><i className="gb-power-led" /> POWER</span>
+            <span className="gb-screen-status">STEREO SOUND</span>
+          </div>
+          <div className="gb-screen-body">{screenArea}</div>
+          <div className="gb-screen-brand">FREEPLAY RETRO</div>
+        </div>
+        <div className="gb-portrait-controls">
+          <div className="gb-shoulder-bar">
             <button className="retro-shoulder-btn" {...createVirtualButtonProps('q', 'KeyQ')}>L</button>
-            <div className="flex gap-3">
-              <button className="retro-meta-btn" {...createVirtualButtonProps('Shift', 'ShiftLeft')}>SELECT</button>
-              <button className="retro-meta-btn" {...createVirtualButtonProps('Enter', 'Enter')}>START</button>
-            </div>
             <button className="retro-shoulder-btn" {...createVirtualButtonProps('w', 'KeyW')}>R</button>
           </div>
-          <div className="flex items-center justify-between max-w-md mx-auto mt-3">
+          <div className="gb-main-controls">
             {renderDPad()}
             {renderActionButtons()}
+          </div>
+          <div className="gb-meta-controls">
+            <button className="retro-meta-btn" {...createVirtualButtonProps('Shift', 'ShiftLeft')}>SELECT</button>
+            <button className="retro-meta-btn" {...createVirtualButtonProps('Enter', 'Enter')}>START</button>
           </div>
         </div>
       </div>
     );
   }
 
-  // Desktop / gamepad: fullscreen canvas
+  // Landscape handheld layout: GBA-style controls on either side of the screen.
+  if (isMobile && orientation === 'landscape' && !hasPhysicalGamepad) {
+    return (
+      <div ref={containerRef} className="gba-landscape-chassis">
+        {headerBar('gba-floating-header')}
+        <div className="gba-left-wing">
+          <button className="retro-shoulder-btn gba-shoulder-btn" {...createVirtualButtonProps('q', 'KeyQ')}>L</button>
+          {renderDPad()}
+          <button className="retro-meta-btn" {...createVirtualButtonProps('Shift', 'ShiftLeft')}>SELECT</button>
+        </div>
+        <div className="gba-center-screen">
+          <div className="gba-screen-bezel">{screenArea}</div>
+        </div>
+        <div className="gba-right-wing">
+          <button className="retro-shoulder-btn gba-shoulder-btn" {...createVirtualButtonProps('w', 'KeyW')}>R</button>
+          {renderActionButtons()}
+          <button className="retro-meta-btn" {...createVirtualButtonProps('Enter', 'Enter')}>START</button>
+        </div>
+      </div>
+    );
+  }
+
+  // Desktop and physical-controller layout: full-screen canvas, no touch controls.
   return (
-    <div ref={containerRef} className="fixed inset-0 z-50 bg-black flex flex-col animate-in">
-      {headerBar}
-      {screenArea}
+    <div ref={containerRef} className="freeplay-gamepad-stage">
+      {headerBar('freeplay-game-toolbar-overlay')}
+      <div className="freeplay-gamepad-screen">{screenArea}</div>
     </div>
   );
 }

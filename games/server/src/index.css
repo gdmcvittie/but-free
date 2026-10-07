@@ -1921,6 +1921,321 @@ h1, h2, h3, h4, .font-heading {
   color: #fff;
 }
 
+/* FREEPLAY handheld player layouts (portrait Game Boy / landscape GBA). */
+.freeplay-game-toolbar {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  color: #fff;
+  z-index: 40;
+}
+
+.freeplay-game-toolbar-actions,
+.freeplay-game-toolbar-exit {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.freeplay-game-toolbar .icon-btn {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  padding: 0;
+  justify-content: center;
+}
+
+.freeplay-game-toolbar .icon-btn:disabled {
+  opacity: 0.45;
+}
+
+.freeplay-game-toolbar-overlay {
+  position: absolute;
+  top: env(safe-area-inset-top, 0px);
+  left: 0;
+  right: 0;
+  min-height: 48px;
+  padding: 6px 10px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.15) 78%, transparent);
+}
+
+.freeplay-gamepad-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  overflow: hidden;
+  background: #000;
+  user-select: none;
+}
+
+.freeplay-gamepad-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #000;
+}
+
+.gb-portrait-chassis,
+.gba-landscape-chassis {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  box-sizing: border-box;
+  display: flex;
+  overflow: hidden;
+  color: #fff;
+  user-select: none;
+  background: radial-gradient(circle at 50% 20%, #1e1e2d 0%, #0b0b12 100%);
+}
+
+.gb-portrait-chassis {
+  width: 100vw;
+  width: 100dvw;
+  height: 100vh;
+  height: 100dvh;
+  max-width: 100dvw;
+  max-height: 100dvh;
+  flex-direction: column;
+  justify-content: flex-start;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.gb-portrait-header {
+  position: relative;
+  flex: 0 0 42px;
+  min-height: 42px;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.83);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(12px);
+}
+
+.gb-portrait-screen-bezel {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  width: calc(100% - 16px);
+  max-width: 440px;
+  height: min(44dvh, calc((100vw - 20px) * 0.82));
+  min-height: 180px;
+  margin: 4px auto 0;
+  overflow: hidden;
+  position: relative;
+  background: #0f1015;
+  border: 3px solid #2d303e;
+  border-radius: 14px 14px 22px 14px;
+  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.9), 0 8px 24px rgba(0, 0, 0, 0.6);
+}
+
+.gb-screen-top-bar {
+  display: flex;
+  flex: 0 0 18px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 9px;
+  background: #181a22;
+  border-bottom: 1px solid #252834;
+}
+
+.gb-screen-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #71717a;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+.gb-power-led {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 7px #ef4444;
+}
+
+.gb-screen-body {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #000;
+}
+
+.gb-screen-brand {
+  display: flex;
+  flex: 0 0 16px;
+  align-items: center;
+  justify-content: center;
+  color: #a78bfa;
+  background: #14161f;
+  border-top: 1px solid #252834;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 2px;
+}
+
+.gb-portrait-controls {
+  z-index: 10;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: space-evenly;
+  gap: 5px;
+  min-height: 0;
+  padding: 4px 14px max(10px, env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(0, 0, 0, 0.25));
+}
+
+.gb-main-controls .retro-dpad {
+  grid-template-columns: repeat(3, 42px);
+  grid-template-rows: repeat(3, 42px);
+  gap: 3px;
+}
+
+.gb-main-controls .retro-action-cluster {
+  grid-template-columns: repeat(3, 40px);
+  grid-template-rows: repeat(3, 40px);
+  gap: 3px;
+}
+
+.gb-main-controls .retro-action-btn {
+  width: 40px;
+  height: 40px;
+}
+
+.gb-shoulder-bar,
+.gb-main-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.gb-shoulder-bar {
+  padding: 0 4px;
+}
+
+.gb-meta-controls {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  padding-top: 2px;
+}
+
+.gba-landscape-chassis {
+  width: 100vw;
+  width: 100dvw;
+  height: 100vh;
+  height: 100dvh;
+  max-width: 100dvw;
+  max-height: 100dvh;
+  flex-direction: row;
+  align-items: stretch;
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  background: radial-gradient(circle at 50% 50%, #1a1728 0%, #07060e 100%);
+}
+
+.gba-floating-header {
+  position: absolute;
+  top: env(safe-area-inset-top, 0px);
+  left: 0;
+  right: 0;
+  min-height: 44px;
+  padding: 5px 8px;
+  background: rgba(0, 0, 0, 0.6);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(10px);
+}
+
+.gba-left-wing,
+.gba-right-wing {
+  z-index: 10;
+  display: flex;
+  flex: 0 0 clamp(92px, 16vw, 130px);
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: max(8px, env(safe-area-inset-top, 0px)) 4px max(10px, env(safe-area-inset-bottom, 0px));
+}
+
+.gba-left-wing { padding-left: 8px; }
+.gba-right-wing { padding-right: 8px; }
+
+.gba-center-screen {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  width: 0;
+  min-width: 0;
+  height: 100%;
+  padding: 4px 0;
+}
+
+.gba-screen-bezel {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  border: 2px solid #2a2a3e;
+  border-radius: 12px;
+  box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.9), 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+.gba-shoulder-btn {
+  width: 100%;
+  padding: 6px 8px;
+}
+
+.gba-left-wing .retro-dpad,
+.gba-right-wing .retro-action-cluster {
+  grid-template-columns: repeat(3, clamp(25px, 4vw, 32px));
+  grid-template-rows: repeat(3, clamp(25px, 4vw, 32px));
+  gap: 2px;
+}
+
+.gba-right-wing .retro-action-btn {
+  width: clamp(25px, 4vw, 32px);
+  height: clamp(25px, 4vw, 32px);
+}
+
+.gba-landscape-chassis .retro-meta-btn {
+  padding: 5px 8px;
+  font-size: 8px;
+}
+
+.freeplay-gamepad-stage .game-screen-mount,
+.freeplay-gamepad-screen > .relative {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
 .retro-shoulder-btn {
   padding: 6px 18px;
   border-radius: 10px;
