@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Nostalgist } from 'nostalgist';
 import {
   X, Play, Pause, RotateCcw, Maximize2, Minimize2,
-  Save, FolderInput, Heart, Download, Globe, Loader2, Coins
+  Save, FolderInput, Heart, Download, Globe, Loader2
 } from 'lucide-react';
 import { fetchJson } from '../utils/api';
 import { cacheGameForOffline, getCachedRom, isAndroidOfflineMode } from '../utils/offlineGames';
@@ -1051,18 +1051,6 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
   const headerBar = (className = '') => (
     <div className={`freeplay-game-toolbar ${className}`}>
       <div className="freeplay-game-toolbar-actions">
-        {isNeoGame && (
-          <button
-            onClick={insertCoin}
-            disabled={isLoading}
-            className="btn btn-sm bg-amber-500/20 hover:bg-amber-500/35 text-amber-300 border border-amber-500/40 font-bold px-2.5 py-1 flex items-center gap-1.5 rounded-lg shadow-sm transition hover:scale-105 active:scale-95 cursor-pointer"
-            title="Insert Coin (Shift / 5 / C)"
-            aria-label="Insert Coin"
-          >
-            <Coins className="w-3.5 h-3.5 text-amber-400" />
-            <span className="text-[11px] tracking-wider">INSERT COIN</span>
-          </button>
-        )}
         <button onClick={handleTogglePause} disabled={isLoading} className="icon-btn icon-btn-sm" title={isPaused ? 'Resume' : 'Pause'} aria-label={isPaused ? 'Resume' : 'Pause'}>
           {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
         </button>

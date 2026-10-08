@@ -4,6 +4,7 @@ import { api } from './api';
 import { hasNativeBridge } from './nativeBridge';
 import { formatBytes, pluralize } from './format';
 import { getOfflineStats, removeOfflineTrack, removeOfflineCollection, clearAllOffline } from './offlineStorage';
+import { RATES, getSavedAudiobookRateIndex, saveAudiobookRateIndex } from './audiobookSettings';
 
 function Switch({ checked, onChange }) {
   return (
@@ -38,6 +39,22 @@ export default function Settings({ user, libraryVersion, onOpenDrivePicker, onLo
   const [health, setHealth] = useState(null);
   const [abbSession, setAbbSession] = useState(null);
   const [abbBusy, setAbbBusy] = useState(false);
+  const [audiobookRateIndex, setAudiobookRateIndex] = useState(getSavedAudiobookRateIndex);
+
+  useEffect(() => {
+    const handleSpeedChanged = (e) => {
+      if (e.detail?.rateIndex !== undefined) {
+        setAudiobookRateIndex(e.detail.rateIndex);
+      }
+    };
+    window.addEventListener('fraudio:audiobook-speed-changed', handleSpeedChanged);
+    return () => window.removeEventListener('fraudio:audiobook-speed-changed', handleSpeedChanged);
+  }, []);
+
+  const handleAudiobookSpeedChange = (index) => {
+    const saved = saveAudiobookRateIndex(index);
+    setAudiobookRateIndex(saved);
+  };
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState(null);
   const [restartingStreamer, setRestartingStreamer] = useState(false);
@@ -441,6 +458,23 @@ export default function Settings({ user, libraryVersion, onOpenDrivePicker, onLo
             <option value={7}>7 days</option>
             <option value={30}>30 days</option>
             <option value={90}>90 days</option>
+          </select>
+        </div>
+
+        <div className="setting-row">
+          <div>
+            <div className="setting-label">Default audiobook speed</div>
+            <div className="setting-help">Remembered playback speed applied to audiobooks (music tracks always play at 1×).</div>
+          </div>
+          <select
+            className="input-field"
+            style={{ width: 130 }}
+            value={audiobookRateIndex}
+            onChange={(e) => handleAudiobookSpeedChange(Number(e.target.value))}
+          >
+            {RATES.map((rate, idx) => (
+              <option key={rate} value={idx}>{rate}×</option>
+            ))}
           </select>
         </div>
 

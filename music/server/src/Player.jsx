@@ -17,10 +17,10 @@ import { formatDuration, stripTrackNumber } from './format';
 import { pushNativeState } from './nativeBridge';
 import { getOfflineAudioUrl, getOfflineCoverUrl, saveOfflineProgress, getOfflineProgress } from './offlineStorage';
 import NowPlayingView from './NowPlayingView';
+import { RATES, getSavedAudiobookRateIndex, saveAudiobookRateIndex } from './audiobookSettings';
 
 const SAVE_INTERVAL_SEC = 30;
 const TICK_MS = 5000;
-const RATES = [1, 1.25, 1.5, 1.75, 2];
 const SKIP_SECONDS = 15;
 
 /**
@@ -54,7 +54,7 @@ export default function Player({
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(item.durationSec || 0);
-  const [rateIndex, setRateIndex] = useState(0);
+  const [rateIndex, setRateIndex] = useState(() => (item.kind !== 'track' ? getSavedAudiobookRateIndex() : 0));
   const [scrubPosition, setScrubPosition] = useState(null);
   const [error, setError] = useState(null);
   const [isFavorite, setIsFavorite] = useState(Boolean(item.favorite));
@@ -132,7 +132,11 @@ export default function Player({
     setPlaying(false);
     setError(null);
     setScrubPosition(null);
-    setRateIndex(0);
+    const targetRateIdx = item.kind !== 'track' ? getSavedAudiobookRateIndex() : 0;
+    setRateIndex(targetRateIdx);
+    if (audioRef.current) {
+      audioRef.current.playbackRate = RATES[targetRateIdx];
+    }
 
     let cancelled = false;
     (async () => {
@@ -200,6 +204,9 @@ export default function Player({
     if (!audio) return undefined;
 
     const applyResume = () => {
+      const isAudiobook = itemRef.current.kind !== 'track';
+      const targetRate = isAudiobook ? RATES[getSavedAudiobookRateIndex()] : 1.0;
+      audio.playbackRate = targetRate;
       if (Number.isFinite(audio.duration) && audio.duration > 0) {
         setDuration(audio.duration);
       }
@@ -211,7 +218,14 @@ export default function Player({
     };
 
     const handleTimeUpdate = () => setPosition(audio.currentTime);
-    const handlePlay = () => setPlaying(true);
+    const handlePlay = () => {
+      const isAudiobook = itemRef.current.kind !== 'track';
+      const targetRate = isAudiobook ? RATES[getSavedAudiobookRateIndex()] : 1.0;
+      if (audio.playbackRate !== targetRate) {
+        audio.playbackRate = targetRate;
+      }
+      setPlaying(true);
+    };
     const handlePause = () => {
       setPlaying(false);
       // Pausing (button, lock screen, headset, focus loss) is the last moment
@@ -381,7 +395,9 @@ export default function Player({
   };
 
   const cycleRate = () => {
+    if (item.kind === 'track') return;
     const next = (rateIndex + 1) % RATES.length;
+    saveAudiobookRateIndex(next);
     setRateIndex(next);
     if (audioRef.current) audioRef.current.playbackRate = RATES[next];
   };
@@ -421,6 +437,17 @@ export default function Player({
     window.addEventListener('fraudio:native-play', handleNativePlay);
     window.addEventListener('fraudio:native-pause', handleNativePause);
 
+    const handleSpeedChanged = (e) => {
+      if (itemRef.current.kind !== 'track') {
+        const nextIdx = e.detail?.rateIndex ?? getSavedAudiobookRateIndex();
+        setRateIndex(nextIdx);
+        if (audioRef.current) {
+          audioRef.current.playbackRate = RATES[nextIdx];
+        }
+      }
+    };
+    window.addEventListener('fraudio:audiobook-speed-changed', handleSpeedChanged);
+
     return () => {
       window.removeEventListener('fraudio:car-toggle-play', handleToggle);
       window.removeEventListener('fraudio:car-seek-by', handleSeekBy);
@@ -428,6 +455,7 @@ export default function Player({
       window.removeEventListener('fraudio:car-cycle-rate', handleCycleRate);
       window.removeEventListener('fraudio:native-play', handleNativePlay);
       window.removeEventListener('fraudio:native-pause', handleNativePause);
+      window.removeEventListener('fraudio:audiobook-speed-changed', handleSpeedChanged);
     };
   }, [rateIndex, duration]);
 

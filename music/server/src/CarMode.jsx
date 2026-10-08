@@ -21,8 +21,7 @@ import { api } from './api';
 import { formatDuration } from './format';
 import { useSwipeBack } from './swipeBack';
 import { getOfflineStats } from './offlineStorage';
-
-const RATES = [1, 1.25, 1.5, 1.75, 2];
+import { RATES } from './audiobookSettings';
 
 function shuffleInto(items) {
   const out = [...items];

@@ -16,8 +16,7 @@ import {
   Disc
 } from 'lucide-react';
 import { formatDuration, stripTrackNumber } from './format';
-
-const RATES = [1, 1.25, 1.5, 1.75, 2];
+import { RATES } from './audiobookSettings';
 
 export default function NowPlayingView({
   isOpen,
