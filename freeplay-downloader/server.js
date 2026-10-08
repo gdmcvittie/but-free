@@ -17,14 +17,20 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ── Paths & Portable Data Directory ────────────────────────────────────────
-// If running from a portable Electron .exe, PORTABLE_EXECUTABLE_DIR points to
-// the folder containing the .exe. Otherwise defaults to process.cwd().
-const appBaseDir = process.env.PORTABLE_EXECUTABLE_DIR || (process.pkg ? path.dirname(process.execPath) : process.cwd());
-const dataDir = process.env.DATA_DIR || appBaseDir;
+// Persist user config (downloads folder, torrent queue) to a stable location
+// that survives app updates, portable runs, and deep-link launches.
+const defaultStableDir = path.join(
+  process.env.APPDATA || (process.platform === 'darwin' ? path.join(os.homedir(), 'Library', 'Application Support') : path.join(os.homedir(), '.config')),
+  'Freeplay Downloader'
+);
+const appBaseDir = process.env.PORTABLE_EXECUTABLE_DIR || (process.pkg ? path.dirname(process.execPath) : __dirname);
+const dataDir = process.env.DATA_DIR || (process.env.PORTABLE_EXECUTABLE_DIR ? process.env.PORTABLE_EXECUTABLE_DIR : defaultStableDir);
 const CONFIG_PATH = path.join(dataDir, 'config.json');
 const TORRENT_QUEUE_PATH = path.join(dataDir, 'torrent_queue.json');
 
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+try {
+  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+} catch (_) {}
 
 // ── Configuration State ────────────────────────────────────────────────────
 let config = {
@@ -33,23 +39,51 @@ let config = {
 };
 
 function loadConfig() {
-  if (fs.existsSync(CONFIG_PATH)) {
-    try {
-      const loaded = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-      config = { ...config, ...loaded };
-    } catch (e) {
-      console.warn('[Freeplay Downloader] Error loading config.json:', e.message);
+  const candidatePaths = [
+    CONFIG_PATH,
+    path.join(__dirname, 'config.json'),
+    path.join(process.cwd(), 'config.json'),
+    path.join(process.env.APPDATA || '', 'Freeplay Downloader', 'config.json'),
+    path.join(process.env.APPDATA || '', 'freeplay-downloader', 'config.json'),
+    process.env.PORTABLE_EXECUTABLE_DIR ? path.join(process.env.PORTABLE_EXECUTABLE_DIR, 'config.json') : null
+  ].filter(Boolean);
+
+  for (const p of candidatePaths) {
+    if (fs.existsSync(p)) {
+      try {
+        const loaded = JSON.parse(fs.readFileSync(p, 'utf-8'));
+        if (loaded && typeof loaded === 'object') {
+          config = { ...config, ...loaded };
+          if (config.downloadsFolder && String(config.downloadsFolder).trim()) {
+            break;
+          }
+        }
+      } catch (e) {
+        console.warn('[Freeplay Downloader] Error loading ' + p + ':', e.message);
+      }
     }
+  }
+
+  // Ensure there is always a valid downloads folder so the user is never stuck
+  if (!config.downloadsFolder || !String(config.downloadsFolder).trim()) {
+    config.downloadsFolder = path.join(os.homedir(), 'Downloads', 'FreeplayDL');
   }
 }
 loadConfig();
 
 function saveConfig() {
   try {
+    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
   } catch (e) {
     console.error('[Freeplay Downloader] Error saving config.json:', e.message);
   }
+  try {
+    const localCopy = path.join(__dirname, 'config.json');
+    if (localCopy !== CONFIG_PATH) {
+      fs.writeFileSync(localCopy, JSON.stringify(config, null, 2), 'utf-8');
+    }
+  } catch (_) {}
 }
 
 function getDownloadsFolder() {
@@ -250,34 +284,51 @@ export const DEEP_LINK_PROTOCOL = 'freeplayDL';
 
 export function parseFreeplayDeepLink(rawUrl) {
   if (!rawUrl || typeof rawUrl !== 'string') return null;
-  let rest = rawUrl.trim();
+  let rest = rawUrl.replace(/^["']+|["']+$/g, '').trim();
 
-  const schemeMatch = rest.match(/^freeplaydl:\/\//i);
-  if (schemeMatch) {
-    rest = rest.slice(schemeMatch[0].length);
-  } else if (!/^(https?:\/\/|magnet:)/i.test(rest)) {
-    // Not a deep link and not a plain URL - reject.
-    return null;
-  }
-
-  // Support freeplayDL://download?url=<encoded>&title=<encoded>
   let title = null;
-  if (/^download\?/i.test(rest)) {
-    try {
-      const qs = new URLSearchParams(rest.slice('download?'.length));
-      const u = qs.get('url');
-      const t = qs.get('title');
+
+  // Try standard URL parsing if protocol is freeplayDL:
+  try {
+    const parsedObj = new URL(rest);
+    if (parsedObj.protocol.toLowerCase() === `${DEEP_LINK_PROTOCOL.toLowerCase()}:`) {
+      const u = parsedObj.searchParams.get('url');
+      const t = parsedObj.searchParams.get('title');
       if (u) {
         rest = u;
         title = t || null;
+      } else {
+        const afterScheme = rest.slice(parsedObj.protocol.length).replace(/^[\/\\]+/, '');
+        if (afterScheme) rest = afterScheme;
       }
-    } catch (_) {}
+    }
+  } catch (_) {}
+
+  const schemeMatch = rest.match(new RegExp(`^${DEEP_LINK_PROTOCOL}:[\\/\\\\]*`, 'i'));
+  if (schemeMatch) {
+    rest = rest.slice(schemeMatch[0].length);
+  }
+
+  // Support freeplayDL://download?url=... or /download?url=... or download/?url=...
+  if (/^\/?download\/?\?/i.test(rest) || /^\/?download\?/i.test(rest)) {
+    const qIndex = rest.indexOf('?');
+    if (qIndex !== -1) {
+      try {
+        const qs = new URLSearchParams(rest.slice(qIndex + 1));
+        const u = qs.get('url');
+        const t = qs.get('title');
+        if (u) {
+          rest = u;
+          title = t || title || null;
+        }
+      } catch (_) {}
+    }
   }
 
   // The remainder is the target URL (possibly URI-encoded)
   let url = rest;
   try {
-    if (/^https?%3a/i.test(url) || /%2f/i.test(url)) {
+    if (/^https?%3a/i.test(url) || /%2f/i.test(url) || /^magnet%3a/i.test(url)) {
       url = decodeURIComponent(url);
     }
   } catch (_) {}
@@ -301,7 +352,7 @@ export function parseFreeplayDeepLink(rawUrl) {
       try {
         const u = new URL(url);
         const last = u.pathname.split('/').filter(Boolean).pop();
-        if (last) title = decodeURIComponent(last);
+        if (last) title = decodeURIComponent(last).replace(/[-_]/g, ' ');
       } catch (_) {}
     }
   }

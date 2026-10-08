@@ -5007,16 +5007,81 @@ process.on('unhandledRejection', (reason) => {
 });
 
 const DEFAULT_TRACKERS = [
+  // HTTP/HTTPS trackers: critical for VPS environments where outbound UDP is blocked or throttled
+  'http://tracker.opentrackr.org:1337/announce',
+  'http://tracker.openbittorrent.com:80/announce',
+  'http://open.acgnxtracker.com:80/announce',
+  'http://tracker.files.fm:6969/announce',
+  'http://tracker1.bt.moack.co.kr:80/announce',
+  'http://tracker.gbitt.info:80/announce',
+  'https://tracker.tamersunion.org:443/announce',
+  'https://tracker.moeblog.cn:443/announce',
+  'https://tracker.zhuqiy.com:443/announce',
+  'https://tracker1.520.jp:443/announce',
+  'https://tr.burnbit.com:443/announce',
+  'https://tracker.loligirl.cn:443/announce',
+  'http://tracker.bt4g.com:2095/announce',
+  'https://tracker.bt4g.com:2095/announce',
+  // WebSocket trackers for fast WebTorrent swarms
+  'wss://tracker.openwebtorrent.com',
+  'wss://tracker.webtorrent.dev',
+  'wss://tracker.btorrent.xyz',
+  // Fast UDP trackers
   'udp://tracker.opentrackr.org:1337/announce',
   'udp://open.demonii.com:1337/announce',
-  'udp://tracker.openbittorrent.com:80',
-  'udp://tracker.coppersurfer.tk:6969',
-  'udp://glotorrents.pw:6969/announce',
-  'udp://tracker.leechers-paradise.org:6969'
+  'udp://tracker.openbittorrent.com:6969/announce',
+  'udp://open.stealth.si:80/announce',
+  'udp://tracker.dler.org:6969/announce',
+  'udp://exodus.desync.com:6969/announce',
+  'udp://tracker.torrent.eu.org:451/announce',
+  'udp://exodus.desync.com:6971/announce',
+  'udp://ipv4.tracker.torrent.eu.org:451/announce',
+  'udp://tracker.empire-js.us:1337/announce',
+
+
+
+
 ];
 
-function normalizeMagnet(url) {
-  if (typeof url === 'string' && url.startsWith('magnet:')) {
+function normalizeMagnet(url, name = '') {
+  if (!url || typeof url !== 'string') return url;
+  let clean = url.trim().replace(/&#038;/g, '&').replace(/&amp;/gi, '&');
+
+  // Handle bare 32-char base32 infohash
+  if (/^[a-zA-Z2-7]{32}$/.test(clean)) {
+    const BASE32 = 'abcdefghijklmnopqrstuvwxyz234567';
+    let bits = 0, val = 0, hex = '';
+    for (const c of clean.toLowerCase()) {
+      val = (val << 5) | BASE32.indexOf(c);
+      bits += 5;
+      if (bits >= 8) { bits -= 8; hex += ((val >> bits) & 0xFF).toString(16).padStart(2, '0'); }
+    }
+    clean = hex;
+  }
+
+  // Handle bare 40-char hex infohash
+  if (/^[a-fA-F0-9]{40}$/.test(clean)) {
+    const parts = [`magnet:?xt=urn:btih:${clean.toLowerCase()}`];
+    if (name) parts.push(`dn=${encodeURIComponent(String(name).trim())}`);
+    for (const tracker of DEFAULT_TRACKERS) parts.push(`tr=${encodeURIComponent(tracker)}`);
+    return parts.join('&');
+  }
+
+  if (clean.startsWith('magnet:')) {
+    const cleanLower = clean.toLowerCase();
+    const missing = DEFAULT_TRACKERS.filter(tr => {
+      const encoded = encodeURIComponent(tr).toLowerCase();
+      return !cleanLower.includes(encoded) && !cleanLower.includes(tr.toLowerCase());
+    });
+    if (missing.length > 0) {
+      const sep = clean.includes('?') ? '&' : '?';
+      clean += sep + missing.map(tr => `tr=${encodeURIComponent(tr)}`).join('&');
+    }
+  }
+  return clean;
+}
+
+  /*
     let clean = url;
     for (const tr of DEFAULT_TRACKERS) {
       if (!clean.includes(encodeURIComponent(tr)) && !clean.includes(tr)) {
@@ -5026,7 +5091,7 @@ function normalizeMagnet(url) {
     return clean;
   }
   return url;
-}
+  */
 
 async function getWebTorrentClient() {
   if (!webtorrentClient) {
@@ -5543,7 +5608,7 @@ async function dispatchTorrentDownload({ userId, magnet, title, kind, meta = {},
       method: 'POST',
       headers: getTorrentHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
-        magnet,
+        magnet: normalizeMagnet(magnet, title || ''),
         title: title || 'Download',
         kind: effectiveKind,
         meta: effectiveMeta,
@@ -5917,13 +5982,13 @@ function parseRssFeedXml(xml, feedInfo) {
     let link = linkMatch ? decodeXmlEntities((linkMatch[1] || linkMatch[2] || '').trim()) : '';
 
     if (!magnet && infoHash) {
-      magnet = `magnet:?xt=urn:btih:${infoHash}&dn=${encodeURIComponent(title)}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce`;
+      magnet = normalizeMagnet(infoHash, title);
     }
 
     if (!magnet && enclosureUrl) {
       const hexMatch = enclosureUrl.match(/\/download\/([0-9a-fA-F]{40})/i);
       if (hexMatch) {
-        magnet = `magnet:?xt=urn:btih:${hexMatch[1]}&dn=${encodeURIComponent(title)}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce&tr=udp%3A%2F%2Ftracker.dler.org%3A6969%2Fannounce`;
+        magnet = normalizeMagnet(hexMatch[1], title);
       } else if (enclosureUrl.startsWith('magnet:')) {
         magnet = enclosureUrl;
       }

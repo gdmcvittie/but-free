@@ -3,7 +3,7 @@ import path from 'path';
 import http from 'http';
 import https from 'https';
 import WebTorrent from 'webtorrent';
-import { isVideoFile, cleanMediaFilename, resolveMediaMeta } from './util.js';
+import { isVideoFile, cleanMediaFilename, resolveMediaMeta, enrichMagnet, TRACKERS } from './util.js';
 import { transcodeMediaFile } from './transcoder.js';
 import { resolveTargetFolderId, uploadFileToGoogleDrive, findOrCreateFolder } from './driveUploader.js';
 
@@ -14,7 +14,7 @@ if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true
 let client = null;
 function getTorrentClient() {
   if (!client) {
-    client = new WebTorrent({ dht: true, maxConns: 100 });
+    client = new WebTorrent({ dht: true, tracker: true, lsd: true, maxConns: 120 });
     client.on('error', (err) => {
       console.warn('[TvDownloadManager] WebTorrent error:', err?.message || err);
     });
@@ -37,28 +37,81 @@ let activeDownloadJob = null;
 const transcodeQueue = [];
 let activeTranscodeJob = null;
 
-const gameQueue = [];
-let activeGameJob = null;
-
-const directQueue = [];
-let activeDirectJob = null;
-
 function loadHistory() {
   try {
     if (fs.existsSync(HISTORY_FILE)) {
       const data = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf-8'));
       if (Array.isArray(data)) {
+        const now = Date.now();
         for (const item of data) {
+          if (!item || !item.id) continue;
+
+          // If a job was interrupted while actively downloading, transcoding, or uploading,
+          // do NOT restore it into the live queue; it would block fresh downloads if stalled or dead.
+          if (['downloading', 'transcoding', 'uploading'].includes(item.stage) || item.status === 'active') {
+            item.status = 'error';
+            item.stage = 'error';
+            item.error = item.error || 'Download interrupted: node restarted while job was in flight.';
+            item.updatedAt = now;
+            jobs.set(item.id, item);
+            continue;
+          }
+
+          // If a job was queued, only restore it if it was created recently (within 12 hours)
+          // and has not been cancelled/errored, to prevent ancient stalled jobs from clogging the queue.
+          const ageHours = (now - (item.createdAt || 0)) / (1000 * 60 * 60);
+          if (['queued_download'].includes(item.stage) || (item.status === 'queued' && !item.stage)) {
+            if (ageHours <= 12 && !item.cancelled) {
+              item.status = 'queued';
+              item.stage = 'queued_download';
+              item.downloadSpeed = 0;
+              downloadQueue.push(item);
+            } else {
+              item.status = 'error';
+              item.stage = 'error';
+              item.error = 'Job expired in queue after server restart.';
+            }
+          } else if (item.stage === 'queued_transcode') {
+            if (ageHours <= 12 && !item.cancelled) {
+              item.status = 'queued';
+              item.stage = 'queued_transcode';
+              transcodeQueue.push(item);
+            } else {
+              item.status = 'error';
+              item.stage = 'error';
+              item.error = 'Job expired in queue after server restart.';
+            }
+          }
+
           jobs.set(item.id, item);
         }
       }
     }
   } catch (_) {}
+
+  // Automatically pump queues after startup so restored jobs resume
+  setImmediate(() => {
+    pumpDownloadQueue();
+    pumpTranscodeQueue();
+  });
+}
+
+function serializeJob(job) {
+  if (!job) return null;
+  const { torrent, ffmpegProcess, abortDownload, ...rest } = job;
+  return {
+    ...rest,
+    driveConfig: job.driveConfig ? {
+      rootFolderId: job.driveConfig.rootFolderId,
+      tokenRefreshUrl: job.driveConfig.tokenRefreshUrl,
+      hasAccessToken: Boolean(job.driveConfig.accessToken)
+    } : null
+  };
 }
 
 function saveHistory() {
   try {
-    const list = Array.from(jobs.values()).slice(-100);
+    const list = Array.from(jobs.values()).slice(-100).map(serializeJob).filter(Boolean);
     fs.writeFileSync(HISTORY_FILE, JSON.stringify(list, null, 2), 'utf-8');
   } catch (_) {}
 }
@@ -79,18 +132,6 @@ export function getJobs(userId = null) {
       if (idx >= 0) {
         queuePosition = idx + 1;
         queueType = 'download';
-      } else {
-        const gIdx = gameQueue.findIndex(q => q.id === j.id);
-        if (gIdx >= 0) {
-          queuePosition = gIdx + 1;
-          queueType = 'game';
-        } else {
-          const dIdx = directQueue.findIndex(q => q.id === j.id);
-          if (dIdx >= 0) {
-            queuePosition = dIdx + 1;
-            queueType = 'direct';
-          }
-        }
       }
     } else if (j.stage === 'queued_transcode') {
       const idx = transcodeQueue.findIndex(q => q.id === j.id);
@@ -126,35 +167,16 @@ export function cancelJob(id) {
   const dlIdx = downloadQueue.findIndex(q => q.id === id);
   if (dlIdx >= 0) downloadQueue.splice(dlIdx, 1);
 
-  const gIdx = gameQueue.findIndex(q => q.id === id);
-  if (gIdx >= 0) gameQueue.splice(gIdx, 1);
-
-  const drIdx = directQueue.findIndex(q => q.id === id);
-  if (drIdx >= 0) directQueue.splice(drIdx, 1);
-
   // 2. Stop active torrent swarm if currently downloading
   if (activeDownloadJob && activeDownloadJob.id === id) {
+    if (typeof job.abortDownload === 'function') {
+      try { job.abortDownload(new Error('Job cancelled')); } catch (_) {}
+    }
     if (job.torrent) {
       try { job.torrent.destroy(); } catch (_) {}
     }
     activeDownloadJob = null;
     setImmediate(pumpDownloadQueue);
-  }
-
-  // 2b. Stop active game torrent / direct HTTP download
-  if (activeGameJob && activeGameJob.id === id) {
-    if (job.torrent) {
-      try { job.torrent.destroy(); } catch (_) {}
-    }
-    activeGameJob = null;
-    setImmediate(pumpGameQueue);
-  }
-  if (activeDirectJob && activeDirectJob.id === id) {
-    if (job.abortController) {
-      try { job.abortController.abort(); } catch (_) {}
-    }
-    activeDirectJob = null;
-    setImmediate(pumpDirectQueue);
   }
 
   // 3. Remove from transcode queue if pending
@@ -207,6 +229,19 @@ export function clearHistory(userId = null) {
 export function deleteJob(id) {
   const job = jobs.get(id);
   if (!job) return false;
+
+  // If the job is active or queued, cancel it cleanly first to release slots
+  if (['queued', 'active', 'downloading', 'transcoding', 'uploading'].includes(job.status) ||
+      ['queued_download', 'queued_transcode'].includes(job.stage)) {
+    cancelJob(id);
+  }
+
+  // Remove from queues if still present
+  const dlIdx = downloadQueue.findIndex(q => q.id === id);
+  if (dlIdx >= 0) downloadQueue.splice(dlIdx, 1);
+  const tcIdx = transcodeQueue.findIndex(q => q.id === id);
+  if (tcIdx >= 0) transcodeQueue.splice(tcIdx, 1);
+
   try {
     const jobDir = path.join(DOWNLOADS_DIR, id);
     if (fs.existsSync(jobDir)) fs.rmSync(jobDir, { recursive: true, force: true });
@@ -219,10 +254,15 @@ export function deleteJob(id) {
 export function addDownloadJob(options) {
   const id = options.id || `dl_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   const kind = options.kind || 'movie';
+  const rawMagnet = options.magnet || options.url || null;
+  if (!rawMagnet || typeof rawMagnet !== 'string' || !rawMagnet.trim()) {
+    throw new Error('Missing or invalid magnet link / torrent URL');
+  }
+  const magnet = enrichMagnet(rawMagnet, options.title || '');
   const job = {
     id,
     userId: options.userId || 'default',
-    magnet: options.magnet || options.url || null,
+    magnet,
     directUrl: options.directUrl || (/^https?:\/\//i.test(options.url || '') && kind === 'game-direct' ? options.url : null),
     headers: options.headers || null,
     fileNameHint: options.fileName || null,
@@ -255,22 +295,10 @@ export function addDownloadJob(options) {
 
   jobs.set(id, job);
 
-  if (kind === 'game') {
-    gameQueue.push(job);
-    saveHistory();
-    console.log(`[TvDownloadManager] Enqueued game torrent job ${id}: "${job.title}" (Queue length: ${gameQueue.length})`);
-    pumpGameQueue();
-  } else if (kind === 'game-direct') {
-    directQueue.push(job);
-    saveHistory();
-    console.log(`[TvDownloadManager] Enqueued direct download job ${id}: "${job.title}" (Queue length: ${directQueue.length})`);
-    pumpDirectQueue();
-  } else {
-    downloadQueue.push(job);
-    saveHistory();
-    console.log(`[TvDownloadManager] Enqueued job ${id} into download queue (Queue length: ${downloadQueue.length})`);
-    pumpDownloadQueue();
-  }
+  downloadQueue.push(job);
+  saveHistory();
+  console.log(`[TvDownloadManager] Enqueued job ${id} into download queue (Queue length: ${downloadQueue.length})`);
+  pumpDownloadQueue();
   return job;
 }
 
@@ -301,36 +329,124 @@ async function runDownloadPhase(job) {
   job.stage = 'downloading';
   job.updatedAt = Date.now();
 
+  const targetMagnet = enrichMagnet(job.magnet, job.title);
   console.log(`[TvDownloadManager] Starting download phase for ${job.id}: "${job.title}"`);
 
   let torrent = null;
+  let metadataTimeout = null;
+  let stallTimeout = null;
+  let settled = false;
+
   try {
+    // If this torrent is already registered in WebTorrent, cleanly remove the stale instance first
+    try {
+      const existing = wt.get(targetMagnet) || (job.magnet ? wt.get(job.magnet) : null);
+      if (existing) {
+        console.log(`[TvDownloadManager] Clearing existing swarm instance for ${job.id}`);
+        await new Promise(r => {
+          try { wt.remove(existing, { destroyStore: false }, () => r()); }
+          catch (_) { r(); }
+        });
+      }
+    } catch (_) {}
+
     await new Promise((resolve, reject) => {
-      if (job.cancelled) return reject(new Error('Job cancelled'));
+      const finish = (err) => {
+        if (settled) return;
+        settled = true;
+        job.abortDownload = null;
+        if (metadataTimeout) clearTimeout(metadataTimeout);
+        if (stallTimeout) clearTimeout(stallTimeout);
+        if (err) reject(err);
+        else resolve();
+      };
 
-      torrent = wt.add(job.magnet, { path: jobDir }, (t) => {
-        job.torrent = t;
+      job.abortDownload = finish;
 
-        t.on('download', () => {
-          if (job.cancelled) return;
-          job.downloadPercent = Math.min(100, Math.round(t.progress * 100));
-          job.downloadSpeed = t.downloadSpeed;
-          job.numPeers = t.numPeers;
-          job.updatedAt = Date.now();
+      if (job.cancelled) return finish(new Error('Job cancelled'));
+
+      // Metadata Timeout: 3 minutes. If no peers or metadata discovered, fail fast so next queued download can run
+      metadataTimeout = setTimeout(() => {
+        if (!torrent || !torrent.metadata) {
+          const peerCount = torrent?.numPeers || 0;
+          finish(new Error(`Timed out fetching torrent metadata after 3 minutes (${peerCount} peers). Swarm may be inactive or dead.`));
+        }
+      }, 3 * 60 * 1000);
+
+      // Stall timer: If 15 minutes pass with zero download progress, fail and release slot
+      const resetStallTimer = () => {
+        if (stallTimeout) clearTimeout(stallTimeout);
+        stallTimeout = setTimeout(() => {
+          finish(new Error(`Download stalled: no download progress for 15 minutes (${torrent?.numPeers || 0} peers)`));
+        }, 15 * 60 * 1000);
+      };
+      resetStallTimer();
+
+      try {
+        torrent = wt.add(targetMagnet, { path: jobDir, announce: TRACKERS }, (t) => {
+          job.torrent = t;
+          if (metadataTimeout) {
+            clearTimeout(metadataTimeout);
+            metadataTimeout = null;
+          }
+
+          // If torrent is already 100% complete (cached or pre-existing on disk)
+          if (t.done || t.progress >= 1) {
+            job.downloadPercent = 100;
+            job.downloadSpeed = 0;
+            job.downloadedBytes = t.length;
+            job.totalBytes = t.length;
+            return finish();
+          }
+
+          t.on('download', () => {
+            if (job.cancelled) return;
+            resetStallTimer();
+            job.downloadPercent = Math.min(100, Math.round(t.progress * 100));
+            job.downloadSpeed = t.downloadSpeed;
+            job.numPeers = t.numPeers;
+            job.downloadedBytes = t.downloaded;
+            job.totalBytes = t.length;
+            job.updatedAt = Date.now();
+          });
+
+          t.on('done', () => {
+            job.downloadPercent = 100;
+            job.downloadSpeed = 0;
+            job.downloadedBytes = t.length;
+            job.totalBytes = t.length;
+            finish();
+          });
+
+          t.on('error', (err) => {
+            finish(err);
+          });
         });
+      } catch (addErr) {
+        return finish(addErr);
+      }
 
-        t.on('done', () => {
-          job.downloadPercent = 100;
-          job.downloadSpeed = 0;
-          resolve();
-        });
+      job.torrent = torrent;
 
-        t.on('error', (err) => {
-          reject(err);
-        });
+      // Update peer count immediately as peers connect (even before metadata finishes)
+      torrent.on('wire', () => {
+        if (job.cancelled) return;
+        job.numPeers = torrent.numPeers;
+        job.updatedAt = Date.now();
       });
 
-      torrent.on('error', (err) => reject(err));
+      torrent.on('metadata', () => {
+        if (metadataTimeout) {
+          clearTimeout(metadataTimeout);
+          metadataTimeout = null;
+        }
+        job.title = job.title || torrent.name;
+        job.totalBytes = torrent.length;
+        job.updatedAt = Date.now();
+        console.log(`[TvDownloadManager] Metadata received for ${job.id}: "${torrent.name}" (${(torrent.length / 1024 / 1024).toFixed(1)} MB)`);
+      });
+
+      torrent.on('error', (err) => finish(err));
     });
 
     if (job.cancelled) throw new Error('Job cancelled');
@@ -341,6 +457,7 @@ async function runDownloadPhase(job) {
         torrent.destroy({ destroyStore: false });
       }
     } catch (_) {}
+    job.torrent = null;
 
     // Find main video file
     const files = listFilesRecursive(jobDir).filter(f => isVideoFile(f));
@@ -371,6 +488,10 @@ async function runDownloadPhase(job) {
     enqueueTranscodePhase(job);
 
   } catch (err) {
+    if (torrent) {
+      try { torrent.destroy({ destroyStore: false }); } catch (_) {}
+    }
+    job.torrent = null;
     activeDownloadJob = null;
     handleJobError(job, err);
     pumpDownloadQueue();

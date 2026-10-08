@@ -17,6 +17,26 @@ export function isAudioFile(filename) {
  * + DHT for peer discovery.
  */
 export const TRACKERS = [
+  // HTTP/HTTPS trackers: critical for VPS environments where outbound UDP is blocked or throttled
+  'http://tracker.opentrackr.org:1337/announce',
+  'http://tracker.openbittorrent.com:80/announce',
+  'http://open.acgnxtracker.com:80/announce',
+  'http://tracker.files.fm:6969/announce',
+  'http://tracker1.bt.moack.co.kr:80/announce',
+  'http://tracker.gbitt.info:80/announce',
+  'https://tracker.tamersunion.org:443/announce',
+  'https://tracker.moeblog.cn:443/announce',
+  'https://tracker.zhuqiy.com:443/announce',
+  'https://tracker1.520.jp:443/announce',
+  'https://tr.burnbit.com:443/announce',
+  'https://tracker.loligirl.cn:443/announce',
+  'http://tracker.bt4g.com:2095/announce',
+  'https://tracker.bt4g.com:2095/announce',
+  // WebSocket trackers for fast WebTorrent swarms
+  'wss://tracker.openwebtorrent.com',
+  'wss://tracker.webtorrent.dev',
+  'wss://tracker.btorrent.xyz',
+  // Fast UDP trackers
   'udp://tracker.opentrackr.org:1337/announce',
   'udp://open.demonii.com:1337/announce',
   'udp://tracker.openbittorrent.com:6969/announce',
@@ -26,11 +46,7 @@ export const TRACKERS = [
   'udp://tracker.torrent.eu.org:451/announce',
   'udp://exodus.desync.com:6971/announce',
   'udp://ipv4.tracker.torrent.eu.org:451/announce',
-  'udp://tracker.empire-js.us:1337/announce',
-  'udp://tracker.torrent.eu.org:451/announce',
-  'http://tracker.bt4g.com:2095/announce',
-  'http://tracker.opentrackr.org:1337/announce',
-  'https://tracker.bt4g.com:2095/announce'
+  'udp://tracker.empire-js.us:1337/announce'
 ];
 
 /**
@@ -46,6 +62,46 @@ export function buildMagnet(infoHash, name = '') {
   if (name) parts.push(`dn=${encodeURIComponent(String(name).trim())}`);
   for (const tracker of TRACKERS) parts.push(`tr=${encodeURIComponent(tracker)}`);
   return parts.join('&');
+}
+
+/**
+ * Cleans HTML entities, formats raw info hashes, and enriches magnet links with
+ * reliable HTTP/HTTPS/WSS/UDP trackers to ensure fast peer discovery on VPS environments.
+ */
+export function enrichMagnet(rawMagnet, name = '') {
+  if (!rawMagnet || typeof rawMagnet !== 'string') return rawMagnet;
+  let clean = rawMagnet.trim().replace(/&#038;/g, '&').replace(/&amp;/gi, '&');
+
+  // If it's a bare 32-char base32 infohash, decode to 40-char hex
+  if (/^[a-zA-Z2-7]{32}$/.test(clean)) {
+    const BASE32 = 'abcdefghijklmnopqrstuvwxyz234567';
+    let bits = 0, val = 0, hex = '';
+    for (const c of clean.toLowerCase()) {
+      val = (val << 5) | BASE32.indexOf(c);
+      bits += 5;
+      if (bits >= 8) { bits -= 8; hex += ((val >> bits) & 0xFF).toString(16).padStart(2, '0'); }
+    }
+    clean = hex;
+  }
+
+  // If it's a bare 40-char hex infohash, build a full magnet
+  if (/^[a-fA-F0-9]{40}$/.test(clean)) {
+    return buildMagnet(clean, name);
+  }
+
+  // Check which reliable trackers are not yet present
+  const cleanLower = clean.toLowerCase();
+  const missing = TRACKERS.filter(tr => {
+    const encoded = encodeURIComponent(tr).toLowerCase();
+    return !cleanLower.includes(encoded) && !cleanLower.includes(tr.toLowerCase());
+  });
+
+  if (missing.length > 0) {
+    const sep = clean.includes('?') ? '&' : '?';
+    clean += sep + missing.map(tr => `tr=${encodeURIComponent(tr)}`).join('&');
+  }
+
+  return clean;
 }
 
 export function infoHashOf(source) {

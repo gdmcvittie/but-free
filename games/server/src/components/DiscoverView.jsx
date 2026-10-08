@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Sparkles, Layers, Flame, Gamepad2, ShoppingBag, HardDrive } from 'lucide-react';
 import FitgirlTab from './discover/FitgirlTab';
 import PopularTab from './discover/PopularTab';
@@ -19,8 +19,35 @@ const TABS = [
   { key: 'gog', label: 'GOG.com', icon: ShoppingBag }
 ];
 
+function checkIsMobile() {
+  if (typeof window === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile|Silk/i.test(ua);
+  const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+  const isNarrowScreen = window.innerWidth <= 768;
+  const isHandheldLandscape = isTouchDevice && (window.innerWidth <= 1024 || window.innerHeight <= 600);
+  return isMobileUA || isNarrowScreen || isHandheldLandscape;
+}
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(checkIsMobile);
+  useEffect(() => {
+    const onResize = () => setIsMobile(checkIsMobile());
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+    };
+  }, []);
+  return isMobile;
+}
+
 export default function DiscoverView({ user, onOpenSettings, onDownloadDispatched, onLibraryUpdated }) {
   const [activeTab, setActiveTab] = useState('fitgirl');
+  const isMobile = useIsMobile();
+  const visibleTabs = isMobile ? TABS.filter((t) => t.key === 'itch') : TABS;
+  const effectiveTab = isMobile ? 'itch' : activeTab;
 
   if (!user?.gamesFolderId) {
     return (
@@ -50,7 +77,7 @@ export default function DiscoverView({ user, onOpenSettings, onDownloadDispatche
           <div>
             <div className="flex items-center gap-2 text-xs uppercase font-bold text-pink-400 font-heading tracking-wider">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>PC &amp; Homebrew Download Hub</span>
+              <span>{isMobile ? 'Indie & Homebrew Games' : 'PC & Homebrew Download Hub'}</span>
             </div>
             <h1 className="font-heading font-extrabold text-2xl sm:text-3xl text-white tracking-tight mt-0.5">
               Discover &amp; Download to Drive
@@ -58,28 +85,30 @@ export default function DiscoverView({ user, onOpenSettings, onDownloadDispatche
           </div>
         </div>
 
-        {/* Section Tabs */}
-        <div className="discover-tabs">
-          {TABS.map((t) => {
-            const Icon = t.icon;
-            return (
-              <button
-                key={t.key}
-                onClick={() => setActiveTab(t.key)}
-                className={`discover-tab-btn ${activeTab === t.key ? 'active' : ''}`}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                <span>{t.label}</span>
-              </button>
-            );
-          })}
-        </div>
+        {/* Section Tabs (only show switcher if multiple tabs available) */}
+        {visibleTabs.length > 1 && (
+          <div className="discover-tabs">
+            {visibleTabs.map((t) => {
+              const Icon = t.icon;
+              return (
+                <button
+                  key={t.key}
+                  onClick={() => setActiveTab(t.key)}
+                  className={`discover-tab-btn ${effectiveTab === t.key ? 'active' : ''}`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  <span>{t.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {activeTab === 'fitgirl' && <FitgirlTab onDownloadDispatched={onDownloadDispatched} />}
-      {activeTab === 'popular' && <PopularTab onDownloadDispatched={onDownloadDispatched} />}
-      {activeTab === 'itch' && <ItchTab user={user} onDownloadDispatched={onDownloadDispatched} onLibraryUpdated={onLibraryUpdated} />}
-      {activeTab === 'gog' && <GogTab onDownloadDispatched={onDownloadDispatched} onLibraryUpdated={onLibraryUpdated} />}
+      {effectiveTab === 'fitgirl' && <FitgirlTab onDownloadDispatched={onDownloadDispatched} />}
+      {effectiveTab === 'popular' && <PopularTab onDownloadDispatched={onDownloadDispatched} />}
+      {effectiveTab === 'itch' && <ItchTab user={user} onDownloadDispatched={onDownloadDispatched} onLibraryUpdated={onLibraryUpdated} />}
+      {effectiveTab === 'gog' && <GogTab onDownloadDispatched={onDownloadDispatched} onLibraryUpdated={onLibraryUpdated} />}
     </div>
   );
 }

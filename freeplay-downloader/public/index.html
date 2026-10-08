@@ -1056,17 +1056,31 @@
         var data = await res.json();
         if (data && data.success) {
           downloadsConfigured = !!data.configured;
+          var effectiveFolder = data.folder || '';
+
+          if (downloadsConfigured && effectiveFolder) {
+            try { localStorage.setItem('freeplay_downloads_folder', effectiveFolder); } catch (_) {}
+          } else if (!downloadsConfigured) {
+            // Check localStorage cache to automatically restore user setting
+            var cached = null;
+            try { cached = localStorage.getItem('freeplay_downloads_folder'); } catch (_) {}
+            if (cached && cached.trim()) {
+              applyDownloadsFolder(cached.trim());
+              return;
+            }
+          }
+
           var input = document.getElementById('downloadsFolderInput');
-          if (input && data.folder) input.value = data.folder;
+          if (input && effectiveFolder) input.value = effectiveFolder;
           var label = document.getElementById('currentFolderLabel');
           var infoBox = document.getElementById('folderInfoBox');
-          if (label) label.textContent = data.folder || '';
-          if (infoBox) infoBox.style.display = data.folder ? 'block' : 'none';
+          if (label) label.textContent = effectiveFolder || '';
+          if (infoBox) infoBox.style.display = effectiveFolder ? 'block' : 'none';
           var qLabel = document.getElementById('queueFolderLabel');
-          if (qLabel) qLabel.textContent = data.folder || 'your Downloads folder';
+          if (qLabel) qLabel.textContent = effectiveFolder || 'your Downloads folder';
           var btn = document.getElementById('btnDownloadsFolder');
           if (btn) {
-            if (!downloadsConfigured) {
+            if (!downloadsConfigured && !effectiveFolder) {
               btn.textContent = '⚠️ Set Downloads Folder';
               btn.style.background = 'rgba(239, 68, 68, 0.2)';
               btn.style.border = '1px solid rgba(239, 68, 68, 0.55)';
@@ -1074,13 +1088,13 @@
               btn.style.animation = 'folderWarnPulse 1.6s ease-in-out infinite';
               btn.title = 'No downloads folder set - click to choose one';
             } else {
-              var base = (data.folder || '').split(/[\\/]/).filter(Boolean).pop() || data.folder;
+              var base = (effectiveFolder || '').split(/[\\/]/).filter(Boolean).pop() || effectiveFolder;
               btn.textContent = '📁 ' + base;
               btn.style.background = '';
               btn.style.border = '';
               btn.style.color = '';
               btn.style.animation = '';
-              btn.title = data.folder || '';
+              btn.title = effectiveFolder || '';
             }
           }
         }
@@ -1126,6 +1140,7 @@
         var data = await res.json();
         if (data && data.success) {
           downloadsConfigured = true;
+          try { localStorage.setItem('freeplay_downloads_folder', data.folder); } catch (_) {}
           showFolderAlert('Downloads will be saved to: ' + data.folder, 'success');
           showToast('Downloads folder set to ' + data.folder, 'success');
           loadDownloadsFolder();
@@ -2937,6 +2952,15 @@
             const data = JSON.parse(e.data).data || {};
             showToast('🔗 Link received: "' + (data.title || data.url) + '" added to queue', 'success');
             refreshPcTorrentQueueUI();
+          } catch (_) {}
+        });
+
+        evtSource.addEventListener('deep_link_scrape', (e) => {
+          try {
+            const payload = JSON.parse(e.data);
+            const d = payload.data || payload;
+            showToast('🔍 Scanning "' + (d.title || d.pageUrl || 'page') + '" for download links...', 'info');
+            openPcScrapeModal(d.pageUrl, d.title || 'Deep Link', []);
           } catch (_) {}
         });
 

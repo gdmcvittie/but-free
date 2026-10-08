@@ -138,7 +138,13 @@ export function classifyDownloadUrl(url, linkText = '') {
     { domain: 'bowfile.com', name: 'Bowfile' },
     { domain: 'hexupload.net', name: 'HexUpload' },
     { domain: 'dropgalaxy.com', name: 'DropGalaxy' },
-    { domain: 'uploadhaven.com', name: 'UploadHaven' }
+    { domain: 'uploadhaven.com', name: 'UploadHaven' },
+    { domain: 'rutor.info', name: 'RuTor Torrent' },
+    { domain: 'rutor.is', name: 'RuTor Torrent' },
+    { domain: 'rutor.org', name: 'RuTor Torrent' },
+    { domain: 'tapochek.net', name: 'Tapochek Torrent' },
+    { domain: 'torrentgalaxy.to', name: 'TorrentGalaxy' },
+    { domain: 'rutracker.org', name: 'RuTracker' }
   ];
 
   let detectedHoster = 'Direct File';

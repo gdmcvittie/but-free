@@ -9,8 +9,30 @@ import {
   extractThumbnailAndWebm,
   extractAllDownloadsFromRssItem,
   scrapeDownloadLinksFromHtml,
+  classifyDownloadUrl,
   isFitgirlUpdateTitle
 } from './link-utils.js';
+
+const SCRAPE_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+function extractSizeFromText(text) {
+  if (!text) return null;
+  const repackMatch = text.match(/(?:repack|download|original|game|file)?\s*size[^:\d<]*:\s*(?:from\s*|approx\.?\s*)?([0-9]+(?:\.[0-9]+)?\s*(?:TB|GB|MB|KB|B)\b)/i);
+  if (repackMatch) return repackMatch[1];
+  const bracketMatch = text.match(/[\(\[]\s*([0-9]+(?:\.[0-9]+)?\s*(?:TB|GB|MB)\b)\s*[\)\]]/i);
+  if (bracketMatch) return bracketMatch[1];
+  return null;
+}
+
+function parseSizeStringToBytes(str) {
+  if (!str) return null;
+  const match = String(str).match(/([0-9]+(?:\.[0-9]+)?)\s*(TB|GB|MB|KB|B)\b/i);
+  if (!match) return null;
+  const num = parseFloat(match[1]);
+  const unit = match[2].toUpperCase();
+  const mult = { B: 1, KB: 1024, MB: 1024 * 1024, GB: 1024 * 1024 * 1024, TB: 1024 * 1024 * 1024 * 1024 };
+  return Math.round(num * (mult[unit] || 1));
+}
 
 export function registerPcRssRoutes(app) {
   // 1. Fetch & Parse RSS / Atom Feed: /api/pc-rss/feed?url=<feedUrl>
@@ -27,7 +49,7 @@ export function registerPcRssRoutes(app) {
       const response = await fetch(feedUrl, {
         signal: controller.signal,
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 FreeplayDL/1.0',
+          'User-Agent': SCRAPE_USER_AGENT,
           'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, text/html, */*'
         }
       });
@@ -560,35 +582,165 @@ export function registerPcRssRoutes(app) {
     }
 
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 12000);
-
-      const response = await fetch(pageUrl, {
-        signal: controller.signal,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 FreeplayDL/1.0',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+      async function fetchHtmlWithHeaders(url) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 12000);
+        try {
+          const resp = await fetch(url, {
+            signal: controller.signal,
+            headers: {
+              'User-Agent': SCRAPE_USER_AGENT,
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Cache-Control': 'no-cache',
+              'Referer': 'https://fitgirl-repacks.site/'
+            }
+          });
+          clearTimeout(timeout);
+          if (resp.ok) {
+            return await resp.text();
+          }
+          return null;
+        } catch (_) {
+          clearTimeout(timeout);
+          return null;
         }
-      });
-      clearTimeout(timeout);
-
-      if (!response.ok) {
-        throw new Error(`Remote page responded with HTTP ${response.status}`);
       }
 
-      const html = await response.text();
-      const result = scrapeDownloadLinksFromHtml(html, pageUrl);
+      let html = await fetchHtmlWithHeaders(pageUrl);
+      let result = html ? scrapeDownloadLinksFromHtml(html, pageUrl) : { links: [] };
+
+      // FitGirl Fallback: If direct page fetch failed or found no links (e.g. Cloudflare / anti-bot block),
+      // fetch the post's WordPress RSS feed (/feed/) which contains <content:encoded> with all download links.
+      if ((!html || result.links.length === 0) && pageUrl.includes('fitgirl-repacks.site')) {
+        const slugMatch = pageUrl.match(/fitgirl-repacks\.site\/([^\/?#]+)/i);
+        const slug = slugMatch ? slugMatch[1] : '';
+        if (slug) {
+          // 1. Post feed: https://fitgirl-repacks.site/<slug>/feed/
+          const postFeedUrl = `https://fitgirl-repacks.site/${slug}/feed/`;
+          const postFeedXml = await fetchHtmlWithHeaders(postFeedUrl);
+          if (postFeedXml) {
+            const contentMatch = postFeedXml.match(/<content:encoded[^>]*>([\s\S]*?)<\/content:encoded>/i);
+            const feedHtml = contentMatch ? decodeHtmlEntities(contentMatch[1]) : postFeedXml;
+            const feedResult = scrapeDownloadLinksFromHtml(feedHtml, pageUrl);
+            if (feedResult.links.length > 0) {
+              html = feedHtml;
+              result = feedResult;
+            }
+          }
+
+          // 2. Search feed: https://fitgirl-repacks.site/feed/?s=<slug>
+          if (!html || result.links.length === 0) {
+            const searchFeedUrl = `https://fitgirl-repacks.site/feed/?s=${encodeURIComponent(slug.replace(/[-_]/g, ' '))}`;
+            const searchFeedXml = await fetchHtmlWithHeaders(searchFeedUrl);
+            if (searchFeedXml) {
+              const itemMatch = searchFeedXml.match(new RegExp(`<item[\\s\\S]*?${slug}[\\s\\S]*?<\\/item>`, 'i')) ||
+                                searchFeedXml.match(/<item[\s\S]*?<\/item>/i);
+              if (itemMatch) {
+                const itemXml = itemMatch[0];
+                const contentMatch = itemXml.match(/<content:encoded[^>]*>([\s\S]*?)<\/content:encoded>/i);
+                const searchHtml = contentMatch ? decodeHtmlEntities(contentMatch[1]) : itemXml;
+                const searchResult = scrapeDownloadLinksFromHtml(searchHtml, pageUrl);
+                if (searchResult.links.length > 0) {
+                  html = searchHtml;
+                  result = searchResult;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (!html && result.links.length === 0) {
+        throw new Error('Could not fetch or parse download links from webpage');
+      }
+
+      const detectedSizeStr = html ? extractSizeFromText(html) : null;
+      result.gameSize = detectedSizeStr;
+      result.gameSizeBytes = detectedSizeStr ? parseSizeStringToBytes(detectedSizeStr) : null;
+
+      const seenUrls = new Set(result.links.map(l => l.url));
+
+      // Scan raw HTML for direct FuckingFast URLs (they often appear outside
+      // <a> tags, so the anchor scraper misses them).
+      const ffRegex = /https?:\/\/(?:[a-zA-Z0-9.-]+\.)?fuckingfast\.co\/[^\s"'<>\\]+/gi;
+      const rawFfMatches = html.match(ffRegex) || [];
+      for (const rawFf of rawFfMatches) {
+        const cleanFf = rawFf.replace(/&amp;/g, '&').replace(/[),.;]+$/, '');
+        if (!seenUrls.has(cleanFf)) {
+          seenUrls.add(cleanFf);
+          const classification = classifyDownloadUrl(cleanFf, '');
+          result.links.push({
+            id: 'dl-ff-' + Math.random().toString(36).substring(2, 9),
+            url: cleanFf,
+            filename: classification.filename || 'FuckingFast Download',
+            extension: classification.extension || 'RAR',
+            category: classification.category || 'archive',
+            hoster: 'FuckingFast',
+            isMagnet: false,
+            source: 'page-scraper'
+          });
+        }
+      }
+
+      // Deep-scrape paste.fitgirl-repacks.site links where multi-part
+      // FuckingFast mirrors are often hosted.
+      const pasteLinks = result.links.filter(l => l.url && (l.url.includes('paste.fitgirl-repacks.site') || l.hoster === 'FitGirl Paste'));
+      for (const pl of pasteLinks.slice(0, 5)) {
+        try {
+          const pasteController = new AbortController();
+          const pasteTimeout = setTimeout(() => pasteController.abort(), 6000);
+          const pasteRes = await fetch(pl.url, {
+            signal: pasteController.signal,
+            headers: { 'User-Agent': SCRAPE_USER_AGENT, 'Accept': 'text/html,application/xhtml+xml,application/xml,text/plain,*/*' }
+          });
+          clearTimeout(pasteTimeout);
+          if (pasteRes.ok) {
+            const pasteBody = await pasteRes.text();
+            const pasteFfMatches = pasteBody.match(ffRegex) || [];
+            for (const rawFf of pasteFfMatches) {
+              const cleanFf = rawFf.replace(/&amp;/g, '&').replace(/[),.;]+$/, '');
+              if (!seenUrls.has(cleanFf)) {
+                seenUrls.add(cleanFf);
+                const classification = classifyDownloadUrl(cleanFf, '');
+                result.links.push({
+                  id: 'dl-ff-' + Math.random().toString(36).substring(2, 9),
+                  url: cleanFf,
+                  filename: classification.filename || 'FuckingFast Part',
+                  extension: classification.extension || 'RAR',
+                  category: 'archive',
+                  hoster: 'FuckingFast',
+                  isMagnet: false,
+                  source: 'paste-scraper'
+                });
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
+      // Sort: Magnets first, Torrents second, FuckingFast mirrors third, other hosters last
+      const magnetLinks = result.links.filter(l => l.isMagnet || (l.url && l.url.startsWith('magnet:')));
+      const torrentLinks = result.links.filter(l => !l.isMagnet && l.extension === 'TORRENT');
+      const ffLinks = result.links.filter(l => !l.isMagnet && l.extension !== 'TORRENT' && l.hoster === 'FuckingFast');
+      const otherMirrors = result.links.filter(l => !l.isMagnet && l.extension !== 'TORRENT' && l.hoster !== 'FuckingFast');
+      const sortedLinks = [...magnetLinks, ...torrentLinks, ...ffLinks, ...otherMirrors];
 
       res.json({
         success: true,
         pageUrl,
-        hasMagnet: result.hasMagnet,
-        hasTorrents: result.hasTorrents,
-        hasMirrors: result.hasMirrors,
-        magnetCount: result.magnetCount,
-        mirrorCount: result.mirrorCount,
-        links: result.links,
-        totalFound: result.totalFound
+        hasMagnet: magnetLinks.length > 0,
+        hasTorrents: torrentLinks.length > 0,
+        hasMirrors: (ffLinks.length + otherMirrors.length) > 0,
+        hasFuckingFast: ffLinks.length > 0,
+        magnetCount: magnetLinks.length,
+        torrentCount: torrentLinks.length,
+        fuckingFastCount: ffLinks.length,
+        mirrorCount: ffLinks.length + otherMirrors.length,
+        gameSize: result.gameSize || null,
+        gameSizeBytes: result.gameSizeBytes || null,
+        links: sortedLinks,
+        totalFound: sortedLinks.length
       });
     } catch (err) {
       console.error('[PC RSS] Scrape error:', err.message);

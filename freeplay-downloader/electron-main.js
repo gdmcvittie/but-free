@@ -17,6 +17,18 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { electronBridge } from './lib/electron-bridge.js';
 
+app.name = 'Freeplay Downloader';
+
+// Ensure stable persistent data directory across updates, portable mode, and launches
+const stableUserData = path.join(app.getPath('appData'), 'Freeplay Downloader');
+try {
+  if (!fs.existsSync(stableUserData)) fs.mkdirSync(stableUserData, { recursive: true });
+  app.setPath('userData', stableUserData);
+} catch (_) {}
+if (!process.env.DATA_DIR) {
+  process.env.DATA_DIR = stableUserData;
+}
+
 // Prevent uncaught exceptions from triggering Electron popups
 process.on('uncaughtException', (err) => {
   console.error('[Electron Main Uncaught Exception]:', err);
@@ -42,9 +54,12 @@ electronBridge.init({ app, BrowserWindow, dialog });
 
 function extractDeepLinkFromArgv(argv) {
   if (!Array.isArray(argv)) return null;
-  for (const arg of argv) {
-    if (typeof arg === 'string' && arg.toLowerCase().startsWith(`${DEEP_LINK_PROTOCOL.toLowerCase()}://`)) {
-      return arg;
+  for (const rawArg of argv) {
+    if (typeof rawArg === 'string') {
+      const arg = rawArg.replace(/^["']+|["']+$/g, '').trim();
+      if (arg.toLowerCase().startsWith(`${DEEP_LINK_PROTOCOL.toLowerCase()}://`)) {
+        return arg;
+      }
     }
   }
   return null;
@@ -237,6 +252,42 @@ if (!gotSingleInstanceLock) {
   app.whenReady().then(async () => {
     // Import the backend server (starts Express)
     try {
+      // Persist config (downloads folder, torrent queue) to a stable per-user
+      // location instead of the process cwd, which changes between app launches.
+      const newConfig = path.join(process.env.DATA_DIR, 'config.json');
+      const legacyCandidates = [
+        path.join(__dirname, 'config.json'),
+        path.join(process.cwd(), 'config.json'),
+        path.join(app.getPath('appData'), 'freeplay-downloader', 'config.json'),
+        process.env.PORTABLE_EXECUTABLE_DIR ? path.join(process.env.PORTABLE_EXECUTABLE_DIR, 'config.json') : null
+      ].filter(Boolean);
+
+      try {
+        let hasValidConfig = false;
+        if (fs.existsSync(newConfig)) {
+          try {
+            const parsed = JSON.parse(fs.readFileSync(newConfig, 'utf-8'));
+            if (parsed && parsed.downloadsFolder && parsed.downloadsFolder.trim()) {
+              hasValidConfig = true;
+            }
+          } catch (_) {}
+        }
+        if (!hasValidConfig) {
+          for (const legacyConfig of legacyCandidates) {
+            if (fs.existsSync(legacyConfig)) {
+              try {
+                const parsed = JSON.parse(fs.readFileSync(legacyConfig, 'utf-8'));
+                if (parsed && parsed.downloadsFolder && parsed.downloadsFolder.trim()) {
+                  fs.mkdirSync(process.env.DATA_DIR, { recursive: true });
+                  fs.copyFileSync(legacyConfig, newConfig);
+                  break;
+                }
+              } catch (_) {}
+            }
+          }
+        }
+      } catch (_) {}
+
       const serverModule = await import('./server.js');
       serverPort = serverModule.PORT || process.env.PORT || DEFAULT_PORT;
     } catch (err) {
@@ -247,15 +298,13 @@ if (!gotSingleInstanceLock) {
     setTimeout(() => createWindow(serverPort), 500);
 
     // Flush a cold-start deep link once the server + window are up.
-    // The did-finish-load handler may already have consumed pendingDeepLink
-    // (clearing it before we get here), so rely on coldStartLink too.
     setTimeout(() => {
-      const url = coldStartLink || (pendingDeepLink && pendingDeepLink.type === 'cold-start' ? pendingDeepLink.url : null);
+      const url = coldStartLink || (pendingDeepLink && pendingDeepLink.url ? pendingDeepLink.url : null);
       if (url) {
         pendingDeepLink = null;
         handleDeepLink(url);
       }
-    }, 1500);
+    }, 1200);
   });
 }
 
