@@ -118,6 +118,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
 
   const isWebGame = !!(game?.isWebGame || game?.console === 'web' || (game?.webUrl || '').startsWith('http'));
   const isPcGame = !isWebGame && (game?.console === 'pc' || game?.isPcGame);
+  const isNeoGame = !isWebGame && !isPcGame && ['neo', 'neogeo', 'neo geo', 'arcade'].includes((game?.console || '').toLowerCase());
 
   const showToast = useCallback((message) => {
     setToast(message);
@@ -1096,7 +1097,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
             {renderActionButtons()}
           </div>
           <div className="gb-meta-controls">
-            <button className="retro-meta-btn" {...createVirtualButtonProps('Shift', 'ShiftLeft')}>SELECT</button>
+            <button className="retro-meta-btn" {...createVirtualButtonProps('Shift', 'ShiftLeft')}>{isNeoGame ? 'INSERT COIN' : 'SELECT'}</button>
             <button className="retro-meta-btn" {...createVirtualButtonProps('Enter', 'Enter')}>START</button>
           </div>
         </div>
@@ -1112,7 +1113,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
         <div className="gba-left-wing">
           <button className="retro-shoulder-btn gba-shoulder-btn" {...createVirtualButtonProps('q', 'KeyQ')}>L</button>
           {renderDPad()}
-          <button className="retro-meta-btn" {...createVirtualButtonProps('Shift', 'ShiftLeft')}>SELECT</button>
+          <button className="retro-meta-btn" {...createVirtualButtonProps('Shift', 'ShiftLeft')}>{isNeoGame ? 'INSERT COIN' : 'SELECT'}</button>
         </div>
         <div className="gba-center-screen">
           <div className="gba-screen-bezel">{screenArea}</div>

@@ -99,12 +99,11 @@ export async function transcodeMediaFile(filePath, targetOutputPath, options = {
   }
 
   const cmd = resolveFfmpeg();
-  const vEncoder = String(options.codec || 'h264').toLowerCase() === 'h265' ? 'libx265' : 'libx264';
-  const crf = String(options.crf || (vEncoder === 'libx265' ? '24' : '22'));
+  const vEncoder = String(options.codec || 'h265').toLowerCase() === 'h264' ? 'libx264' : 'libx265';
+  const crf = String(options.crf || '20');
   const aCodec = options.audioCodec || 'aac';
   const aBitrate = options.audioBitrate || '128k';
   const aChannels = options.audioChannels || '2';
-  const aRate = options.audioRate || '48000';
   const preset = options.preset || 'veryfast';
 
   const duration = await getMediaDuration(filePath);
@@ -114,11 +113,8 @@ export async function transcodeMediaFile(filePath, targetOutputPath, options = {
 
   const tempOut = path.join(outDir, `${path.basename(targetOutputPath, '.mp4')}.transcoding_${Date.now()}.mp4`);
 
-  const audioFilters = aCodec === 'copy' ? [] : ['-af', 'aresample=async=1000', '-ar', aRate, '-ac', aChannels, '-b:a', aBitrate];
-
   const args = [
     '-y',
-    '-fflags', '+genpts+discardcorrupt',
     '-i', filePath,
     '-map', '0:v:0',
     '-map', '0:a:0?',
@@ -128,15 +124,15 @@ export async function transcodeMediaFile(filePath, targetOutputPath, options = {
     '-crf', crf,
     ...(scaleFilter ? ['-vf', scaleFilter] : []),
     '-pix_fmt', 'yuv420p',
-    '-avoid_negative_ts', 'make_zero',
     '-c:a', aCodec,
-    ...audioFilters,
-    '-max_muxing_queue_size', '4096',
+    ...(aCodec === 'copy' ? [] : ['-ar', String(options.audioRate || '44100'), '-ac', aChannels, '-b:a', aBitrate]),
+    '-max_muxing_queue_size', '1024',
     '-sn',
+    '-movflags', '+faststart',
     tempOut
   ];
 
-  console.log(`[Transcoder] Starting transcode (${vEncoder}): ${path.basename(filePath)} -> ${path.basename(tempOut)}`);
+  console.log(`[Transcoder] Starting transcode: ${path.basename(filePath)} -> ${path.basename(tempOut)}`);
 
   return new Promise((resolve, reject) => {
     const proc = spawn(cmd, args);
@@ -164,54 +160,34 @@ export async function transcodeMediaFile(filePath, targetOutputPath, options = {
       reject(err);
     });
 
-    proc.on('exit', async (code) => {
-      // If tempOut was generated with substantial content (> 100KB), finalize it
-      if (fs.existsSync(tempOut) && fs.statSync(tempOut).size > 100000) {
+    let settled = false;
+    const finalize = (code) => {
+      if (settled) return;
+      settled = true;
+      if (code === 0 && fs.existsSync(tempOut) && fs.statSync(tempOut).size > 1000) {
         try {
           if (fs.existsSync(targetOutputPath)) fs.unlinkSync(targetOutputPath);
-
-          // Fast 2-second faststart remux pass
-          const faststartArgs = ['-y', '-i', tempOut, '-c', 'copy', '-movflags', '+faststart', targetOutputPath];
-          const fastProc = spawn(cmd, faststartArgs);
-
-          await new Promise((resFast) => {
-            fastProc.on('close', (fsCode) => {
-              if (fsCode === 0 && fs.existsSync(targetOutputPath) && fs.statSync(targetOutputPath).size > 1000) {
-                try { fs.unlinkSync(tempOut); } catch (_) {}
-              } else {
-                // If faststart pass fails, use tempOut directly
-                try {
-                  if (fs.existsSync(targetOutputPath)) fs.unlinkSync(targetOutputPath);
-                  fs.renameSync(tempOut, targetOutputPath);
-                } catch (_) {}
-              }
-              resFast();
-            });
-            fastProc.on('error', () => {
-              try { fs.renameSync(tempOut, targetOutputPath); } catch (_) {}
-              resFast();
-            });
-          });
-
-          if (fs.existsSync(targetOutputPath) && fs.statSync(targetOutputPath).size > 1000) {
-            if (onProgress) onProgress(100);
-            console.log(`[Transcoder] Completed: ${targetOutputPath} (${(fs.statSync(targetOutputPath).size / 1024 / 1024).toFixed(1)} MB)`);
-            return resolve({ outputPath: targetOutputPath, skipped: false });
+          try {
+            fs.renameSync(tempOut, targetOutputPath);
+          } catch (_) {
+            fs.copyFileSync(tempOut, targetOutputPath);
+            try { fs.unlinkSync(tempOut); } catch (_) {}
           }
-        } catch (postErr) {
-          console.warn('[Transcoder] Finalize pass warning:', postErr.message);
-          if (fs.existsSync(tempOut)) {
-            try {
-              fs.renameSync(tempOut, targetOutputPath);
-              return resolve({ outputPath: targetOutputPath, skipped: false });
-            } catch (_) {}
-          }
+          if (onProgress) onProgress(100);
+          console.log(`[Transcoder] Completed: ${targetOutputPath} (${(fs.statSync(targetOutputPath).size / 1024 / 1024).toFixed(1)} MB)`);
+          resolve({ outputPath: targetOutputPath, skipped: false });
+        } catch (renErr) {
+          reject(renErr);
         }
+      } else {
+        try { if (fs.existsSync(tempOut)) fs.unlinkSync(tempOut); } catch (_) {}
+        reject(new Error(`FFmpeg exited with code ${code}: ${stderr.slice(-300)}`));
       }
+    };
 
-      // If execution genuinely failed and output is missing or empty
-      try { if (fs.existsSync(tempOut)) fs.unlinkSync(tempOut); } catch (_) {}
-      reject(new Error(`FFmpeg exited with code ${code}: ${stderr.slice(-400)}`));
+    proc.on('close', (code) => finalize(code));
+    proc.on('exit', (code) => {
+      setTimeout(() => finalize(code), 100);
     });
   });
 }
