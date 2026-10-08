@@ -282,6 +282,12 @@ export function parseFreeplayDeepLink(rawUrl) {
     }
   } catch (_) {}
 
+  // Browsers/OS protocol handlers sometimes mangle the nested URL
+  // (e.g. freeplayDL://https:/example.com or freeplayDL://https//example.com).
+  // Restore a proper scheme separator before validating.
+  url = url.replace(/^(https?):?\/*/i, '$1://');
+  if (/^magnet:(?!\?)/i.test(url)) url = url.replace(/^magnet:/i, 'magnet:?');
+
   if (!/^(https?:\/\/|magnet:)/i.test(url)) return null;
 
   // Derive a friendly title from magnet dn= or the URL itself

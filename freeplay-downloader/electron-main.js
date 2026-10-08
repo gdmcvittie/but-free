@@ -246,11 +246,13 @@ if (!gotSingleInstanceLock) {
     // Allow Express a moment to bind before loading window
     setTimeout(() => createWindow(serverPort), 500);
 
-    // Flush a cold-start deep link once the server + window are up
+    // Flush a cold-start deep link once the server + window are up.
+    // The did-finish-load handler may already have consumed pendingDeepLink
+    // (clearing it before we get here), so rely on coldStartLink too.
     setTimeout(() => {
-      if (pendingDeepLink && pendingDeepLink.type === 'cold-start') {
-        const url = pendingDeepLink.url;
-        // Keep the payload for the renderer toast, and let the server add it
+      const url = coldStartLink || (pendingDeepLink && pendingDeepLink.type === 'cold-start' ? pendingDeepLink.url : null);
+      if (url) {
+        pendingDeepLink = null;
         handleDeepLink(url);
       }
     }, 1500);

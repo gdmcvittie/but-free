@@ -175,7 +175,7 @@ export default function FitgirlTab({ onDownloadDispatched }) {
 
                   <div className="pt-1 mt-auto flex flex-col gap-1.5">
                     <a
-                      href={`freeplayDL://${item.link}`}
+                      href={`freeplayDL://download?url=${encodeURIComponent(item.link)}&title=${encodeURIComponent(item.cleanTitle || item.title)}`}
                       className="btn btn-primary btn-xs w-full text-center"
                       title="Send this release to the Freeplay Downloader app"
                       onClick={(e) => e.stopPropagation()}

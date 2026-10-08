@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Loader2, Check, Search, RefreshCw, Flame, Download } from 'lucide-react';
+import { Check, Search, RefreshCw, Flame, Download } from 'lucide-react';
 import { fetchJson } from '../../utils/api';
-import { useAddJob, JobStatusBanner, LinksModal, FuckingFastAssistModal, Grid } from './shared';
+import { JobStatusBanner, Grid } from './shared';
 
 export default function PopularTab({ onDownloadDispatched }) {
   const [items, setItems] = useState([]);
@@ -9,12 +9,9 @@ export default function PopularTab({ onDownloadDispatched }) {
   const [error, setError] = useState(null);
   const [checking, setChecking] = useState(false);
   const [filter, setFilter] = useState('');
-  const [onlyRepacks, setOnlyRepacks] = useState(false);
+  const [onlyRepacks, setOnlyRepacks] = useState(true);
 
-  const [linksModal, setLinksModal] = useState(null);
-  const [repackBusyId, setRepackBusyId] = useState(null);
-
-  const { add, addBatch, busyId, doneIds, status, setStatus, ffAssist, setFfAssist } = useAddJob(onDownloadDispatched);
+  const [status, setStatus] = useState(null);
 
   const loadPopular = useCallback(async (force = false) => {
     setLoading(true);
@@ -65,49 +62,6 @@ export default function PopularTab({ onDownloadDispatched }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items.length]);
-
-  const findRepack = async (item) => {
-    setRepackBusyId(item.appId);
-    setError(null);
-    try {
-      let link = item.fitgirlLink;
-      if (!link) {
-        const check = await fetchJson(`/api/pc/check-fitgirl?title=${encodeURIComponent(item.title)}`);
-        if (!check.available || !check.matchLink) {
-          setError(`No FitGirl repack found for "${item.title}" (yet).`);
-          return;
-        }
-        link = check.matchLink;
-        setItems((prev) => prev.map(it => it.appId === item.appId
-          ? { ...it, fitgirlAvailable: true, fitgirlLink: link, fitgirlMatchTitle: check.matchTitle }
-          : it));
-      }
-
-      const scrape = await fetchJson(`/api/pc/scrape-links?url=${encodeURIComponent(link)}`);
-      setLinksModal({
-        pageUrl: link,
-        links: (scrape.links || []).map(l => ({ ...l, title: l.title || item.title })),
-        gameSize: scrape.gameSize || null,
-        gameSizeBytes: scrape.gameSizeBytes || null,
-        item: { cleanTitle: item.title }
-      });
-    } catch (err) {
-      setError(err.message || 'Could not load repack mirrors');
-    } finally {
-      setRepackBusyId(null);
-    }
-  };
-
-  const pickLink = async (l) => {
-    const ok = await add(l.id || l.url, {
-      source: l.url,
-      title: l.title || linksModal?.item?.cleanTitle || l.filename || 'PC Game',
-      console: 'pc',
-      size: l.sizeFormatted || linksModal?.gameSize,
-      sizeBytes: l.bytes || linksModal?.gameSizeBytes
-    });
-    if (ok) setLinksModal(null);
-  };
 
   const repackCount = items.filter(i => i.fitgirlAvailable === true).length;
 
@@ -220,20 +174,26 @@ export default function PopularTab({ onDownloadDispatched }) {
                   </a>
                 </div>
                 <div className="pt-1 mt-auto">
-                  <button
-                    onClick={() => findRepack(item)}
-                    disabled={repackBusyId === item.appId || doneIds.has(item.appId)}
-                    className={`btn btn-xs w-full ${
-                      doneIds.has(item.appId)
-                        ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 cursor-default'
-                        : 'btn-primary'
-                    }`}
-                  >
-                    {repackBusyId === item.appId
-                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      : <Download className="w-3.5 h-3.5" />}
-                    <span>{item.fitgirlAvailable === false ? 'Re-check' : 'Get Repack'}</span>
-                  </button>
+                  {item.fitgirlLink ? (
+                    <a
+                      href={`freeplayDL://download?url=${encodeURIComponent(item.fitgirlLink)}&title=${encodeURIComponent(item.title)}`}
+                      className="btn btn-primary btn-xs w-full text-center"
+                      title="Send this release to the Freeplay Downloader app"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download</span>
+                    </a>
+                  ) : (
+                    <button
+                      disabled
+                      className="btn btn-xs w-full bg-slate-800/60 text-slate-500 border border-white/5 cursor-not-allowed"
+                      title={item.fitgirlAvailable === false ? 'No FitGirl repack available' : 'Repack link not resolved yet'}
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>{item.fitgirlAvailable === false ? 'No Repack' : 'Checking...'}</span>
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -242,23 +202,6 @@ export default function PopularTab({ onDownloadDispatched }) {
       </Grid>
       )}
 
-      {linksModal && (
-        <LinksModal
-          open
-          onClose={() => setLinksModal(null)}
-          pageUrl={linksModal.pageUrl}
-          itemTitle={linksModal.item?.cleanTitle || linksModal.item?.title}
-          links={linksModal.links}
-          gameSize={linksModal.gameSize}
-          gameSizeBytes={linksModal.gameSizeBytes}
-          busyId={busyId}
-          doneIds={doneIds}
-          onPick={pickLink}
-          onAddBatch={(batchItems, title) => addBatch(batchItems, title || linksModal.item?.cleanTitle)}
-        />
-      )}
-
-      <FuckingFastAssistModal assist={ffAssist} onClose={() => setFfAssist(null)} />
     </div>
   );
 }
