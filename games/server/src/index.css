@@ -2272,6 +2272,18 @@ h1, h2, h3, h4, .font-heading {
   background: rgba(139, 92, 246, 0.4);
   color: #fff;
 }
+.retro-coin-btn {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fde68a;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.15);
+}
+.retro-coin-btn:active {
+  background: rgba(245, 158, 11, 0.6) !important;
+  border-color: rgba(245, 158, 11, 0.8) !important;
+  color: #fff !important;
+  transform: scale(0.96);
+}
 
 /* Discover tab navigation */
 .discover-tabs {

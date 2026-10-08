@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Nostalgist } from 'nostalgist';
 import {
   X, Play, Pause, RotateCcw, Maximize2, Minimize2,
-  Save, FolderInput, Heart, Download, Globe, Loader2
+  Save, FolderInput, Heart, Download, Globe, Loader2, Coins
 } from 'lucide-react';
 import { fetchJson } from '../utils/api';
 import { cacheGameForOffline, getCachedRom, isAndroidOfflineMode } from '../utils/offlineGames';
@@ -118,7 +118,13 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
 
   const isWebGame = !!(game?.isWebGame || game?.console === 'web' || (game?.webUrl || '').startsWith('http'));
   const isPcGame = !isWebGame && (game?.console === 'pc' || game?.isPcGame);
-  const isNeoGame = !isWebGame && !isPcGame && ['neo', 'neogeo', 'neo geo', 'arcade'].includes((game?.console || '').toLowerCase());
+  const consoleNormalized = (game?.console || '').toLowerCase().trim();
+  const isNeoGame = !isWebGame && !isPcGame && (
+    ['neo', 'neogeo', 'neo geo', 'neo-geo', 'arcade', 'fba', 'fbneo', 'mame'].includes(consoleNormalized) ||
+    (game?.core || '').includes('neo') ||
+    (game?.core || '').includes('fb') ||
+    (game?.core || '').includes('arcade')
+  );
 
   const showToast = useCallback((message) => {
     setToast(message);
@@ -189,7 +195,8 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
 
   const keyCodeMap = {
     ArrowUp: 38, ArrowDown: 40, ArrowLeft: 37, ArrowRight: 39,
-    KeyZ: 90, KeyX: 88, KeyA: 65, KeyS: 83, KeyQ: 81, KeyW: 87,
+    KeyZ: 90, KeyX: 88, KeyA: 65, KeyS: 83, KeyQ: 81, KeyW: 87, KeyC: 67,
+    Digit1: 49, Digit5: 53,
     ShiftLeft: 16, ShiftRight: 16, Enter: 13
   };
 
@@ -223,6 +230,17 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
     }
   }, []);
 
+  const insertCoin = useCallback(() => {
+    // Dispatch standard ShiftRight (rshift) + ShiftLeft (shift) to emulator canvas
+    dispatchKeyEvent('keydown', 'Shift', 'ShiftRight');
+    dispatchKeyEvent('keydown', 'Shift', 'ShiftLeft');
+    setTimeout(() => {
+      dispatchKeyEvent('keyup', 'Shift', 'ShiftRight');
+      dispatchKeyEvent('keyup', 'Shift', 'ShiftLeft');
+    }, 120);
+    showToast('🪙 Coin Inserted');
+  }, [dispatchKeyEvent, showToast]);
+
   const createVirtualButtonProps = useCallback((key, code) => {
     const btnId = `${key}_${code}`;
     const handlePress = (e) => {
@@ -232,7 +250,12 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
       }
       if (!activeTouchButtons.current.has(btnId)) {
         activeTouchButtons.current.add(btnId);
-        dispatchKeyEvent('keydown', key, code);
+        if (key === 'Shift') {
+          dispatchKeyEvent('keydown', 'Shift', 'ShiftRight');
+          dispatchKeyEvent('keydown', 'Shift', 'ShiftLeft');
+        } else {
+          dispatchKeyEvent('keydown', key, code);
+        }
       }
     };
     const handleRelease = (e) => {
@@ -242,7 +265,12 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
       }
       if (activeTouchButtons.current.has(btnId)) {
         activeTouchButtons.current.delete(btnId);
-        dispatchKeyEvent('keyup', key, code);
+        if (key === 'Shift') {
+          dispatchKeyEvent('keyup', 'Shift', 'ShiftRight');
+          dispatchKeyEvent('keyup', 'Shift', 'ShiftLeft');
+        } else {
+          dispatchKeyEvent('keyup', key, code);
+        }
       }
     };
     return {
@@ -540,7 +568,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
           'zupapa': 'zupapa'
         };
 
-        const isNeoGeo = targetCore === 'fbalpha2012_neogeo' || targetCore === 'fbneo' || (game.console || '').toLowerCase() === 'neo' || (game.console || '').toLowerCase() === 'neogeo' || (game.console || '').toLowerCase() === 'arcade';
+        const isNeoGeo = targetCore === 'fbalpha2012_neogeo' || targetCore === 'fbneo' || ['neo', 'neogeo', 'neo geo', 'neo-geo', 'arcade', 'fba', 'fbneo'].includes((game.console || '').toLowerCase().trim());
 
         let safeFileName = '';
         if (isNeoGeo) {
@@ -742,6 +770,10 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
             input_player1_r: 'w',
             input_player1_select: 'rshift',
             input_player1_start: 'enter',
+            input_player1_select_btn: '8',
+            input_player1_start_btn: '9',
+            input_player1_l_btn: '4',
+            input_player1_r_btn: '5',
             ...gamepadButtonConfig
           },
           style: {
@@ -848,11 +880,19 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
 
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && !document.fullscreenElement) onClose();
+      if (e.key === 'Escape' && !document.fullscreenElement) {
+        onClose();
+        return;
+      }
+      if (!isWebGame && !isPcGame) {
+        if (e.code === 'Digit5' || e.key === '5' || e.code === 'KeyC' || e.key === 'c' || e.key === 'C') {
+          if (!e.repeat) insertCoin();
+        }
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [onClose, isWebGame, isPcGame, insertCoin]);
 
   if (!game) return null;
 
@@ -1011,6 +1051,18 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
   const headerBar = (className = '') => (
     <div className={`freeplay-game-toolbar ${className}`}>
       <div className="freeplay-game-toolbar-actions">
+        {isNeoGame && (
+          <button
+            onClick={insertCoin}
+            disabled={isLoading}
+            className="btn btn-sm bg-amber-500/20 hover:bg-amber-500/35 text-amber-300 border border-amber-500/40 font-bold px-2.5 py-1 flex items-center gap-1.5 rounded-lg shadow-sm transition hover:scale-105 active:scale-95 cursor-pointer"
+            title="Insert Coin (Shift / 5 / C)"
+            aria-label="Insert Coin"
+          >
+            <Coins className="w-3.5 h-3.5 text-amber-400" />
+            <span className="text-[11px] tracking-wider">INSERT COIN</span>
+          </button>
+        )}
         <button onClick={handleTogglePause} disabled={isLoading} className="icon-btn icon-btn-sm" title={isPaused ? 'Resume' : 'Pause'} aria-label={isPaused ? 'Resume' : 'Pause'}>
           {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
         </button>
@@ -1097,7 +1149,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
             {renderActionButtons()}
           </div>
           <div className="gb-meta-controls">
-            <button className="retro-meta-btn" {...createVirtualButtonProps('Shift', 'ShiftLeft')}>{isNeoGame ? 'INSERT COIN' : 'SELECT'}</button>
+            <button className={`retro-meta-btn ${isNeoGame ? 'retro-coin-btn' : ''}`} {...createVirtualButtonProps('Shift', 'ShiftRight')} title={isNeoGame ? 'Insert Coin' : 'Select'}>{isNeoGame ? 'INSERT COIN' : 'SELECT'}</button>
             <button className="retro-meta-btn" {...createVirtualButtonProps('Enter', 'Enter')}>START</button>
           </div>
         </div>
@@ -1113,7 +1165,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
         <div className="gba-left-wing">
           <button className="retro-shoulder-btn gba-shoulder-btn" {...createVirtualButtonProps('q', 'KeyQ')}>L</button>
           {renderDPad()}
-          <button className="retro-meta-btn" {...createVirtualButtonProps('Shift', 'ShiftLeft')}>{isNeoGame ? 'INSERT COIN' : 'SELECT'}</button>
+          <button className={`retro-meta-btn ${isNeoGame ? 'retro-coin-btn' : ''}`} {...createVirtualButtonProps('Shift', 'ShiftRight')} title={isNeoGame ? 'Insert Coin' : 'Select'}>{isNeoGame ? 'INSERT COIN' : 'SELECT'}</button>
         </div>
         <div className="gba-center-screen">
           <div className="gba-screen-bezel">{screenArea}</div>
