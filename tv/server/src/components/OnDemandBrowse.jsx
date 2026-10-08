@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Film, Tv, Play, Folder, Search, HardDrive, RefreshCw, Heart, Download } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Film, Tv, Play, Folder, Search, HardDrive, RefreshCw, Heart, Download, Check } from 'lucide-react';
+import { downloadVideoForOffline, getAllOfflineVideos, deleteOfflineVideo } from '../utils/offlineStorage.js';
 
 const buildDownloadUrl = (item) => {
   const fileId = item.driveId || item.id;
@@ -12,6 +13,77 @@ export default function OnDemandBrowse({ library = {}, onPlayVideo, onOpenSettin
   const [search, setSearch] = useState('');
   const [selectedShow, setSelectedShow] = useState(null);
   const [selectedSeason, setSelectedSeason] = useState(1);
+  const [offlineMap, setOfflineMap] = useState({});
+
+  useEffect(() => {
+    let mounted = true;
+    getAllOfflineVideos().then(savedList => {
+      if (!mounted) return;
+      const map = {};
+      savedList.forEach(v => {
+        map[v.id] = { isSaved: true, progress: 100 };
+      });
+      setOfflineMap(map);
+    }).catch(() => {});
+
+    const handleUpdate = () => {
+      getAllOfflineVideos().then(savedList => {
+        if (!mounted) return;
+        const map = {};
+        savedList.forEach(v => {
+          map[v.id] = { isSaved: true, progress: 100 };
+        });
+        setOfflineMap(map);
+      }).catch(() => {});
+    };
+
+    window.addEventListener('freevee_offline_updated', handleUpdate);
+    return () => {
+      mounted = false;
+      window.removeEventListener('freevee_offline_updated', handleUpdate);
+    };
+  }, []);
+
+  const handleSaveOffline = async (item, e) => {
+    e?.stopPropagation?.();
+    const id = item.driveId || item.id;
+    if (offlineMap[id]?.isSaved) {
+      if (confirm(`Remove "${item.title || item.filename}" from offline storage?`)) {
+        await deleteOfflineVideo(id);
+        setOfflineMap(prev => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      }
+      return;
+    }
+
+    setOfflineMap(prev => ({
+      ...prev,
+      [id]: { isDownloading: true, progress: 5, message: 'Starting...' }
+    }));
+
+    try {
+      await downloadVideoForOffline(item, ({ percent, message }) => {
+        setOfflineMap(prev => ({
+          ...prev,
+          [id]: { isDownloading: true, progress: percent, message }
+        }));
+      });
+      setOfflineMap(prev => ({
+        ...prev,
+        [id]: { isSaved: true, isDownloading: false, progress: 100 }
+      }));
+    } catch (err) {
+      alert(`Could not save video offline: ${err.message}`);
+      setOfflineMap(prev => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
+  };
 
   const shows = library.shows || {};
   const showsList = library.showsList || [];
@@ -236,14 +308,37 @@ export default function OnDemandBrowse({ library = {}, onPlayVideo, onOpenSettin
                   <span style={{ fontSize: '13px', fontWeight: 600 }}>{ep.title}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    className="action-btn"
+                    onClick={(e) => handleSaveOffline(ep, e)}
+                    disabled={offlineMap[ep.id]?.isDownloading}
+                    title={offlineMap[ep.id]?.isSaved ? 'Saved for offline (click to remove)' : 'Save video to offline storage'}
+                    style={{
+                      padding: '6px 12px',
+                      fontSize: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      color: offlineMap[ep.id]?.isSaved ? '#10b981' : 'inherit',
+                      borderColor: offlineMap[ep.id]?.isSaved ? 'rgba(16, 185, 129, 0.4)' : undefined,
+                      background: offlineMap[ep.id]?.isSaved ? 'rgba(16, 185, 129, 0.1)' : undefined
+                    }}
+                  >
+                    {offlineMap[ep.id]?.isSaved ? <Check size={12} color="#10b981" /> : <Download size={12} />}
+                    <span>
+                      {offlineMap[ep.id]?.isDownloading
+                        ? `${offlineMap[ep.id].progress}%`
+                        : (offlineMap[ep.id]?.isSaved ? 'Saved Offline' : 'Save Offline')}
+                    </span>
+                  </button>
                   <a
                     className="action-btn"
                     href={buildDownloadUrl(ep)}
                     download={ep.filename || `${ep.title}.mp4`}
-                    title="Download video"
-                    style={{ padding: '6px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', textDecoration: 'none' }}
+                    title="Download video file to device"
+                    style={{ padding: '6px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', textDecoration: 'none' }}
                   >
-                    <Download size={12} /> Download
+                    <Download size={12} />
                   </a>
                   <button className="action-btn primary" onClick={() => onPlayVideo(ep)} style={{ padding: '6px 14px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <Play size={12} fill="#000" /> Play
@@ -311,20 +406,19 @@ export default function OnDemandBrowse({ library = {}, onPlayVideo, onOpenSettin
                     <Heart size={14} fill={fav ? 'var(--accent)' : 'none'} />
                   </button>
 
-                  {/* Download */}
-                  <a
-                    href={buildDownloadUrl(movie)}
-                    download={movie.filename || `${movie.title}.mp4`}
-                    onClick={(e) => e.stopPropagation()}
-                    title="Download video"
+                  {/* Save for Offline Button */}
+                  <button
+                    onClick={(e) => handleSaveOffline(movie, e)}
+                    disabled={offlineMap[movie.driveId || movie.id]?.isDownloading}
+                    title={offlineMap[movie.driveId || movie.id]?.isSaved ? 'Saved for offline (tap to remove)' : 'Save video to offline storage'}
                     style={{
                       position: 'absolute',
                       top: '12px',
                       left: '12px',
                       zIndex: 10,
-                      background: 'rgba(0, 0, 0, 0.65)',
+                      background: offlineMap[movie.driveId || movie.id]?.isSaved ? 'rgba(16, 185, 129, 0.85)' : 'rgba(0, 0, 0, 0.65)',
                       backdropFilter: 'blur(4px)',
-                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      border: offlineMap[movie.driveId || movie.id]?.isSaved ? '1px solid #10b981' : '1px solid rgba(255, 255, 255, 0.15)',
                       borderRadius: '50%',
                       width: '28px',
                       height: '28px',
@@ -332,12 +426,17 @@ export default function OnDemandBrowse({ library = {}, onPlayVideo, onOpenSettin
                       alignItems: 'center',
                       justifyContent: 'center',
                       cursor: 'pointer',
-                      color: 'rgba(255,255,255,0.85)',
-                      textDecoration: 'none'
+                      color: '#fff'
                     }}
                   >
-                    <Download size={14} />
-                  </a>
+                    {offlineMap[movie.driveId || movie.id]?.isSaved ? (
+                      <Check size={14} />
+                    ) : offlineMap[movie.driveId || movie.id]?.isDownloading ? (
+                      <span style={{ fontSize: '9px', fontWeight: 'bold' }}>{offlineMap[movie.driveId || movie.id].progress}%</span>
+                    ) : (
+                      <Download size={14} />
+                    )}
+                  </button>
 
                   <div
                     style={{

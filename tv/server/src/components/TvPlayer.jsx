@@ -1,6 +1,8 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { RefreshCw, AlertCircle, Maximize, Minimize, Radio, X } from 'lucide-react';
 
+import { getOfflineVideoUrl } from '../utils/offlineStorage.js';
+
 export default function TvPlayer({ currentVideo, offset = 0, onStop, onTimeUpdate, onEnded }) {
   const containerRef = useRef(null);
   const videoRef = useRef(null);
@@ -8,6 +10,18 @@ export default function TvPlayer({ currentVideo, offset = 0, onStop, onTimeUpdat
   const [isBuffering, setIsBuffering] = useState(true);
   const [videoError, setVideoError] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [offlineSrc, setOfflineSrc] = useState(currentVideo?.offlineUrl || null);
+
+  useEffect(() => {
+    let active = true;
+    const vidId = currentVideo?.id || currentVideo?.driveId;
+    if (vidId) {
+      getOfflineVideoUrl(vidId).then(url => {
+        if (active && url) setOfflineSrc(url);
+      }).catch(() => {});
+    }
+    return () => { active = false; };
+  }, [currentVideo]);
 
   // Fullscreen state listener
   useEffect(() => {
@@ -69,9 +83,9 @@ export default function TvPlayer({ currentVideo, offset = 0, onStop, onTimeUpdat
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  // Compute stream URL
-  let videoSrc = '';
-  if (currentVideo) {
+  // Compute stream URL (prefers offline cached blob if saved)
+  let videoSrc = offlineSrc || '';
+  if (!videoSrc && currentVideo) {
     if (currentVideo.driveId) {
       videoSrc = `/api/stream/drive/${currentVideo.driveId}`;
     } else if (currentVideo.path && currentVideo.path.startsWith('drive://')) {

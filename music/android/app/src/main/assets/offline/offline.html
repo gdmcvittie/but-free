@@ -402,9 +402,15 @@
       <div class="brand-title">FRAUDIO</div>
       <span class="badge-offline">Offline</span>
     </div>
-    <button class="btn-online" id="btnOnline">
-      <span>🌐</span> Reconnect
-    </button>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <input type="file" id="localAudioPicker" accept="audio/*" style="display:none;" onchange="handleLocalAudioPick(event)" />
+      <button class="btn-online" onclick="document.getElementById('localAudioPicker').click()" title="Open local audio file from device storage">
+        <span>📂</span> Open File
+      </button>
+      <button class="btn-online" id="btnOnline">
+        <span>🌐</span> Reconnect
+      </button>
+    </div>
   </header>
 
   <div class="stats-bar" id="statsBar">
@@ -700,6 +706,7 @@
           }
           audio.play().catch(e => console.warn('Play error:', e));
           btnPlayPause.textContent = '⏸';
+          pushNativeState(true);
           renderTab();
         });
       }
@@ -727,21 +734,109 @@
       } catch {}
     }
 
+    function pushNativeState(playing, stop = false) {
+      if (window.FraudioNative && typeof window.FraudioNative.updateState === 'function') {
+        const item = currentQueue[currentIndex];
+        const payload = {
+          playing: Boolean(playing),
+          positionSec: Math.floor(audio.currentTime || 0),
+          durationSec: Math.floor(audio.duration || 0),
+          stop: Boolean(stop),
+          meta: item ? {
+            title: item.title,
+            artist: item.artist || item.author || 'FRAUDIO Offline',
+            album: item.album || 'Downloaded',
+            coverUrl: ''
+          } : undefined
+        };
+        try {
+          window.FraudioNative.updateState(JSON.stringify(payload));
+        } catch (e) {
+          console.warn('Native state push error:', e);
+        }
+      }
+    }
+
+    // Register native transport controls from notification / lockscreen / headset / car
+    window.fraudioNativeCommand = (action, value) => {
+      switch (action) {
+        case 'play':
+          if (audio.src && audio.paused) audio.play();
+          break;
+        case 'pause':
+          if (!audio.paused) audio.pause();
+          break;
+        case 'next':
+          if (currentIndex < currentQueue.length - 1) {
+            playQueue(currentQueue, currentIndex + 1);
+          }
+          break;
+        case 'prev':
+          if (audio.currentTime > 4) {
+            audio.currentTime = 0;
+          } else if (currentIndex > 0) {
+            playQueue(currentQueue, currentIndex - 1);
+          }
+          break;
+        case 'seek':
+          if (typeof value === 'number' && audio.duration) {
+            audio.currentTime = value;
+          }
+          break;
+        case 'forward':
+          if (audio.duration) {
+            audio.currentTime = Math.min(audio.duration, audio.currentTime + 10);
+          }
+          break;
+        case 'rewind':
+          audio.currentTime = Math.max(0, audio.currentTime - 10);
+          break;
+      }
+    };
+
+    function handleLocalAudioPick(e) {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      const title = file.name.replace(/\.[^/.]+$/, '');
+      const localItem = {
+        id: 'local_' + Date.now(),
+        title: title,
+        artist: 'Local File',
+        album: 'Device Storage',
+        durationSec: 0,
+        blob: file,
+        kind: 'track'
+      };
+
+      playQueue([localItem], 0);
+
+      setTimeout(() => {
+        if (confirm(`Save "${title}" to your offline library so it's always accessible?`)) {
+          const tx = db.transaction('tracks', 'readwrite');
+          tx.objectStore('tracks').put(localItem);
+          tx.oncomplete = () => loadData();
+        }
+      }, 1000);
+    }
+
     audio.ontimeupdate = () => {
       if (!audio.duration) return;
       const pct = (audio.currentTime / audio.duration) * 100;
       progressFill.style.width = pct + '%';
     };
 
-    // Save position every 5 seconds
+    // Save position and update native playback state periodically
     setInterval(() => {
       if (!audio.paused && currentPlayingId && audio.duration) {
         savePosition(currentPlayingId, audio.currentTime, audio.duration);
+        pushNativeState(true);
       }
     }, 5000);
 
     audio.onpause = () => {
       btnPlayPause.textContent = '▶';
+      pushNativeState(false);
       if (currentPlayingId && audio.duration) {
         savePosition(currentPlayingId, audio.currentTime, audio.duration);
       }
@@ -749,6 +844,7 @@
 
     audio.onplay = () => {
       btnPlayPause.textContent = '⏸';
+      pushNativeState(true);
     };
 
     audio.onended = () => {
@@ -756,6 +852,7 @@
         playQueue(currentQueue, currentIndex + 1);
       } else {
         btnPlayPause.textContent = '▶';
+        pushNativeState(false, true);
       }
     };
 

@@ -1,0 +1,1361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>FREEVEE - Offline Video Player</title>
+  <style>
+    :root {
+      --bg: #090C15;
+      --card-bg: #131826;
+      --card-hover: #1A2135;
+      --border: #20293D;
+      --accent: #8B5CF6;
+      --accent-glow: rgba(139, 92, 246, 0.25);
+      --cyan: #22D3EE;
+      --cyan-dim: rgba(34, 211, 238, 0.15);
+      --text: #F8FAFC;
+      --text-muted: #94A3B8;
+      --danger: #EF4444;
+      --danger-dim: rgba(239, 68, 68, 0.15);
+      --success: #10B981;
+      --warn: #F59E0B;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      overflow-x: hidden;
+    }
+
+    /* Screen containers */
+    .screen {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: rgba(9, 12, 21, 0.95);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: max(12px, env(safe-area-inset-top, 12px)) 16px 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .brand-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .logo-badge {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--accent) 0%, #6366F1 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 16px var(--accent-glow);
+    }
+
+    .logo-badge svg {
+      width: 18px;
+      height: 18px;
+      fill: #fff;
+    }
+
+    .brand-title {
+      font-size: 1.15rem;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge-offline {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 3px 8px;
+      border-radius: 12px;
+      background: rgba(245, 158, 11, 0.2);
+      color: var(--warn);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 7px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--card-bg);
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn:active {
+      transform: scale(0.97);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent) 0%, #6366F1 100%);
+      border-color: rgba(255, 255, 255, 0.1);
+      color: #fff;
+      box-shadow: 0 4px 12px var(--accent-glow);
+    }
+
+    .btn-cyan {
+      background: var(--cyan-dim);
+      border-color: rgba(34, 211, 238, 0.3);
+      color: var(--cyan);
+    }
+
+    .btn-danger {
+      background: var(--danger-dim);
+      border-color: rgba(239, 68, 68, 0.3);
+      color: var(--danger);
+    }
+
+    /* Online reconnection banner */
+    #reconnectBanner {
+      display: none;
+      background: linear-gradient(90deg, #065F46 0%, #047857 100%);
+      color: #fff;
+      padding: 10px 16px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      text-align: center;
+      border-bottom: 1px solid #10B981;
+      cursor: pointer;
+    }
+
+    /* Sub-bar / Search / Filters */
+    .controls-bar {
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(19, 24, 38, 0.4);
+    }
+
+    .stats-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .stat-pill {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .stat-pill strong {
+      color: var(--cyan);
+      font-weight: 700;
+    }
+
+    .filter-tabs {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .filter-tabs::-webkit-scrollbar {
+      display: none;
+    }
+
+    .tab-btn {
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      background: var(--card-bg);
+      color: var(--text-muted);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s ease;
+    }
+
+    .tab-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .search-input-wrap {
+      position: relative;
+      width: 100%;
+    }
+
+    .search-input-wrap input {
+      width: 100%;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px 8px 36px;
+      color: #fff;
+      font-size: 0.82rem;
+      outline: none;
+      transition: border 0.15s;
+    }
+
+    .search-input-wrap input:focus {
+      border-color: var(--accent);
+    }
+
+    .search-input-wrap svg {
+      position: absolute;
+      left: 11px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 15px;
+      height: 15px;
+      fill: var(--text-muted);
+      pointer-events-none;
+    }
+
+    /* Video Grid */
+    main {
+      flex: 1;
+      padding: 16px;
+    }
+
+    .video-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 16px;
+    }
+
+    @media (min-width: 600px) {
+      .video-grid {
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 20px;
+      }
+    }
+
+    .video-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .video-card:hover {
+      border-color: rgba(139, 92, 246, 0.5);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    }
+
+    .poster-container {
+      width: 100%;
+      aspect-ratio: 16/9;
+      background: linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(19, 24, 38, 0.9) 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .poster-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .poster-fallback {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      color: var(--accent);
+    }
+
+    .play-overlay-icon {
+      position: absolute;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: rgba(139, 92, 246, 0.85);
+      backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+      opacity: 0.9;
+      transition: transform 0.15s;
+    }
+
+    .video-card:hover .play-overlay-icon {
+      transform: scale(1.1);
+      background: var(--accent);
+    }
+
+    .video-duration-tag {
+      position: absolute;
+      bottom: 8px;
+      right: 8px;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(4px);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .video-type-badge {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      background: rgba(34, 211, 238, 0.85);
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 0.65rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #090C15;
+    }
+
+    .video-type-badge.tv {
+      background: rgba(139, 92, 246, 0.85);
+      color: #fff;
+    }
+
+    .card-info {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 1;
+    }
+
+    .video-title {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: #fff;
+      line-height: 1.3;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .video-sub {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 2px;
+    }
+
+    .card-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: auto;
+      padding-top: 10px;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .size-tag {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .btn-delete-card {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 4px 6px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      transition: color 0.15s, background 0.15s;
+    }
+
+    .btn-delete-card:hover {
+      color: var(--danger);
+      background: var(--danger-dim);
+    }
+
+    /* Resume progress indicator */
+    .progress-bar-wrap {
+      width: 100%;
+      height: 3px;
+      background: rgba(255, 255, 255, 0.1);
+      position: absolute;
+      bottom: 0;
+      left: 0;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 0 2px 2px 0;
+    }
+
+    /* Empty state */
+    .empty-state {
+      padding: 60px 24px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      max-width: 480px;
+      margin: 0 auto;
+    }
+
+    .empty-icon-wrap {
+      width: 72px;
+      height: 72px;
+      border-radius: 20px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    }
+
+    .empty-title {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    .empty-desc {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* Fullscreen Dedicated Player Screen */
+    #playerScreen {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      background: #000;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #playerScreen.active {
+      display: flex;
+    }
+
+    .video-viewport {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+    }
+
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
+    }
+
+    /* Video Player Overlay Controls */
+    .player-controls-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 25%, transparent 75%, rgba(0,0,0,0.85) 100%);
+      opacity: 1;
+      transition: opacity 0.3s ease;
+      pointer-events: auto;
+    }
+
+    .player-controls-overlay.autohide {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .player-top-bar {
+      padding: max(16px, env(safe-area-inset-top, 16px)) 20px 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .player-back-btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .player-back-btn:active {
+      background: rgba(255, 255, 255, 0.3);
+    }
+
+    .player-title-wrap {
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .player-title-text {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #fff;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .player-sub-text {
+      font-size: 0.78rem;
+      color: var(--cyan);
+      margin-top: 2px;
+    }
+
+    /* Center Big Play/Pause Ripple */
+    .player-center-tap {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .center-play-btn {
+      width: 68px;
+      height: 68px;
+      border-radius: 50%;
+      background: rgba(139, 92, 246, 0.85);
+      backdrop-filter: blur(10px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
+      transition: transform 0.15s;
+    }
+
+    .center-play-btn:active {
+      transform: scale(0.92);
+    }
+
+    /* Bottom Control Bar */
+    .player-bottom-bar {
+      padding: 16px 20px max(16px, env(safe-area-inset-bottom, 16px)) 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .scrubber-container {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+    }
+
+    .time-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #cbd5e1;
+      font-variant-numeric: tabular-nums;
+      min-width: 48px;
+    }
+
+    .scrubber-track {
+      flex: 1;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 3px;
+      position: relative;
+      cursor: pointer;
+    }
+
+    .scrubber-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent) 0%, var(--cyan) 100%);
+      border-radius: 3px;
+      width: 0%;
+      position: relative;
+    }
+
+    .scrubber-thumb {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 0 8px rgba(0, 0, 0, 0.6);
+      position: absolute;
+      right: -7px;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+
+    .player-actions-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .controls-group-left, .controls-group-right {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .icon-btn {
+      background: none;
+      border: none;
+      color: #fff;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px;
+      border-radius: 6px;
+      transition: opacity 0.15s;
+    }
+
+    .icon-btn:active {
+      opacity: 0.7;
+    }
+
+    .speed-btn {
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 4px 8px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #fff;
+      cursor: pointer;
+    }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: rgba(19, 24, 38, 0.95);
+      border: 1px solid var(--border);
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 24px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+      backdrop-filter: blur(12px);
+      z-index: 2000;
+      transition: transform 0.25s ease, opacity 0.25s ease;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .toast.visible {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Reconnect online alert banner -->
+  <div id="reconnectBanner" onclick="reconnectToCloud()">
+    ● Internet Connection Restored • Tap to switch back to Cloud Mode
+  </div>
+
+  <!-- Screen 1: Offline Video Library -->
+  <div id="libraryScreen" class="screen">
+    <!-- Header -->
+    <header>
+      <div class="brand-wrap">
+        <div class="logo-badge">
+          <svg viewBox="0 0 24 24"><path d="M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h5v2h8v-2h5c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 14H3V5h18v12z"/></svg>
+        </div>
+        <div class="brand-title">
+          FREEVEE
+          <span class="badge-offline">Offline Mode</span>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <!-- Hidden file input for importing local files -->
+        <input type="file" id="localVideoPicker" accept="video/*" style="display:none;" onchange="handleLocalFilePick(event)" />
+        <button class="btn btn-cyan" onclick="document.getElementById('localVideoPicker').click()" title="Open video from device storage">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span>Open File</span>
+        </button>
+
+        <button class="btn" onclick="reconnectToCloud()" title="Try connecting to cloud server">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+          <span>Cloud</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Controls, Filter Tabs & Search -->
+    <div class="controls-bar">
+      <div class="stats-row">
+        <div class="stat-pill" id="storageSummary">
+          <span>Loading offline storage...</span>
+        </div>
+
+        <div class="filter-tabs">
+          <button class="tab-btn active" data-filter="all" onclick="setFilter('all')">All (<span id="countAll">0</span>)</button>
+          <button class="tab-btn" data-filter="tv" onclick="setFilter('tv')">TV Series (<span id="countTv">0</span>)</button>
+          <button class="tab-btn" data-filter="movie" onclick="setFilter('movie')">Movies (<span id="countMovies">0</span>)</button>
+        </div>
+      </div>
+
+      <div class="search-input-wrap">
+        <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+        <input type="text" id="searchInput" placeholder="Search saved videos..." oninput="handleSearch(this.value)" />
+      </div>
+    </div>
+
+    <!-- Video Grid Content -->
+    <main>
+      <div id="videoGrid" class="video-grid"></div>
+
+      <!-- Empty State -->
+      <div id="emptyState" class="empty-state" style="display:none;">
+        <div class="empty-icon-wrap">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </div>
+        <h2 class="empty-title">No Offline Videos Saved</h2>
+        <p class="empty-desc">
+          When connected to the internet, you can save movies and TV episodes from your FREEVEE library to watch offline anytime without Wi-Fi.
+        </p>
+        <div style="display:flex; gap:10px; margin-top:8px;">
+          <button class="btn btn-cyan" onclick="document.getElementById('localVideoPicker').click()">
+            Open Local Video File
+          </button>
+          <button class="btn btn-primary" onclick="reconnectToCloud()">
+            Connect Online
+          </button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Screen 2: Dedicated Fullscreen Video Player -->
+  <div id="playerScreen">
+    <div class="video-viewport" id="videoViewport">
+      <video id="offlineVideo" playsinline preload="auto"></video>
+
+      <!-- Overlay Controls -->
+      <div class="player-controls-overlay" id="playerOverlay">
+        <!-- Top bar -->
+        <div class="player-top-bar">
+          <button class="player-back-btn" onclick="closePlayer()" title="Back to offline library">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <div class="player-title-wrap">
+            <div class="player-title-text" id="playerTitle">Video Title</div>
+            <div class="player-sub-text" id="playerSub">Offline Playback</div>
+          </div>
+        </div>
+
+        <!-- Center tap area with play/pause ripple -->
+        <div class="player-center-tap" onclick="togglePlayPause()">
+          <div class="center-play-btn" id="centerPlayBtn">
+            <svg id="centerPlayIcon" width="32" height="32" viewBox="0 0 24 24" fill="#fff"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          </div>
+        </div>
+
+        <!-- Bottom bar -->
+        <div class="player-bottom-bar">
+          <!-- Scrubber row -->
+          <div class="scrubber-container">
+            <span class="time-label" id="currentTimeLabel">0:00</span>
+            <div class="scrubber-track" id="scrubberTrack" onclick="handleScrub(event)">
+              <div class="scrubber-fill" id="scrubberFill">
+                <div class="scrubber-thumb"></div>
+              </div>
+            </div>
+            <span class="time-label" id="totalDurationLabel">0:00</span>
+          </div>
+
+          <!-- Actions group -->
+          <div class="player-actions-row">
+            <div class="controls-group-left">
+              <button class="icon-btn" onclick="togglePlayPause()" title="Play / Pause">
+                <svg id="btnPlayPauseIcon" width="26" height="26" viewBox="0 0 24 24" fill="#fff"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              </button>
+
+              <button class="icon-btn" onclick="skipTime(-10)" title="Rewind 10s">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><text x="12" y="15" text-anchor="middle" font-size="8" font-weight="bold" fill="#fff" stroke="none">10</text></svg>
+              </button>
+
+              <button class="icon-btn" onclick="skipTime(10)" title="Forward 10s">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><text x="12" y="15" text-anchor="middle" font-size="8" font-weight="bold" fill="#fff" stroke="none">10</text></svg>
+              </button>
+            </div>
+
+            <div class="controls-group-right">
+              <button class="speed-btn" id="speedBtn" onclick="cyclePlaybackRate()" title="Playback Speed">1.0x</button>
+
+              <button class="icon-btn" onclick="toggleFullscreen()" title="Fullscreen">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast notification -->
+  <div id="toast" class="toast">Notice message</div>
+
+  <script>
+    const DB_NAME = 'freevee_offline';
+    const DB_VERSION = 1;
+
+    let db = null;
+    let offlineVideos = [];
+    let activeFilter = 'all';
+    let searchQuery = '';
+    let currentVideo = null;
+    let currentObjectUrl = null;
+    let controlsTimer = null;
+    let playbackRates = [0.75, 1.0, 1.25, 1.5, 2.0];
+    let currentSpeedIndex = 1;
+
+    const videoEl = document.getElementById('offlineVideo');
+    const playerScreen = document.getElementById('playerScreen');
+    const playerOverlay = document.getElementById('playerOverlay');
+    const scrubberFill = document.getElementById('scrubberFill');
+    const currentTimeLabel = document.getElementById('currentTimeLabel');
+    const totalDurationLabel = document.getElementById('totalDurationLabel');
+    const btnPlayPauseIcon = document.getElementById('btnPlayPauseIcon');
+    const centerPlayIcon = document.getElementById('centerPlayIcon');
+    const speedBtn = document.getElementById('speedBtn');
+    const toastEl = document.getElementById('toast');
+
+    // Initialize DB
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = (e) => {
+          const database = e.target.result;
+          if (!database.objectStoreNames.contains('videos')) {
+            const vStore = database.createObjectStore('videos', { keyPath: 'id' });
+            vStore.createIndex('type', 'type', { unique: false });
+            vStore.createIndex('showName', 'showName', { unique: false });
+            vStore.createIndex('savedAt', 'savedAt', { unique: false });
+          }
+          if (!database.objectStoreNames.contains('meta')) {
+            database.createObjectStore('meta', { keyPath: 'key' });
+          }
+        };
+        req.onsuccess = () => {
+          db = req.result;
+          resolve(db);
+        };
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    // Load offline videos
+    async function loadOfflineVideos() {
+      if (!db) await openDB();
+      return new Promise((resolve) => {
+        const tx = db.transaction('videos', 'readonly');
+        const store = tx.objectStore('videos');
+        const req = store.getAll();
+        req.onsuccess = () => {
+          offlineVideos = req.result || [];
+          offlineVideos.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+          renderLibrary();
+          resolve(offlineVideos);
+        };
+        req.onerror = () => {
+          offlineVideos = [];
+          renderLibrary();
+          resolve([]);
+        };
+      });
+    }
+
+    // Format bytes
+    function formatBytes(bytes) {
+      if (!bytes || bytes === 0) return '0 MB';
+      const mb = bytes / (1024 * 1024);
+      if (mb >= 1024) return (mb / 1024).toFixed(2) + ' GB';
+      return mb.toFixed(1) + ' MB';
+    }
+
+    // Format seconds to mm:ss or hh:mm:ss
+    function formatTime(seconds) {
+      if (!seconds || isNaN(seconds) || seconds < 0) return '0:00';
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      const s = Math.floor(seconds % 60);
+      const pad = (n) => (n < 10 ? '0' + n : n);
+      if (h > 0) return `${h}:${pad(m)}:${pad(s)}`;
+      return `${m}:${pad(s)}`;
+    }
+
+    // Filter tabs
+    function setFilter(filter) {
+      activeFilter = filter;
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filter === filter);
+      });
+      renderLibrary();
+    }
+
+    // Search filter
+    function handleSearch(val) {
+      searchQuery = (val || '').toLowerCase().trim();
+      renderLibrary();
+    }
+
+    // Render offline library grid
+    function renderLibrary() {
+      const grid = document.getElementById('videoGrid');
+      const emptyState = document.getElementById('emptyState');
+      const storageSummary = document.getElementById('storageSummary');
+
+      // Update counters
+      const countTv = offlineVideos.filter(v => v.type === 'episode' || v.showName).length;
+      const countMovies = offlineVideos.filter(v => v.type === 'movie' || (!v.showName && !v.season)).length;
+      document.getElementById('countAll').textContent = offlineVideos.length;
+      document.getElementById('countTv').textContent = countTv;
+      document.getElementById('countMovies').textContent = countMovies;
+
+      const totalBytes = offlineVideos.reduce((acc, v) => acc + (v.sizeBytes || (v.blob ? v.blob.size : 0)), 0);
+      storageSummary.innerHTML = `<strong>${offlineVideos.length}</strong> videos saved &bull; <strong>${formatBytes(totalBytes)}</strong> storage used`;
+
+      // Filter list
+      let filtered = offlineVideos.filter(v => {
+        const isTv = v.type === 'episode' || Boolean(v.showName);
+        if (activeFilter === 'tv' && !isTv) return false;
+        if (activeFilter === 'movie' && isTv) return false;
+
+        if (searchQuery) {
+          const title = (v.title || '').toLowerCase();
+          const show = (v.showName || '').toLowerCase();
+          const filename = (v.filename || '').toLowerCase();
+          if (!title.includes(searchQuery) && !show.includes(searchQuery) && !filename.includes(searchQuery)) {
+            return false;
+          }
+        }
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        grid.innerHTML = '';
+        emptyState.style.display = 'flex';
+        return;
+      }
+
+      emptyState.style.display = 'none';
+      grid.innerHTML = '';
+
+      filtered.forEach(v => {
+        const card = document.createElement('div');
+        card.className = 'video-card';
+
+        const isTv = v.type === 'episode' || Boolean(v.showName);
+        const typeBadge = isTv
+          ? `<span class="video-type-badge tv">${v.season ? `S${v.season}` : ''}${v.episode ? ` · E${v.episode}` : 'TV'}</span>`
+          : `<span class="video-type-badge">Movie</span>`;
+
+        const durationTag = v.duration ? `<span class="video-duration-tag">${formatTime(v.duration)}</span>` : '';
+        const sizeText = formatBytes(v.sizeBytes || (v.blob ? v.blob.size : 0));
+        const subText = isTv && v.showName ? v.showName : (v.type === 'movie' ? 'Full Movie' : 'Offline Video');
+
+        // Checkpoint progress bar
+        let progressHtml = '';
+        if (v.lastPosition && v.duration && v.duration > 0) {
+          const pct = Math.min(100, Math.round((v.lastPosition / v.duration) * 100));
+          if (pct > 2 && pct < 95) {
+            progressHtml = `<div class="progress-bar-wrap"><div class="progress-bar-fill" style="width:${pct}%"></div></div>`;
+          }
+        }
+
+        const posterContent = v.posterUrl
+          ? `<img class="poster-img" src="${v.posterUrl}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+             <div class="poster-fallback" style="display:none;"><svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/></svg></div>`
+          : `<div class="poster-fallback"><svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/></svg></div>`;
+
+        card.innerHTML = `
+          <div class="poster-container">
+            ${posterContent}
+            ${typeBadge}
+            ${durationTag}
+            <div class="play-overlay-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            </div>
+            ${progressHtml}
+          </div>
+          <div class="card-info">
+            <div class="video-title" title="${escapeHtml(v.title)}">${escapeHtml(v.title)}</div>
+            <div class="video-sub">${escapeHtml(subText)}</div>
+            <div class="card-footer">
+              <span class="size-tag">${sizeText}</span>
+              <button class="btn-delete-card" title="Delete from offline storage" onclick="event.stopPropagation(); deleteVideo('${v.id}')">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              </button>
+            </div>
+          </div>
+        `;
+
+        card.onclick = () => playOfflineVideo(v);
+        grid.appendChild(card);
+      });
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]);
+    }
+
+    // Play video in dedicated player
+    async function playOfflineVideo(item) {
+      currentVideo = item;
+      document.getElementById('playerTitle').textContent = item.title || 'Offline Video';
+      const isTv = item.type === 'episode' || Boolean(item.showName);
+      document.getElementById('playerSub').textContent = isTv && item.showName
+        ? `${item.showName} ${item.season ? `• S${item.season}` : ''} ${item.episode ? `• E${item.episode}` : ''}`
+        : (item.type === 'movie' ? 'Movie • Offline' : 'Offline Video');
+
+      // Release previous object url if any
+      if (currentObjectUrl) {
+        URL.revokeObjectURL(currentObjectUrl);
+        currentObjectUrl = null;
+      }
+
+      let blob = item.blob;
+      if (!blob && db) {
+        // Fetch full record from IndexedDB
+        blob = await new Promise((resolve) => {
+          const tx = db.transaction('videos', 'readonly');
+          const req = tx.objectStore('videos').get(item.id);
+          req.onsuccess = () => resolve(req.result?.blob || null);
+          req.onerror = () => resolve(null);
+        });
+      }
+
+      if (!blob) {
+        showToast('Error: Video data not found in storage');
+        return;
+      }
+
+      currentObjectUrl = URL.createObjectURL(blob);
+      videoEl.src = currentObjectUrl;
+
+      // Resume position
+      if (item.lastPosition && item.lastPosition > 0) {
+        videoEl.currentTime = item.lastPosition;
+      }
+
+      playerScreen.classList.add('active');
+      resetControlsTimer();
+
+      videoEl.play().catch(() => {
+        updatePlayIcons(false);
+      });
+    }
+
+    // Handle local file picking (e.g. from Android downloads folder)
+    function handleLocalFilePick(event) {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      const title = file.name.replace(/\.[^/.]+$/, '');
+      const localItem = {
+        id: 'local_' + Date.now(),
+        title: title,
+        type: 'movie',
+        showName: null,
+        duration: 0,
+        filename: file.name,
+        sizeBytes: file.size,
+        blob: file,
+        savedAt: Date.now()
+      };
+
+      // Prompt to optionally save to offline library
+      playOfflineVideo(localItem);
+
+      // Offer saving
+      setTimeout(() => {
+        if (confirm(`Would you like to keep "${title}" in your FREEVEE offline library for future offline watching?`)) {
+          saveLocalVideoToDB(localItem);
+        }
+      }, 1000);
+    }
+
+    async function saveLocalVideoToDB(item) {
+      if (!db) await openDB();
+      const tx = db.transaction('videos', 'readwrite');
+      tx.objectStore('videos').put(item);
+      tx.oncomplete = () => {
+        showToast(`Saved "${item.title}" to offline library`);
+        loadOfflineVideos();
+      };
+    }
+
+    // Delete video
+    async function deleteVideo(id) {
+      if (!confirm('Remove this video from your offline storage to free up space?')) return;
+      if (!db) await openDB();
+      const tx = db.transaction('videos', 'readwrite');
+      tx.objectStore('videos').delete(id);
+      tx.oncomplete = () => {
+        showToast('Video removed from offline storage');
+        loadOfflineVideos();
+      };
+    }
+
+    // Video Player Controls
+    function togglePlayPause() {
+      resetControlsTimer();
+      if (videoEl.paused) {
+        videoEl.play();
+      } else {
+        videoEl.pause();
+      }
+    }
+
+    function skipTime(delta) {
+      resetControlsTimer();
+      videoEl.currentTime = Math.max(0, Math.min(videoEl.duration || 0, videoEl.currentTime + delta));
+    }
+
+    function cyclePlaybackRate() {
+      resetControlsTimer();
+      currentSpeedIndex = (currentSpeedIndex + 1) % playbackRates.length;
+      const rate = playbackRates[currentSpeedIndex];
+      videoEl.playbackRate = rate;
+      speedBtn.textContent = rate.toFixed(2).replace(/\.00$/, '') + 'x';
+    }
+
+    function toggleFullscreen() {
+      resetControlsTimer();
+      const el = playerScreen;
+      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+        if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
+        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+      } else {
+        if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+      }
+    }
+
+    function handleScrub(e) {
+      const track = document.getElementById('scrubberTrack');
+      const rect = track.getBoundingClientRect();
+      const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      if (videoEl.duration) {
+        videoEl.currentTime = pos * videoEl.duration;
+      }
+      resetControlsTimer();
+    }
+
+    function closePlayer() {
+      // Save position checkpoint
+      if (currentVideo && videoEl.currentTime > 5 && db) {
+        const tx = db.transaction('videos', 'readwrite');
+        const store = tx.objectStore('videos');
+        const req = store.get(currentVideo.id);
+        req.onsuccess = () => {
+          if (req.result) {
+            req.result.lastPosition = videoEl.currentTime;
+            req.result.duration = videoEl.duration || req.result.duration || 0;
+            store.put(req.result);
+          }
+        };
+      }
+
+      videoEl.pause();
+      if (currentObjectUrl) {
+        URL.revokeObjectURL(currentObjectUrl);
+        currentObjectUrl = null;
+      }
+      videoEl.src = '';
+      playerScreen.classList.remove('active');
+      loadOfflineVideos();
+    }
+
+    // Auto-hide player controls overlay
+    function resetControlsTimer() {
+      playerOverlay.classList.remove('autohide');
+      if (controlsTimer) clearTimeout(controlsTimer);
+      if (!videoEl.paused) {
+        controlsTimer = setTimeout(() => {
+          playerOverlay.classList.add('autohide');
+        }, 3500);
+      }
+    }
+
+    playerScreen.addEventListener('mousemove', resetControlsTimer);
+    playerScreen.addEventListener('touchstart', resetControlsTimer);
+
+    // Video Events
+    videoEl.addEventListener('play', () => {
+      updatePlayIcons(true);
+      resetControlsTimer();
+    });
+
+    videoEl.addEventListener('pause', () => {
+      updatePlayIcons(false);
+      playerOverlay.classList.remove('autohide');
+    });
+
+    videoEl.addEventListener('timeupdate', () => {
+      if (!videoEl.duration) return;
+      const pct = (videoEl.currentTime / videoEl.duration) * 100;
+      scrubberFill.style.width = pct + '%';
+      currentTimeLabel.textContent = formatTime(videoEl.currentTime);
+      totalDurationLabel.textContent = formatTime(videoEl.duration);
+    });
+
+    videoEl.addEventListener('loadedmetadata', () => {
+      totalDurationLabel.textContent = formatTime(videoEl.duration);
+    });
+
+    videoEl.addEventListener('ended', () => {
+      updatePlayIcons(false);
+      playerOverlay.classList.remove('autohide');
+    });
+
+    function updatePlayIcons(isPlaying) {
+      if (isPlaying) {
+        btnPlayPauseIcon.innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+        centerPlayIcon.innerHTML = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
+      } else {
+        btnPlayPauseIcon.innerHTML = '<polygon points="5 3 19 12 5 21 5 3"/>';
+        centerPlayIcon.innerHTML = '<polygon points="5 3 19 12 5 21 5 3"/>';
+      }
+    }
+
+    // Toast notification
+    let toastTimer = null;
+    function showToast(msg) {
+      toastEl.textContent = msg;
+      toastEl.classList.add('visible');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toastEl.classList.remove('visible'), 3200);
+    }
+
+    // Reconnect to cloud
+    function reconnectToCloud() {
+      window.location.href = 'https://tv.butfree.online/';
+    }
+
+    // Network status listener
+    window.addEventListener('online', () => {
+      document.getElementById('reconnectBanner').style.display = 'block';
+      showToast('Internet restored! Tap banner to return to Cloud Mode.');
+    });
+
+    window.addEventListener('offline', () => {
+      document.getElementById('reconnectBanner').style.display = 'none';
+      showToast('Offline Mode active');
+    });
+
+    // Keyboard navigation
+    window.addEventListener('keydown', (e) => {
+      if (playerScreen.classList.contains('active')) {
+        if (e.key === ' ' || e.key === 'k') {
+          e.preventDefault();
+          togglePlayPause();
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          skipTime(-10);
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          skipTime(10);
+        } else if (e.key === 'f' || e.key === 'F') {
+          e.preventDefault();
+          toggleFullscreen();
+        } else if (e.key === 'Escape' || e.key === 'Backspace') {
+          e.preventDefault();
+          closePlayer();
+        }
+      }
+    });
+
+    // Initial load
+    window.addEventListener('DOMContentLoaded', () => {
+      loadOfflineVideos();
+      if (navigator.onLine) {
+        document.getElementById('reconnectBanner').style.display = 'block';
+      }
+    });
+  </script>
+</body>
+</html>

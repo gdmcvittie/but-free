@@ -26,6 +26,8 @@ import android.widget.FrameLayout;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
+import java.io.InputStream;
+
 public class MainActivity extends Activity {
 
     private static final String TAG = "FreeveeAndroid";
@@ -64,7 +66,11 @@ public class MainActivity extends Activity {
         initWebView();
         registerNetworkCallback();
 
-        connectToCloud();
+        if (isNetworkAvailable()) {
+            connectToCloud();
+        } else {
+            launchOfflineMode();
+        }
     }
 
     private void initWebView() {
@@ -98,6 +104,22 @@ public class MainActivity extends Activity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
                 return false;
+            }
+
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                if (request != null && request.getUrl() != null) {
+                    String url = request.getUrl().toString();
+                    if (url.contains("/offline.html")) {
+                        try {
+                            InputStream is = getAssets().open("offline/offline.html");
+                            return new WebResourceResponse("text/html", "UTF-8", is);
+                        } catch (Exception e) {
+                            Log.e(TAG, "Failed to load bundled offline video player asset", e);
+                        }
+                    }
+                }
+                return super.shouldInterceptRequest(view, request);
             }
 
             @Override
@@ -196,11 +218,11 @@ public class MainActivity extends Activity {
     }
 
     private void handlePageError(String failingUrl) {
-        if (failingUrl != null && !failingUrl.equals("about:blank")) {
-            Log.w(TAG, "Connection failed to " + failingUrl);
+        if (failingUrl != null && !failingUrl.contains("/offline.html") && !failingUrl.equals("about:blank")) {
+            Log.w(TAG, "Connection failed to " + failingUrl + ", automatically switching to Offline Mode");
             mainHandler.post(() -> {
-                if (!isFinishing() && !isNetworkAvailable()) {
-                    Toast.makeText(this, "No internet connection. Retrying when online...", Toast.LENGTH_SHORT).show();
+                if (!isFinishing()) {
+                    launchOfflineMode();
                 }
             });
         }
@@ -233,7 +255,7 @@ public class MainActivity extends Activity {
                     public void onAvailable(Network network) {
                         mainHandler.post(() -> {
                             Log.d(TAG, "Internet connectivity restored");
-                            if (!hasContentLoaded()) {
+                            if (isOfflineMode || !hasContentLoaded()) {
                                 connectToCloud();
                             }
                             if (webView != null) {
@@ -268,7 +290,7 @@ public class MainActivity extends Activity {
     private void connectToCloud() {
         isOfflineMode = false;
         String currentUrl = webView.getUrl();
-        if (currentUrl != null && currentUrl.startsWith(CLOUD_URL)) {
+        if (currentUrl != null && currentUrl.startsWith(CLOUD_URL) && !currentUrl.contains("/offline.html")) {
             return;
         }
 
@@ -279,6 +301,28 @@ public class MainActivity extends Activity {
 
         webView.loadUrl(CLOUD_URL + "/");
         webView.requestFocus();
+    }
+
+    private void launchOfflineMode() {
+        try {
+            isOfflineMode = true;
+            String currentUrl = webView.getUrl();
+            if (currentUrl != null && currentUrl.contains("/offline.html")) {
+                return;
+            }
+
+            WebSettings settings = webView.getSettings();
+            if (settings != null) {
+                settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+            }
+
+            webView.clearHistory();
+            webView.loadUrl(CLOUD_URL + "/offline.html");
+            webView.requestFocus();
+            Toast.makeText(this, "Offline Mode: Playing saved videos", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Log.e(TAG, "Error in launchOfflineMode", e);
+        }
     }
 
     private void hideSystemUI() {

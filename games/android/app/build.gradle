@@ -31,7 +31,7 @@ android {
     }
 
     sourceSets {
-        main.assets.srcDir(bundledAssetsDir)
+        main.assets.srcDirs = ['src/main/assets', bundledAssetsDir]
     }
 
     androidResources {

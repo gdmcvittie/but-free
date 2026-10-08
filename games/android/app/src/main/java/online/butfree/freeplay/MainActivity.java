@@ -124,24 +124,38 @@ public class MainActivity extends Activity {
                 if (requestPath.startsWith("/cores/")) {
                     return assetResponse(requestPath.substring(1));
                 }
+                if (requestPath.startsWith("/bios/")) {
+                    WebResourceResponse bios = assetResponse("offline-site" + requestPath);
+                    if (bios != null) return bios;
+                    return assetResponse("cores" + requestPath.substring(5));
+                }
+                if ("/neogeo.zip".equals(requestPath)) {
+                    WebResourceResponse neo = assetResponse("offline-site/neogeo.zip");
+                    if (neo != null) return neo;
+                    return assetResponse("cores/neogeo.zip");
+                }
                 if (offlineMode) {
                     if ("/offline.html".equals(requestPath) || "/".equals(requestPath)) {
                         return offlineIndexResponse();
                     }
-                    if (requestPath.startsWith("/assets/")) {
-                        return assetResponse("offline-site" + requestPath);
-                    }
-                    if ("/favicon.svg".equals(requestPath)) {
-                        return assetResponse("offline-site/favicon.svg");
-                    }
+                    WebResourceResponse bundled = assetResponse("offline-site" + requestPath);
+                    if (bundled != null) return bundled;
                 }
                 return super.shouldInterceptRequest(view, request);
             }
 
             @Override
+            public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+                super.onReceivedError(view, errorCode, description, failingUrl);
+                if (!offlineMode && failingUrl != null && !failingUrl.contains("/offline.html")) {
+                    mainHandler.post(() -> openOfflineLibrary());
+                }
+            }
+
+            @Override
             public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
                 super.onReceivedError(view, request, error);
-                if (request != null && request.isForMainFrame() && hasInternet() && !offlineMode) {
+                if (request != null && request.isForMainFrame() && !offlineMode) {
                     mainHandler.post(() -> openOfflineLibrary());
                 }
             }
@@ -195,7 +209,12 @@ public class MainActivity extends Activity {
 
     private WebResourceResponse offlineIndexResponse() {
         try {
-            InputStream input = getAssets().open("offline-site/index.html");
+            InputStream input;
+            try {
+                input = getAssets().open("offline-site/index.html");
+            } catch (Exception notInOfflineSite) {
+                input = getAssets().open("offline/offline.html");
+            }
             byte[] bytes = new byte[input.available()];
             int length = input.read(bytes);
             input.close();
