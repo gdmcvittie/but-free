@@ -5,6 +5,8 @@
 // =============================================================================
 
 import crypto from 'crypto';
+import path from 'path';
+import { GoogleDrive, cleanGameTitle } from './googleDrive.js';
 
 import {
   FITGIRL_FEED_URL,
@@ -63,6 +65,20 @@ function requireGamesFolder(req, res) {
     return false;
   }
   return true;
+}
+
+function unwrapCoverUrl(url) {
+  if (!url) return null;
+  const str = String(url).trim();
+  if (str.startsWith('/api/proxy-image')) {
+    try {
+      const parsed = new URL(str, 'http://localhost');
+      return parsed.searchParams.get('url') || str;
+    } catch (_) {
+      return str;
+    }
+  }
+  return str;
 }
 
 function buildDispatchContext(req) {
@@ -524,7 +540,7 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
     const apiKey = (req.user.integrations?.itch?.apiKey || '').trim();
     if (!apiKey) return res.status(401).json({ success: false, error: 'itch.io account is not connected.' });
 
-    const { gameId, downloadKeyId, uploadId, consoleHint, gameTitle } = req.body || {};
+    const { gameId, downloadKeyId, uploadId, consoleHint, gameTitle, coverUrl } = req.body || {};
     if (!gameId) return res.status(400).json({ success: false, error: 'gameId is required' });
 
     try {
@@ -536,19 +552,35 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
         consoleHint: consoleHint || ''
       });
 
-      const cleanTitle = cleanPcGameTitle(gameTitle || '') || gameTitle || `itch_${gameId}`;
+      const cleanTitle = cleanGameTitle(cleanPcGameTitle(gameTitle || '') || gameTitle || `itch_${gameId}`);
       const consoleKey = (consoleHint || 'pc').toLowerCase();
-      const subfolder = consoleKey === 'pc'
-        ? `PC/${sanitizeFolderName(cleanTitle)}`
-        : `itch.io/${consoleKey.toUpperCase()}/${sanitizeFolderName(cleanTitle)}`;
+      const isRom = consoleKey !== 'pc';
+
+      const originalExt = path.extname(resolved.fileName || '').trim();
+      const ext = originalExt || `.${consoleKey}`;
+      const safeTitle = cleanTitle.replace(/[/\\:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim();
+      const targetFileName = isRom ? `${safeTitle}${ext}` : (resolved.fileName || `${safeTitle}${ext}`);
+
+      const subfolder = isRom
+        ? consoleKey.toUpperCase()
+        : `PC/${sanitizeFolderName(cleanTitle)}`;
+
+      const rawPosterUrl = unwrapCoverUrl(coverUrl || resolved.coverUrl || null);
+
+      if (rawPosterUrl) {
+        GoogleDrive.uploadGamePoster(req.user, consoleKey, cleanTitle, rawPosterUrl).catch(err => {
+          console.warn(`[itch.io] Immediate poster upload failed:`, err.message);
+        });
+      }
 
       const ctx = buildDispatchContext(req);
       const job = await GameDownloaderClient.addDirectDownload(req.user, {
         url: resolved.fileUrl,
-        fileName: resolved.fileName,
+        fileName: targetFileName,
         title: cleanTitle,
         console: consoleKey,
         subfolder,
+        posterUrl: rawPosterUrl,
         webhookUrl: ctx.webhookUrl,
         tokenRefreshUrl: ctx.tokenRefreshUrl
       });
@@ -562,7 +594,7 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
   // Download a FREE store itch item (name-your-price / openly downloadable)
   app.post('/api/itch/download', async (req, res) => {
     if (!requireGamesFolder(req, res)) return;
-    const { gameUrl, consoleId, gameTitle } = req.body || {};
+    const { gameUrl, consoleId, gameTitle, coverUrl } = req.body || {};
     if (!gameUrl) return res.status(400).json({ success: false, error: 'gameUrl is required' });
 
     try {
@@ -572,19 +604,35 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
         return res.json(resolved); // { isPaid, purchaseUrl, message }
       }
 
-      const cleanTitle = cleanPcGameTitle(gameTitle || '') || gameTitle || 'itch Game';
+      const cleanTitle = cleanGameTitle(cleanPcGameTitle(gameTitle || '') || gameTitle || 'itch Game');
       const consoleKey = (consoleId || 'gb').toLowerCase();
-      const subfolder = consoleKey === 'pc'
-        ? `PC/${sanitizeFolderName(cleanTitle)}`
-        : `itch.io/${consoleKey.toUpperCase()}/${sanitizeFolderName(cleanTitle)}`;
+      const isRom = consoleKey !== 'pc';
+
+      const originalExt = path.extname(resolved.fileName || '').trim();
+      const ext = originalExt || `.${consoleKey}`;
+      const safeTitle = cleanTitle.replace(/[/\\:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim();
+      const targetFileName = isRom ? `${safeTitle}${ext}` : (resolved.fileName || `${safeTitle}${ext}`);
+
+      const subfolder = isRom
+        ? consoleKey.toUpperCase()
+        : `PC/${sanitizeFolderName(cleanTitle)}`;
+
+      const rawPosterUrl = unwrapCoverUrl(coverUrl || resolved.coverUrl || null);
+
+      if (rawPosterUrl) {
+        GoogleDrive.uploadGamePoster(req.user, consoleKey, cleanTitle, rawPosterUrl).catch(err => {
+          console.warn(`[itch.io] Immediate poster upload failed:`, err.message);
+        });
+      }
 
       const ctx = buildDispatchContext(req);
       const job = await GameDownloaderClient.addDirectDownload(req.user, {
         url: resolved.fileUrl,
-        fileName: resolved.fileName,
+        fileName: targetFileName,
         title: cleanTitle,
         console: consoleKey,
         subfolder,
+        posterUrl: rawPosterUrl,
         webhookUrl: ctx.webhookUrl,
         tokenRefreshUrl: ctx.tokenRefreshUrl
       });

@@ -119,7 +119,8 @@ export default function ItchTab({ user, onDownloadDispatched, onLibraryUpdated }
         body: JSON.stringify({
           gameUrl: g.url,
           consoleId: g.console || 'gb',
-          gameTitle: g.title
+          gameTitle: g.title,
+          coverUrl: g.rawCoverUrl || g.coverUrl
         })
       });
 
@@ -179,7 +180,8 @@ export default function ItchTab({ user, onDownloadDispatched, onLibraryUpdated }
           gameId: g.id,
           downloadKeyId: g.downloadKeyId,
           consoleHint: g.console,
-          gameTitle: g.title
+          gameTitle: g.title,
+          coverUrl: g.rawCoverUrl || g.coverUrl
         })
       });
       setDoneIds((prev) => new Set([...prev, `own_${g.id}`]));

@@ -466,6 +466,16 @@ app.post('/api/webhook/download-complete', async (req, res) => {
     const user = Database.getUser(userId);
     if (user && user.gamesFolderId) {
       try {
+        if (body.meta?.posterUrl) {
+          const gameTitle = body.meta.title || (body.fileName ? body.fileName.replace(/\.[^.]+$/, '') : 'Game');
+          const consoleKey = body.meta.console || 'pc';
+          console.log(`[FREEPLAY Webhook] Ensuring poster for "${gameTitle}" (${consoleKey})...`);
+          try {
+            await GoogleDrive.uploadGamePoster(user, consoleKey, gameTitle, body.meta.posterUrl);
+          } catch (pErr) {
+            console.warn(`[FREEPLAY Webhook] Poster upload error:`, pErr.message);
+          }
+        }
         console.log(`[FREEPLAY Webhook] Triggering automatic library refresh for user ${user.name}...`);
         await GoogleDrive.scanGamesFolder(user);
         console.log(`[FREEPLAY Webhook] Automatic scan complete.`);

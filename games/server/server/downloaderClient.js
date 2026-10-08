@@ -183,7 +183,7 @@ export const GameDownloaderClient = {
     return data.job || data;
   },
 
-  async addDirectDownload(user, { url, headers, fileName, title, subfolder, console: consoleKey, webhookUrl, tokenRefreshUrl }) {
+  async addDirectDownload(user, { url, headers, fileName, title, subfolder, console: consoleKey, webhookUrl, tokenRefreshUrl, posterUrl }) {
     if (!user.gamesFolderId) {
       throw new Error('Please select a Google Drive Games folder in Settings before downloading.');
     }
@@ -199,7 +199,12 @@ export const GameDownloaderClient = {
       headers: headers && Object.keys(headers).length ? headers : undefined,
       fileName: fileName || undefined,
       title: title || 'Game Download',
-      meta: { console: consoleKey || 'pc', title: title || 'Game Download', subfolder: targetSubfolder },
+      meta: {
+        console: consoleKey || 'pc',
+        title: title || 'Game Download',
+        subfolder: targetSubfolder,
+        posterUrl: posterUrl || undefined
+      },
       subfolder: targetSubfolder,
       driveConfig: {
         accessToken,

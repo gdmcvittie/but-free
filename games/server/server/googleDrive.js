@@ -420,6 +420,64 @@ export const GoogleDrive = {
     return await res.json();
   },
 
+  /** Upload or update a game's poster in <root>/posters/<console>/<gameStem>.<ext>. */
+  async uploadGamePoster(user, consoleKey, gameStem, imageUrl) {
+    if (!user || !user.gamesFolderId || !imageUrl || !gameStem) return null;
+
+    let targetUrl = String(imageUrl).trim();
+    if (!targetUrl) return null;
+
+    if (targetUrl.startsWith('/api/proxy-image')) {
+      try {
+        const parsed = new URL(targetUrl, 'http://localhost');
+        const unproxied = parsed.searchParams.get('url');
+        if (unproxied) targetUrl = unproxied;
+      } catch (_) {}
+    }
+
+    if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+      return null;
+    }
+
+    try {
+      const postersFolder = await this.findOrCreateFolder(user, 'posters', user.gamesFolderId);
+      if (!postersFolder) return null;
+
+      const key = String(consoleKey || 'pc').toLowerCase().trim();
+      const consoleFolder = await this.findOrCreateFolder(user, key, postersFolder.id);
+      if (!consoleFolder) return null;
+
+      const res = await fetch(targetUrl, {
+        signal: AbortSignal.timeout(10000),
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': targetUrl.includes('itch') ? 'https://itch.io/' : 'https://www.google.com/'
+        }
+      });
+      if (!res.ok) return null;
+
+      const rawBuf = Buffer.from(await res.arrayBuffer());
+      if (rawBuf.length < 100) return null;
+
+      const processed = await processPosterBuffer(rawBuf, res.headers.get('content-type'));
+      const cleanStem = sanitizeDriveName(gameStem);
+      const posterName = `${cleanStem}.${processed.ext}`;
+
+      const uploaded = await this.uploadBufferToDrive(
+        user,
+        processed.buffer,
+        posterName,
+        processed.mime,
+        consoleFolder.id
+      );
+
+      return uploaded;
+    } catch (err) {
+      console.warn(`[GoogleDrive] uploadGamePoster failed for "${gameStem}" (${consoleKey}):`, err.message);
+      return null;
+    }
+  },
+
   async scanGamesFolder(user) {
     if (!user.gamesFolderId) {
       throw new Error('No Games folder selected. Please select a Google Drive folder first.');
@@ -674,17 +732,32 @@ export const GoogleDrive = {
           if (!pcGroups.has(gameFolderId)) pcGroups.set(gameFolderId, { files: [] });
           pcGroups.get(gameFolderId).files.push(file);
         } else {
+          const cleanTitle = cleanGameTitle(file.name);
+          const pcKeys = posterLookupKeys(file.name.replace(/\.[^.]+$/, '').toLowerCase(), cleanTitle.toLowerCase(), 'pc');
+          let pcCoverUrl = null;
+          const canonicalPcFolder = postersFolderByConsole.get('pc') || null;
+          if (canonicalPcFolder) {
+            const canonicalIndex = await getPosterIndex(canonicalPcFolder.id);
+            const hit = findPosterIn(canonicalIndex, pcKeys);
+            if (hit) pcCoverUrl = `/api/drive/file/${hit.id}`;
+          }
+          if (!pcCoverUrl && postersFolder) {
+            const rootIndex = posterIndexByFolder.get(postersFolder.id);
+            const hit = findPosterIn(rootIndex, pcKeys);
+            if (hit) pcCoverUrl = `/api/drive/file/${hit.id}`;
+          }
+
           recognizedGames.push({
             id: `gm_${file.id}`,
             driveId: file.id,
             source: 'drive',
             filename: file.name,
-            title: cleanGameTitle(file.name),
+            title: cleanTitle,
             console: 'pc',
             isPcGame: true,
             size: Number(file.size || 0),
             sizeFormatted: formatBytes(file.size),
-            coverUrl: null,
+            coverUrl: pcCoverUrl,
             addedAt: file.modifiedTime ? new Date(file.modifiedTime).getTime() : Date.now()
           });
         }
@@ -823,17 +896,32 @@ export const GoogleDrive = {
 
       if (isContainerName) {
         for (const file of group.files) {
+          const cleanTitle = cleanGameTitle(file.name);
+          const pcKeys = posterLookupKeys(file.name.replace(/\.[^.]+$/, '').toLowerCase(), cleanTitle.toLowerCase(), 'pc');
+          let pcCoverUrl = null;
+          const canonicalPcFolder = postersFolderByConsole.get('pc') || null;
+          if (canonicalPcFolder) {
+            const canonicalIndex = await getPosterIndex(canonicalPcFolder.id);
+            const hit = findPosterIn(canonicalIndex, pcKeys);
+            if (hit) pcCoverUrl = `/api/drive/file/${hit.id}`;
+          }
+          if (!pcCoverUrl && postersFolder) {
+            const rootIndex = posterIndexByFolder.get(postersFolder.id);
+            const hit = findPosterIn(rootIndex, pcKeys);
+            if (hit) pcCoverUrl = `/api/drive/file/${hit.id}`;
+          }
+
           recognizedGames.push({
             id: `gm_${file.id}`,
             driveId: file.id,
             source: 'drive',
             filename: file.name,
-            title: cleanGameTitle(file.name),
+            title: cleanTitle,
             console: 'pc',
             isPcGame: true,
             size: Number(file.size || 0),
             sizeFormatted: formatBytes(file.size),
-            coverUrl: null,
+            coverUrl: pcCoverUrl,
             addedAt: file.modifiedTime ? new Date(file.modifiedTime).getTime() : Date.now()
           });
         }
@@ -842,6 +930,25 @@ export const GoogleDrive = {
 
       const totalSize = group.files.reduce((sum, f) => sum + Number(f.size || 0), 0);
       const title = cleanGameTitle(folderName.replace(/\.(rar|zip|7z)$/i, ''));
+
+      let pcCoverUrl = null;
+      const pcKeys = posterLookupKeys(folderName.replace(/\.(rar|zip|7z)$/i, '').toLowerCase(), title.toLowerCase(), 'pc');
+      const canonicalPcFolder = postersFolderByConsole.get('pc') || null;
+      if (canonicalPcFolder) {
+        const canonicalIndex = await getPosterIndex(canonicalPcFolder.id);
+        const hit = findPosterIn(canonicalIndex, pcKeys);
+        if (hit) pcCoverUrl = `/api/drive/file/${hit.id}`;
+      }
+      if (!pcCoverUrl && postersFolder) {
+        const rootIndex = posterIndexByFolder.get(postersFolder.id);
+        const hit = findPosterIn(rootIndex, pcKeys);
+        if (hit) pcCoverUrl = `/api/drive/file/${hit.id}`;
+      }
+      if (!pcCoverUrl) {
+        const looseIndex = looseImagesByParent.get(gameFolderId) || null;
+        const hit = findPosterIn(looseIndex, pcKeys);
+        if (hit) pcCoverUrl = `/api/drive/file/${hit.id}`;
+      }
 
       recognizedGames.push({
         id: `gmpc_${gameFolderId}`,
@@ -857,7 +964,7 @@ export const GoogleDrive = {
         sizeFormatted: formatBytes(totalSize),
         fileCount: group.files.length,
         files: group.files.map(f => ({ name: f.name, driveId: f.id, size: Number(f.size || 0) })),
-        coverUrl: null,
+        coverUrl: pcCoverUrl,
         addedAt: mainFile && mainFile.modifiedTime ? new Date(mainFile.modifiedTime).getTime() : Date.now()
       });
     }

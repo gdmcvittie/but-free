@@ -644,6 +644,11 @@ export async function resolveStoreItchFileUrl({ gameUrl, consoleId = 'gb' }) {
                     html.match(/<meta[^>]*name="csrf_token"[^>]*content="([^"]*)"/i);
   let activeCsrf = csrfMatch ? csrfMatch[1] : '';
 
+  const ogImageMatch = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i) ||
+                       html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i) ||
+                       html.match(/<meta[^>]*name=["']twitter:image["'][^>]*content=["']([^"']+)["']/i);
+  let pageCoverUrl = ogImageMatch ? ogImageMatch[1].replace(/&amp;/g, '&').trim() : '';
+
   const genUrlMatch = html.match(/"generate_download_url":"([^"]+)"/i);
   let genUrl = genUrlMatch ? genUrlMatch[1].replace(/\\/g, '') : '';
   if (!genUrl) genUrl = gameUrl.replace(/\/$/, '') + '/download_url';
@@ -788,6 +793,7 @@ export async function resolveStoreItchFileUrl({ gameUrl, consoleId = 'gb' }) {
     success: true,
     fileUrl: cdnDownloadUrl,
     fileName: chosenUpload.fileName,
+    coverUrl: pageCoverUrl || null,
     upload: chosenUpload
   };
 }

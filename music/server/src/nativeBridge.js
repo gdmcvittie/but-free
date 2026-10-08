@@ -23,6 +23,20 @@ export function hasNativeBridge() {
 }
 
 /**
+ * Check if the host Android app detects Android Auto or Car Mode connection.
+ * @returns {boolean}
+ */
+export function isCarConnected() {
+  const bridge = getBridge();
+  if (!bridge || typeof bridge.isCarConnected !== 'function') return false;
+  try {
+    return Boolean(bridge.isCarConnected());
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Push playback state + metadata to the native MediaSession.
  * @param {object} state
  * @param {boolean} state.playing

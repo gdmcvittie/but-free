@@ -16,7 +16,7 @@ import Settings from './Settings';
 import Player from './Player';
 import DownloadBar from './DownloadBar';
 import CarMode from './CarMode';
-import { registerNativeCommands, pushNativeState } from './nativeBridge';
+import { registerNativeCommands, pushNativeState, isCarConnected } from './nativeBridge';
 
 const AUDIOBOOK_FOLDERS = ['audiobooksFolderId', 'audiobooksFolderName'];
 
@@ -67,7 +67,21 @@ export default function App() {
 
   const bumpLibrary = useCallback(() => setLibraryVersion((v) => v + 1), []);
 
-  const [isCarMode, setIsCarMode] = useState(false);
+  const [isCarMode, setIsCarMode] = useState(() => isCarConnected());
+
+  // Automatically activate Car Mode UI when connected to Android Auto
+  useEffect(() => {
+    if (isCarConnected()) {
+      setIsCarMode(true);
+    }
+    const handleCarConnection = (e) => {
+      if (e.detail?.connected) {
+        setIsCarMode(true);
+      }
+    };
+    window.addEventListener('fraudio:car-connected-changed', handleCarConnection);
+    return () => window.removeEventListener('fraudio:car-connected-changed', handleCarConnection);
+  }, []);
 
   // One "What's New" view for both libraries: `music-whats-new` is a legacy alias
   // so older links still land on the music feed.

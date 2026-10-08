@@ -2,13 +2,20 @@ package com.fraudio.android;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.UiModeManager;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
+import android.database.ContentObserver;
+import android.database.Cursor;
 import android.graphics.Color;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -53,6 +60,10 @@ public class MainActivity extends Activity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private long lastBackPressTime = 0;
 
+    private boolean wasCarConnected = false;
+    private BroadcastReceiver carBroadcastReceiver;
+    private ContentObserver carContentObserver;
+
     private ConnectivityManager connectivityManager;
     private ConnectivityManager.NetworkCallback networkCallback;
 
@@ -73,6 +84,7 @@ public class MainActivity extends Activity {
         initWebView();
         registerNetworkCallback();
         registerNativeMediaBridge();
+        registerCarConnectionListeners();
         requestNotificationPermissionIfNeeded();
 
         if (isNetworkAvailable()) {
@@ -139,6 +151,14 @@ public class MainActivity extends Activity {
                 if (request != null && request.isForMainFrame()) {
                     String failingUrl = request.getUrl() != null ? request.getUrl().toString() : "";
                     handlePageError(failingUrl);
+                }
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (isCarModeDetected()) {
+                    notifyWebCarConnection(true);
                 }
             }
         });
@@ -346,6 +366,113 @@ public class MainActivity extends Activity {
             final String payload = json;
             mainHandler.post(() -> deliverWebState(payload));
         }
+
+        @JavascriptInterface
+        public boolean isCarConnected() {
+            return isCarModeDetected();
+        }
+    }
+
+    private boolean isUiModeCar() {
+        try {
+            UiModeManager uiModeManager = (UiModeManager) getSystemService(Context.UI_MODE_SERVICE);
+            return uiModeManager != null && uiModeManager.getCurrentModeType() == Configuration.UI_MODE_TYPE_CAR;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    public static boolean isCarConnectionProviderConnected(Context context) {
+        try {
+            Uri uri = Uri.parse("content://androidx.car.app.connection");
+            String[] projection = new String[]{"CarConnectionState"};
+            try (Cursor cursor = context.getContentResolver().query(uri, projection, null, null, null)) {
+                if (cursor != null && cursor.moveToFirst()) {
+                    int colIdx = cursor.getColumnIndex("CarConnectionState");
+                    if (colIdx >= 0) {
+                        int state = cursor.getInt(colIdx);
+                        // 1 = NATIVE (Automotive OS), 2 = PROJECTION (Android Auto)
+                        return state > 0;
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    public boolean isCarModeDetected() {
+        return isUiModeCar() || isCarConnectionProviderConnected(this) || FraudioMediaBrowserService.isAutomotiveConnected();
+    }
+
+    private synchronized void checkAndUpdateCarConnection() {
+        boolean isConnected = isCarModeDetected();
+        if (isConnected != wasCarConnected) {
+            wasCarConnected = isConnected;
+            Log.d(TAG, "Car connection state changed: " + isConnected);
+            notifyWebCarConnection(isConnected);
+        }
+    }
+
+    private void notifyWebCarConnection(boolean connected) {
+        mainHandler.post(() -> {
+            if (webView != null) {
+                webView.evaluateJavascript(
+                    "window.dispatchEvent(new CustomEvent('fraudio:car-connected-changed', { detail: { connected: " + connected + " } }));",
+                    null
+                );
+            }
+        });
+    }
+
+    private void registerCarConnectionListeners() {
+        wasCarConnected = isCarModeDetected();
+
+        FraudioMediaBrowserService.setCarConnectionListener(connected -> {
+            mainHandler.post(this::checkAndUpdateCarConnection);
+        });
+
+        // ContentObserver on Android Auto provider
+        try {
+            carContentObserver = new ContentObserver(mainHandler) {
+                @Override
+                public void onChange(boolean selfChange, Uri uri) {
+                    super.onChange(selfChange, uri);
+                    checkAndUpdateCarConnection();
+                }
+            };
+            getContentResolver().registerContentObserver(
+                Uri.parse("content://androidx.car.app.connection"),
+                true,
+                carContentObserver
+            );
+        } catch (Exception e) {
+            Log.w(TAG, "Could not register CarConnection ContentObserver", e);
+        }
+
+        // BroadcastReceiver for car events
+        try {
+            carBroadcastReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    mainHandler.post(() -> checkAndUpdateCarConnection());
+                }
+            };
+            IntentFilter filter = new IntentFilter();
+            filter.addAction("androidx.car.app.connection.action.CAR_CONNECTION_UPDATED");
+            filter.addAction(UiModeManager.ACTION_ENTER_CAR_MODE);
+            filter.addAction(UiModeManager.ACTION_EXIT_CAR_MODE);
+            filter.addAction("com.google.android.gms.car.media.STATUS");
+            filter.addAction(Intent.ACTION_CONFIGURATION_CHANGED);
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(carBroadcastReceiver, filter, Context.RECEIVER_EXPORTED);
+            } else {
+                registerReceiver(carBroadcastReceiver, filter);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not register car broadcast receiver", e);
+        }
     }
 
     private boolean hasContentLoaded() {
@@ -439,6 +566,15 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         FraudioMediaBrowserService.setWebCommandListener(null);
+        FraudioMediaBrowserService.setCarConnectionListener(null);
+        if (carContentObserver != null) {
+            try { getContentResolver().unregisterContentObserver(carContentObserver); } catch (Exception ignored) {}
+            carContentObserver = null;
+        }
+        if (carBroadcastReceiver != null) {
+            try { unregisterReceiver(carBroadcastReceiver); } catch (Exception ignored) {}
+            carBroadcastReceiver = null;
+        }
         if (connectivityManager != null && networkCallback != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             try {
                 connectivityManager.unregisterNetworkCallback(networkCallback);

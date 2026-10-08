@@ -653,15 +653,28 @@ function streamDirectToFile(job, redirectsLeft = 6) {
       }
 
       let finalFilename = '';
-      const cd = res.headers['content-disposition'];
-      if (cd) {
-        const match = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i);
-        if (match && match[1]) {
-          try { finalFilename = decodeURIComponent(match[1]); } catch (_) { finalFilename = match[1]; }
+      if (job.fileNameHint && job.fileNameHint.length >= 3 && job.fileNameHint !== 'download') {
+        finalFilename = job.fileNameHint;
+        if (!path.extname(finalFilename)) {
+          let ext = '';
+          const cd = res.headers['content-disposition'];
+          if (cd) {
+            const match = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i);
+            if (match && match[1]) ext = path.extname(match[1]);
+          }
+          if (!ext) ext = path.extname(parsedUrl.pathname.split('#')[0].split('?')[0]);
+          if (ext) finalFilename = `${finalFilename}${ext}`;
         }
       }
-      if (!finalFilename || finalFilename.length < 3 || finalFilename === 'download') {
-        finalFilename = job.fileNameHint || '';
+
+      if (!finalFilename) {
+        const cd = res.headers['content-disposition'];
+        if (cd) {
+          const match = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i);
+          if (match && match[1]) {
+            try { finalFilename = decodeURIComponent(match[1]); } catch (_) { finalFilename = match[1]; }
+          }
+        }
       }
       if (!finalFilename || finalFilename.length < 3 || finalFilename === 'download') {
         const cleanPath = parsedUrl.pathname.split('#')[0].split('?')[0];

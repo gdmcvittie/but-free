@@ -79,11 +79,28 @@ public class FraudioMediaBrowserService extends MediaBrowserServiceCompat {
         void onWebCommand(String action, long value);
     }
 
+    public interface CarConnectionListener {
+        void onCarConnectionChanged(boolean connected);
+    }
+
     private static volatile WebCommandListener webListener;
+    private static volatile CarConnectionListener carListener;
     private static volatile boolean serviceRunning = false;
+    private static volatile boolean automotiveConnected = false;
 
     public static void setWebCommandListener(WebCommandListener listener) {
         webListener = listener;
+    }
+
+    public static void setCarConnectionListener(CarConnectionListener listener) {
+        carListener = listener;
+        if (listener != null) {
+            listener.onCarConnectionChanged(automotiveConnected);
+        }
+    }
+
+    public static boolean isAutomotiveConnected() {
+        return automotiveConnected;
     }
 
     public static boolean isRunning() {
@@ -205,8 +222,21 @@ public class FraudioMediaBrowserService extends MediaBrowserServiceCompat {
     @Nullable
     @Override
     public BrowserRoot onGetRoot(@NonNull String clientPackageName, int clientUid, @Nullable Bundle rootHints) {
+        if (isAutomotiveClient(clientPackageName)) {
+            automotiveConnected = true;
+            if (carListener != null) {
+                carListener.onCarConnectionChanged(true);
+            }
+        }
         // Return root node for Android Auto
         return new BrowserRoot(MEDIA_ROOT_ID, null);
+    }
+
+    private boolean isAutomotiveClient(String packageName) {
+        if (packageName == null) return false;
+        String lower = packageName.toLowerCase();
+        return lower.contains("gearhead") || lower.contains("car") || lower.contains("automotive")
+            || lower.contains("projection");
     }
 
     @Override
@@ -931,6 +961,10 @@ public class FraudioMediaBrowserService extends MediaBrowserServiceCompat {
         if (foregrounded) {
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
             foregrounded = false;
+        }
+        automotiveConnected = false;
+        if (carListener != null) {
+            carListener.onCarConnectionChanged(false);
         }
         super.onDestroy();
     }
