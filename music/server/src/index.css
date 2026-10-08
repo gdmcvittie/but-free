@@ -2984,7 +2984,7 @@ img {
   position: fixed;
   inset: 0;
   z-index: 9990;
-  background: radial-gradient(circle at 50% 15%, rgba(61, 220, 151, 0.08), rgba(9, 12, 20, 0.98) 70%);
+  background: radial-gradient(circle at 50% 15%, rgba(14, 30, 24, 0.98), rgba(9, 12, 20, 0.99) 70%), #090c14;
   backdrop-filter: blur(28px);
   -webkit-backdrop-filter: blur(28px);
   color: #F1F5F9;
