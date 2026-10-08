@@ -352,6 +352,23 @@ export const GoogleDrive = {
     return await res.json();
   },
 
+  getUserPrefix(user) {
+    const email = (user?.email || '').trim();
+    let prefix = '';
+    if (email && email.includes('@')) {
+      prefix = email.split('@')[0].trim().toLowerCase().replace(/[^a-z0-9._-]/g, '');
+    }
+    if (!prefix && user?.id) {
+      prefix = String(user.id).trim().toLowerCase().replace(/[^a-z0-9._-]/g, '');
+    }
+    return prefix || 'user';
+  },
+
+  getUserMetaFilename(user, baseName) {
+    const prefix = this.getUserPrefix(user);
+    return `${prefix}-${baseName}`;
+  },
+
   async writeJsonFile(user, folderId, fileName, payload) {
     if (!folderId) return null;
     const buffer = Buffer.from(JSON.stringify(payload, null, 2), 'utf-8');
@@ -532,9 +549,13 @@ export const GoogleDrive = {
       }
     };
 
-    // 0b. Read favorites from Drive if favorites.json or faves.json exists in root
+    // 0b. Read favorites from Drive (user-specific first, with legacy fallback)
     try {
-      const favFile = (await this.findFileByName(user, user.gamesFolderId, 'favorites.json'))
+      const userFavFilename = this.getUserMetaFilename(user, 'favorites.json');
+      const userFavesFilename = this.getUserMetaFilename(user, 'faves.json');
+      const favFile = (await this.findFileByName(user, user.gamesFolderId, userFavFilename))
+                   || (await this.findFileByName(user, user.gamesFolderId, userFavesFilename))
+                   || (await this.findFileByName(user, user.gamesFolderId, 'favorites.json'))
                    || (await this.findFileByName(user, user.gamesFolderId, 'faves.json'));
       if (favFile) {
         const favData = await this.readJsonFile(user, favFile.id);
@@ -845,8 +866,9 @@ export const GoogleDrive = {
     Database.saveGames(user.id, recognizedGames, 'drive');
 
     // Sync game library JSON to the root of the user's games folder in Google Drive
+    const userGamesFilename = this.getUserMetaFilename(user, 'games.json');
     try {
-      await this.writeJsonFile(user, user.gamesFolderId, 'games.json', {
+      await this.writeJsonFile(user, user.gamesFolderId, userGamesFilename, {
         version: 1,
         folderName: user.gamesFolderName || 'Games',
         updatedAt: Date.now(),
@@ -854,20 +876,21 @@ export const GoogleDrive = {
         games: recognizedGames
       });
     } catch (jsonErr) {
-      console.warn('[GoogleDrive] Failed to write games.json to Drive:', jsonErr.message);
+      console.warn(`[GoogleDrive] Failed to write ${userGamesFilename} to Drive:`, jsonErr.message);
     }
 
-    // Sync favorites to favorites.json in the root of the user's games folder
+    // Sync favorites to user's favorites JSON in the root of the user's games folder
     const currentFavs = Database.getFavorites(user.id);
     if (currentFavs && currentFavs.length > 0) {
+      const userFavsFilename = this.getUserMetaFilename(user, 'favorites.json');
       try {
-        await this.writeJsonFile(user, user.gamesFolderId, 'favorites.json', {
+        await this.writeJsonFile(user, user.gamesFolderId, userFavsFilename, {
           version: 1,
           updatedAt: Date.now(),
           favorites: currentFavs
         });
       } catch (favErr) {
-        console.warn('[GoogleDrive] Failed to write favorites.json to Drive:', favErr.message);
+        console.warn(`[GoogleDrive] Failed to write ${userFavsFilename} to Drive:`, favErr.message);
       }
     }
 

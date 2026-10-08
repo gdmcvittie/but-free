@@ -916,6 +916,7 @@ app.get('/auth/google/callback', async (req, res) => {
       updatedAt: new Date().toISOString()
     };
     saveUserFile(userId, 'user.json', userData);
+    hydrateUserDriveMeta(userId).catch(() => {});
 
     // Issue JWT Session Cookie
     const sessionToken = jwt.sign(
@@ -1427,12 +1428,264 @@ app.post('/api/drive/set-folders', authenticate, async (req, res) => {
       updatedAt: new Date().toISOString()
     };
     saveUserFile(req.user.id, 'folders.json', updated);
+    hydrateUserDriveMeta(req.user.id).catch(() => {});
     res.json({ success: true, folders: updated });
   } catch (err) {
     console.error('[Drive] Set folders error:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+// -------------------------------------------------------------
+// -------------------------------------------------------------
+// Google Drive User-Differentiated Metadata Sync
+// -------------------------------------------------------------
+function getUserPrefix(userOrId) {
+  let email = '';
+  let id = '';
+  if (typeof userOrId === 'object' && userOrId !== null) {
+    email = userOrId.email || '';
+    id = userOrId.id || '';
+  } else if (typeof userOrId === 'string') {
+    id = userOrId;
+    const u = getUserFile(userOrId, 'user.json', {});
+    email = u?.email || '';
+  }
+  if (email && email.includes('@')) {
+    const raw = email.split('@')[0].trim().toLowerCase().replace(/[^a-z0-9._-]/g, '');
+    if (raw) return raw;
+  }
+  if (id) {
+    const rawId = String(id).trim().toLowerCase().replace(/[^a-z0-9._-]/g, '');
+    if (rawId) return rawId;
+  }
+  return 'user';
+}
+
+function getUserMetaFilename(userOrId, baseName) {
+  const prefix = getUserPrefix(userOrId);
+  return `${prefix}-${baseName}`;
+}
+
+async function findDriveFileByName(accessToken, folderId, fileName) {
+  if (!folderId || !accessToken) return null;
+  const safeName = String(fileName).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const q = `'${folderId}' in parents and name = '${safeName}' and trashed = false`;
+  const url = new URL('https://www.googleapis.com/drive/v3/files');
+  url.searchParams.set('q', q);
+  url.searchParams.set('fields', 'files(id, name, mimeType, size)');
+  url.searchParams.set('pageSize', '1');
+
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    const data = await res.json();
+    if (data.files && data.files.length > 0) {
+      return data.files[0];
+    }
+  } catch (err) {
+    console.warn(`[Drive Meta] findDriveFileByName (${fileName}) warning:`, err.message);
+  }
+  return null;
+}
+
+async function writeJsonToDrive(userId, folderId, fileName, payload) {
+  if (!userId || !folderId) return null;
+  try {
+    const accessToken = await getValidGoogleToken(userId);
+    const buffer = Buffer.from(JSON.stringify(payload, null, 2), 'utf-8');
+    const existing = await findDriveFileByName(accessToken, folderId, fileName);
+
+    if (existing) {
+      const patchUrl = `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=media&fields=id,name,size`;
+      const res = await fetch(patchUrl, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: buffer
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    }
+
+    const uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size';
+    const boundary = `freetv_${Date.now()}_${Math.random().toString(36).substring(2)}`;
+    const metadata = { name: fileName, parents: [folderId], mimeType: 'application/json' };
+    const delimiter = `\r\n--${boundary}\r\n`;
+    const closeDelimiter = `\r\n--${boundary}--`;
+
+    const multipartBody = Buffer.concat([
+      Buffer.from(delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata) + delimiter + 'Content-Type: application/json\r\n\r\n'),
+      buffer,
+      Buffer.from(closeDelimiter)
+    ]);
+
+    const res = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': `multipart/related; boundary=${boundary}`,
+        'Content-Length': String(multipartBody.length)
+      },
+      body: multipartBody
+    });
+
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn(`[Drive Meta] writeJsonToDrive (${fileName}) warning:`, err.message);
+  }
+  return null;
+}
+
+async function readJsonFromDrive(userId, folderId, fileNameCandidates) {
+  if (!userId || !folderId || !fileNameCandidates || !fileNameCandidates.length) return null;
+  try {
+    const accessToken = await getValidGoogleToken(userId);
+    for (const name of fileNameCandidates) {
+      const found = await findDriveFileByName(accessToken, folderId, name);
+      if (found) {
+        const url = `https://www.googleapis.com/drive/v3/files/${found.id}?alt=media`;
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        if (res.ok) {
+          const doc = await res.json();
+          return { filename: name, data: doc };
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Drive Meta] readJsonFromDrive warning:', err.message);
+  }
+  return null;
+}
+
+function getUserPrimaryDriveFolder(userId) {
+  const folders = getUserFile(userId, 'folders.json', {});
+  return folders.tv?.id || folders.movies?.id || null;
+}
+
+const tvMetaTimers = new Map();
+
+function scheduleSyncTvDriveMeta(userId, type) {
+  const folderId = getUserPrimaryDriveFolder(userId);
+  if (!folderId) return;
+
+  const key = `${userId}:${type}`;
+  if (tvMetaTimers.has(key)) clearTimeout(tvMetaTimers.get(key));
+
+  tvMetaTimers.set(
+    key,
+    setTimeout(async () => {
+      tvMetaTimers.delete(key);
+      try {
+        if (type === 'progress') {
+          const progress = getUserFile(userId, 'progress.json', {});
+          const fileName = getUserMetaFilename(userId, 'freetv-progress.json');
+          await writeJsonToDrive(userId, folderId, fileName, progress);
+        } else if (type === 'favorites') {
+          const favs = getUserFile(userId, 'favorites.json', { favorites: [] });
+          const fileName = getUserMetaFilename(userId, 'freetv-favorites.json');
+          await writeJsonToDrive(userId, folderId, fileName, favs);
+        } else if (type === 'library') {
+          const library = getUserFile(userId, 'library.json', {});
+          const fileName = getUserMetaFilename(userId, 'freetv-library.json');
+          await writeJsonToDrive(userId, folderId, fileName, library);
+        }
+      } catch (err) {
+        console.warn(`[Drive Meta Sync] Failed to sync ${type} for user ${userId}:`, err.message);
+      }
+    }, type === 'progress' ? 3000 : 500)
+  );
+  tvMetaTimers.get(key)?.unref?.();
+}
+
+async function hydrateUserDriveMeta(userId) {
+  const folderId = getUserPrimaryDriveFolder(userId);
+  if (!folderId) return;
+
+  try {
+    // 1. Favorites: check ${prefix}-freetv-favorites.json -> ${prefix}-favorites.json -> freetv-favorites.json -> favorites.json
+    const userFavFilename = getUserMetaFilename(userId, 'freetv-favorites.json');
+    const userShortFavFilename = getUserMetaFilename(userId, 'favorites.json');
+    const favResult = await readJsonFromDrive(userId, folderId, [
+      userFavFilename,
+      userShortFavFilename,
+      'freetv-favorites.json',
+      'favorites.json'
+    ]);
+    if (favResult && favResult.data && Array.isArray(favResult.data.favorites)) {
+      const localFavs = getUserFile(userId, 'favorites.json', { favorites: [] });
+      const localList = Array.isArray(localFavs.favorites) ? localFavs.favorites : [];
+      if (!localList.length) {
+        saveUserFile(userId, 'favorites.json', favResult.data);
+      } else {
+        const titleSet = new Set(localList.map(f => f.title?.toLowerCase()));
+        for (const f of favResult.data.favorites) {
+          if (f?.title && !titleSet.has(f.title.toLowerCase())) {
+            localList.push(f);
+            titleSet.add(f.title.toLowerCase());
+          }
+        }
+        saveUserFile(userId, 'favorites.json', { favorites: localList });
+      }
+    }
+
+    // 2. Progress: check ${prefix}-freetv-progress.json -> ${prefix}-progress.json -> freetv-progress.json -> progress.json
+    const userProgFilename = getUserMetaFilename(userId, 'freetv-progress.json');
+    const userShortProgFilename = getUserMetaFilename(userId, 'progress.json');
+    const progResult = await readJsonFromDrive(userId, folderId, [
+      userProgFilename,
+      userShortProgFilename,
+      'freetv-progress.json',
+      'progress.json'
+    ]);
+    if (progResult && progResult.data && typeof progResult.data === 'object') {
+      const localProg = getUserFile(userId, 'progress.json', {});
+      let changed = false;
+      for (const [pathKey, entry] of Object.entries(progResult.data)) {
+        if (!entry || !entry.path) continue;
+        const existing = localProg[pathKey];
+        const incomingAt = entry.updatedAt ? Date.parse(entry.updatedAt) : 0;
+        const existingAt = existing?.updatedAt ? Date.parse(existing.updatedAt) : 0;
+        if (!existing || incomingAt >= existingAt) {
+          localProg[pathKey] = entry;
+          changed = true;
+        }
+      }
+      if (changed) {
+        saveUserFile(userId, 'progress.json', localProg);
+      }
+    }
+
+    // 3. Library: if local library.json has no shows or movies, restore from Drive
+    const localLib = getUserFile(userId, 'library.json', {});
+    const hasShows = (localLib.showsList && localLib.showsList.length > 0);
+    const hasMovies = (localLib.movies && localLib.movies.length > 0);
+    if (!hasShows && !hasMovies) {
+      const userLibFilename = getUserMetaFilename(userId, 'freetv-library.json');
+      const userShortLibFilename = getUserMetaFilename(userId, 'library.json');
+      const libResult = await readJsonFromDrive(userId, folderId, [
+        userLibFilename,
+        userShortLibFilename,
+        'freetv-library.json',
+        'library.json'
+      ]);
+      if (libResult && libResult.data && (libResult.data.showsList || libResult.data.movies)) {
+        saveUserFile(userId, 'library.json', libResult.data);
+        console.log(`[Drive Meta] Restored library for user ${userId} from ${libResult.filename}`);
+      }
+    }
+  } catch (err) {
+    console.warn(`[Drive Meta Hydrate] Error for user ${userId}:`, err.message);
+  }
+}
 
 // -------------------------------------------------------------
 // Google Drive Media Scanner
@@ -1877,6 +2130,7 @@ async function scanUserDrive(userId) {
       };
 
       saveUserFile(userId, 'library.json', libraryData);
+      scheduleSyncTvDriveMeta(userId, 'library');
       setScanProgress(userId, {
         scanning: false,
         stage: 'complete',
@@ -2245,18 +2499,23 @@ app.post('/api/playback/progress', authenticate, (req, res) => {
     updatedAt: new Date().toISOString()
   };
   saveUserFile(req.user.id, 'progress.json', progress);
+  scheduleSyncTvDriveMeta(req.user.id, 'progress');
   res.json({ success: true });
 });
 
 app.get('/api/favorites', optionalAuth, (req, res) => {
   const userId = req.user?.id || 'default';
   const favs = getUserFile(userId, 'favorites.json', { favorites: [] });
+  if ((!favs.favorites || !favs.favorites.length) && req.user?.id) {
+    hydrateUserDriveMeta(req.user.id).catch(() => {});
+  }
   res.json(favs);
 });
 
 app.post('/api/favorites', authenticate, (req, res) => {
   const { favorites } = req.body;
   saveUserFile(req.user.id, 'favorites.json', { favorites: Array.isArray(favorites) ? favorites : [] });
+  scheduleSyncTvDriveMeta(req.user.id, 'favorites');
   res.json({ success: true });
 });
 
@@ -2287,6 +2546,7 @@ app.post('/api/favorites/toggle', authenticate, (req, res) => {
   }
   
   saveUserFile(req.user.id, 'favorites.json', { favorites: list });
+  scheduleSyncTvDriveMeta(req.user.id, 'favorites');
   res.json({ success: true, isFavorite, favorites: list });
 });
 
@@ -5889,6 +6149,7 @@ app.post('/api/downloads/webhook', async (req, res) => {
 
       library.updatedAt = Date.now();
       saveUserFile(userId, 'library.json', library);
+      scheduleSyncTvDriveMeta(userId, 'library');
       userLibraryUpdateTimestamps.set(userId, Date.now());
       console.log(`[Downloads Webhook] Injected "${cleanName}" directly into library.json for user ${userId}.`);
     } catch (injErr) {

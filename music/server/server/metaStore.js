@@ -29,6 +29,23 @@ export const SCHEMA_VERSION = 1;
 /** Settings that are per-machine by design and therefore never synced. */
 const LOCAL_ONLY_SETTINGS = new Set(['youtubeCookiesFile', 'youtubeCookiesBrowser']);
 
+export function getUserPrefix(user) {
+  const email = (user?.email || '').trim();
+  let prefix = '';
+  if (email && email.includes('@')) {
+    prefix = email.split('@')[0].trim().toLowerCase().replace(/[^a-z0-9._-]/g, '');
+  }
+  if (!prefix && user?.id) {
+    prefix = String(user.id).trim().toLowerCase().replace(/[^a-z0-9._-]/g, '');
+  }
+  return prefix || 'user';
+}
+
+export function getUserMetaFilename(user, kind) {
+  const prefix = getUserPrefix(user);
+  return `${prefix}-${META_FILENAMES[kind]}`;
+}
+
 const META_FILENAMES = {
   audiobooks: 'fraudio-audiobooks.json',
   music: 'fraudio-music.json'
@@ -311,16 +328,34 @@ async function loadKind(user, kind) {
   const folderId = folderFor(user, kind);
   if (!folderId) return null;
 
+  const targetFilename = getUserMetaFilename(user, kind);
+  const legacyFilename = META_FILENAMES[kind];
+
   try {
     let fileId = fileIdCache.get(cacheKey(user.id, kind));
+    let loadedFilename = targetFilename;
+
     if (!fileId) {
-      const found = await googleDrive.findFileByName(user, folderId, META_FILENAMES[kind]);
+      // 1. Try finding the user-prefixed metadata file first (e.g. gdmcvittie-fraudio-music.json)
+      let found = await googleDrive.findFileByName(user, folderId, targetFilename);
+      // 2. Fall back to legacy non-prefixed file if user-specific file doesn't exist yet
+      if (!found && legacyFilename) {
+        found = await googleDrive.findFileByName(user, folderId, legacyFilename);
+        if (found) {
+          console.log(`[META] ${kind}: found legacy ${legacyFilename}, will migrate to ${targetFilename} on save`);
+          loadedFilename = legacyFilename;
+        }
+      }
+
       if (!found) {
         fileIdCache.set(cacheKey(user.id, kind), '');
         return null;
       }
       fileId = found.id;
-      fileIdCache.set(cacheKey(user.id, kind), fileId);
+      // Only cache fileId if it's the target user file so persistKind creates the new user file rather than overwriting legacy
+      if (found.name === targetFilename) {
+        fileIdCache.set(cacheKey(user.id, kind), fileId);
+      }
     }
 
     const buffer = await googleDrive.getFileBuffer(user, fileId);
@@ -329,13 +364,13 @@ async function loadKind(user, kind) {
 
     const restored = hydrate(user.id, kind, doc);
     console.log(
-      `[META] ${kind}: loaded ${META_FILENAMES[kind]} ` +
+      `[META] ${kind}: loaded ${loadedFilename} ` +
       `(${restored.progress} progress, ${restored.favorites} favourites, ` +
       `${restored.authors} authors, ${restored.playlists} playlists restored)`
     );
     return doc;
   } catch (err) {
-    console.warn(`[META] Could not read ${META_FILENAMES[kind]}: ${err.message}`);
+    console.warn(`[META] Could not read ${targetFilename}: ${err.message}`);
     return null;
   }
 }
@@ -343,11 +378,12 @@ async function loadKind(user, kind) {
 /** Writes the document for one kind. Creates it on first save. */
 async function persistKind(user, kind) {
   const folderId = folderFor(user, kind);
+  const targetFilename = getUserMetaFilename(user, kind);
   if (!folderId) {
     if (!warnedNoFolder.has(cacheKey(user.id, kind))) {
       warnedNoFolder.add(cacheKey(user.id, kind));
       console.warn(
-        `[META] No ${kind} Drive folder selected - ${META_FILENAMES[kind]} not written. ` +
+        `[META] No ${kind} Drive folder selected - ${targetFilename} not written. ` +
         'Pick a folder in Settings to enable Drive-backed sync.'
       );
     }
@@ -359,22 +395,24 @@ async function persistKind(user, kind) {
   let fileId = fileIdCache.get(key) || '';
 
   if (!fileId) {
-    const found = await googleDrive.findFileByName(user, folderId, META_FILENAMES[kind]);
+    const found = await googleDrive.findFileByName(user, folderId, targetFilename);
     fileId = found?.id || '';
-    fileIdCache.set(key, fileId);
+    if (fileId) fileIdCache.set(key, fileId);
   }
 
-  const result = await googleDrive.writeJsonFile(user, folderId, META_FILENAMES[kind], doc, {
+  const result = await googleDrive.writeJsonFile(user, folderId, targetFilename, doc, {
     fileId: fileId || null
   });
   fileIdCache.set(key, result.id);
-  console.log(`[META] ${kind}: wrote ${META_FILENAMES[kind]} (${result.updated ? 'updated' : 'created'})`);
+  console.log(`[META] ${kind}: wrote ${targetFilename} (${result.updated ? 'updated' : 'created'})`);
   return result;
 }
 
 const metaStore = {
   SCHEMA_VERSION,
   META_FILENAMES,
+  getUserPrefix,
+  getUserMetaFilename,
   dehydrate,
   hydrate,
   loadKind,

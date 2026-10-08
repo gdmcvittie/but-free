@@ -240,6 +240,32 @@ app.post('/api/drive/select-folder', async (req, res) => {
 
   try {
     Database.updateUserFolder(req.user.id, folderId, folderName || 'Games');
+
+    // Attempt quick hydration of user games and favorites from Drive if available
+    try {
+      const userGamesFilename = GoogleDrive.getUserMetaFilename(req.user, 'games.json');
+      const gamesFile = (await GoogleDrive.findFileByName(req.user, folderId, userGamesFilename))
+                     || (await GoogleDrive.findFileByName(req.user, folderId, 'games.json'));
+      if (gamesFile) {
+        const gamesData = await GoogleDrive.readJsonFile(req.user, gamesFile.id);
+        if (gamesData && Array.isArray(gamesData.games) && gamesData.games.length > 0) {
+          Database.saveGames(req.user.id, gamesData.games, 'drive');
+        }
+      }
+
+      const userFavFilename = GoogleDrive.getUserMetaFilename(req.user, 'favorites.json');
+      const favFile = (await GoogleDrive.findFileByName(req.user, folderId, userFavFilename))
+                   || (await GoogleDrive.findFileByName(req.user, folderId, 'favorites.json'));
+      if (favFile) {
+        const favData = await GoogleDrive.readJsonFile(req.user, favFile.id);
+        if (favData && Array.isArray(favData.favorites)) {
+          Database.setFavorites(req.user.id, favData.favorites);
+        }
+      }
+    } catch (syncErr) {
+      console.warn('[Drive Folder Select Sync Warning]:', syncErr.message);
+    }
+
     res.json({ success: true, folderId, folderName });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -278,11 +304,12 @@ app.post('/api/games/:id/favorite', async (req, res) => {
   const gameId = req.params.id;
   const isFavorite = Database.toggleFavorite(req.user.id, gameId);
 
-  // Sync favorites.json to user's games folder on Google Drive
+  // Sync favorites to user's favorites JSON in games folder on Google Drive
   if (req.user.gamesFolderId) {
     try {
       const favs = Database.getFavorites(req.user.id);
-      await GoogleDrive.writeJsonFile(req.user, req.user.gamesFolderId, 'favorites.json', {
+      const favFilename = GoogleDrive.getUserMetaFilename(req.user, 'favorites.json');
+      await GoogleDrive.writeJsonFile(req.user, req.user.gamesFolderId, favFilename, {
         version: 1,
         updatedAt: Date.now(),
         favorites: favs

@@ -225,6 +225,48 @@ app.post('/api/gdrive/select-folder', requireLogin, async (req, res) => {
     }
 
     const updatedUser = Database.updateUserDriveFolder(req.user.id, folderId, finalName);
+
+    // Attempt hydration of user comics library, favorites, and progress from Drive
+    try {
+      const userLibFile = GoogleDrive.getUserMetaFilename(req.user, 'comics-library.json');
+      const libFile = (await GoogleDrive.findFileByName(req.user, folderId, userLibFile))
+                   || (await GoogleDrive.findFileByName(req.user, folderId, 'comics-library.json'));
+      if (libFile) {
+        const libData = await GoogleDrive.readJsonFile(req.user, libFile.id);
+        if (libData && Array.isArray(libData.comics) && libData.comics.length > 0) {
+          Database.batchSyncComics(req.user.id, libData.comics);
+        }
+      }
+
+      const userFavFile = GoogleDrive.getUserMetaFilename(req.user, 'comics-favorites.json');
+      const favFile = (await GoogleDrive.findFileByName(req.user, folderId, userFavFile))
+                   || (await GoogleDrive.findFileByName(req.user, folderId, 'comics-favorites.json'));
+      if (favFile) {
+        const favData = await GoogleDrive.readJsonFile(req.user, favFile.id);
+        if (favData && Array.isArray(favData.favorites)) {
+          Database.saveFavorites(req.user.id, favData.favorites);
+        }
+        if (favData && Array.isArray(favData.seriesFavorites)) {
+          Database.saveSeriesFavorites(req.user.id, favData.seriesFavorites);
+        }
+      }
+
+      const userProgFile = GoogleDrive.getUserMetaFilename(req.user, 'comics-progress.json');
+      const progFile = (await GoogleDrive.findFileByName(req.user, folderId, userProgFile))
+                    || (await GoogleDrive.findFileByName(req.user, folderId, 'comics-progress.json'));
+      if (progFile) {
+        const progData = await GoogleDrive.readJsonFile(req.user, progFile.id);
+        if (progData && typeof progData === 'object') {
+          for (const [cId, p] of Object.entries(progData)) {
+            if (p && p.currentPage) {
+              Database.saveReadingProgress(req.user.id, cId, p.currentPage, p.totalPages, p.zoomNormX, p.zoomNormY);
+            }
+          }
+        }
+      }
+    } catch (syncErr) {
+      console.warn('[Comics Folder Select Sync Warning]:', syncErr.message);
+    }
     res.json({ success: true, folderId, folderName: finalName, user: updatedUser });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -541,6 +583,15 @@ app.post('/api/favorites', (req, res) => {
     return res.json({ success: true, favorites: updated });
   }
   const updated = Database.toggleFavorite(userId, comicId, isFavorite);
+  if (req.user?.driveFolderId) {
+    const favFileName = GoogleDrive.getUserMetaFilename(req.user, 'comics-favorites.json');
+    GoogleDrive.writeJsonFile(req.user, req.user.driveFolderId, favFileName, {
+      version: 1,
+      updatedAt: Date.now(),
+      favorites: Database.getFavorites(userId),
+      seriesFavorites: Database.getSeriesFavorites(userId)
+    }).catch(() => {});
+  }
   res.json({ success: true, favorites: updated });
 });
 
@@ -557,6 +608,15 @@ app.post('/api/favorites/series', (req, res) => {
     return res.json({ success: true, seriesFavorites: updated });
   }
   const updated = Database.toggleSeriesFavorite(userId, seriesName, isFavorite);
+  if (req.user?.driveFolderId) {
+    const favFileName = GoogleDrive.getUserMetaFilename(req.user, 'comics-favorites.json');
+    GoogleDrive.writeJsonFile(req.user, req.user.driveFolderId, favFileName, {
+      version: 1,
+      updatedAt: Date.now(),
+      favorites: Database.getFavorites(userId),
+      seriesFavorites: Database.getSeriesFavorites(userId)
+    }).catch(() => {});
+  }
   res.json({ success: true, seriesFavorites: updated });
 });
 
@@ -586,6 +646,10 @@ app.post('/api/progress', requireLogin, (req, res) => {
   const { comicId, page, totalPages, zoomNormX, zoomNormY } = req.body || {};
   if (!comicId) return res.status(400).json({ error: 'comicId is required' });
   const updated = Database.saveReadingProgress(req.user.id, comicId, page, totalPages, zoomNormX, zoomNormY);
+  if (req.user?.driveFolderId) {
+    const progFileName = GoogleDrive.getUserMetaFilename(req.user, 'comics-progress.json');
+    GoogleDrive.writeJsonFile(req.user, req.user.driveFolderId, progFileName, Database.getReadingProgress(req.user.id)).catch(() => {});
+  }
   res.json({ success: true, progress: updated });
 });
 

@@ -336,6 +336,110 @@ const GoogleDrive = {
   /**
    * Gets details of a specific folder.
    */
+  getUserPrefix(user) {
+    const email = (user?.email || '').trim();
+    let prefix = '';
+    if (email && email.includes('@')) {
+      prefix = email.split('@')[0].trim().toLowerCase().replace(/[^a-z0-9._-]/g, '');
+    }
+    if (!prefix && user?.id) {
+      prefix = String(user.id).trim().toLowerCase().replace(/[^a-z0-9._-]/g, '');
+    }
+    return prefix || 'user';
+  },
+
+  getUserMetaFilename(user, baseName) {
+    const prefix = this.getUserPrefix(user);
+    return `${prefix}-${baseName}`;
+  },
+
+  async findFileByName(user, parentId, fileName) {
+    if (!parentId) return null;
+    const accessToken = await GoogleAuth.getValidAccessToken(user);
+    const safeName = String(fileName).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const q = `'${parentId}' in parents and name = '${safeName}' and trashed = false`;
+    const url = new URL('https://www.googleapis.com/drive/v3/files');
+    url.searchParams.set('q', q);
+    url.searchParams.set('fields', 'files(id, name, mimeType, size)');
+    url.searchParams.set('pageSize', '1');
+
+    try {
+      const res = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      const data = await res.json();
+      if (data.files && data.files.length > 0) {
+        return data.files[0];
+      }
+    } catch (err) {
+      console.warn(`[GoogleDrive] findFileByName (${fileName}) warning:`, err.message);
+    }
+    return null;
+  },
+
+  async writeJsonFile(user, folderId, fileName, payload) {
+    if (!folderId) return null;
+    try {
+      const accessToken = await GoogleAuth.getValidAccessToken(user);
+      const buffer = Buffer.from(JSON.stringify(payload, null, 2), 'utf-8');
+      const existing = await this.findFileByName(user, folderId, fileName);
+
+      if (existing) {
+        const patchUrl = `https://www.googleapis.com/upload/drive/v3/files/${existing.id}?uploadType=media&fields=id,name,size`;
+        const res = await fetch(patchUrl, {
+          method: 'PATCH',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: buffer
+        });
+        if (res.ok) return await res.json();
+      }
+
+      const uploadUrl = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size';
+      const boundary = `comics_${Date.now()}_${Math.random().toString(36).substring(2)}`;
+      const metadata = { name: fileName, parents: [folderId], mimeType: 'application/json' };
+      const delimiter = `\r\n--${boundary}\r\n`;
+      const closeDelimiter = `\r\n--${boundary}--`;
+
+      const multipartBody = Buffer.concat([
+        Buffer.from(delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata) + delimiter + 'Content-Type: application/json\r\n\r\n'),
+        buffer,
+        Buffer.from(closeDelimiter)
+      ]);
+
+      const res = await fetch(uploadUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': `multipart/related; boundary=${boundary}`,
+          'Content-Length': String(multipartBody.length)
+        },
+        body: multipartBody
+      });
+
+      if (res.ok) return await res.json();
+    } catch (err) {
+      console.warn(`[GoogleDrive] writeJsonFile (${fileName}) error:`, err.message);
+    }
+    return null;
+  },
+
+  async readJsonFile(user, fileId) {
+    try {
+      const accessToken = await GoogleAuth.getValidAccessToken(user);
+      const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      if (res.ok) return await res.json();
+    } catch (err) {
+      console.warn('[GoogleDrive] readJsonFile error:', err.message);
+    }
+    return null;
+  },
+
   async getFolderInfo(user, folderId) {
     const accessToken = await GoogleAuth.getValidAccessToken(user);
     const res = await fetch(`https://www.googleapis.com/drive/v3/files/${folderId}?fields=id,name,mimeType`, {
@@ -423,6 +527,20 @@ const GoogleDrive = {
 
     // Batch update database
     const synced = Database.batchSyncComics(user.id, discoveredComics, options.protectFileIds || []);
+
+    // Sync comic library JSON to user's Google Drive folder
+    try {
+      const libraryFileName = this.getUserMetaFilename(user, 'comics-library.json');
+      await this.writeJsonFile(user, user.driveFolderId, libraryFileName, {
+        version: 1,
+        folderName: user.driveFolderName || 'Comics',
+        updatedAt: Date.now(),
+        count: synced.length,
+        comics: synced
+      });
+    } catch (libErr) {
+      console.warn('[GoogleDrive] Failed to write library to Drive:', libErr.message);
+    }
     return {
       count: synced.length,
       comics: synced
