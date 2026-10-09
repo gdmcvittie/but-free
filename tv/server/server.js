@@ -305,7 +305,7 @@ const hlsStartingByKeyOffset = new Map();
 // On-demand content (Drive / torrent) is transcoded in bounded VOD chunks. Each chunk is a
 // complete ~2-hour playlist ending in #EXT-X-ENDLIST, so Roku always sees a closed VOD
 // playlist instead of an unbounded event list. The Roku app chains chunks via ?offset=.
-const HLS_CHUNK_SECONDS = parseInt(process.env.HLS_CHUNK_SECONDS, 10) || 7200; // 2-hour chunks (7200s) default
+const HLS_CHUNK_SECONDS = parseInt(process.env.HLS_CHUNK_SECONDS, 10) || 14400; // 4-hour chunks (14400s) default
 // Function to resolve ffmpeg's input proxy URL.
 // When running as a standalone Node service (e.g. systemd on Debian VPS or local dev),
 // uses 127.0.0.1:PORT directly to bypass external reverse proxy (Nginx) timeouts,
@@ -412,6 +412,12 @@ function cleanupHlsSession(sessionId, killFfmpeg = true) {
     if (session.key && hlsActiveByKey.get(session.key) === sessionId) hlsActiveByKey.delete(session.key);
     if (session.fileId) {
       try { fs.rmSync(path.join(CACHE_DIR, 'hls', `active_${session.fileId}.json`), { force: true }); } catch (_) {}
+    }
+    if (session.streamId) {
+      try { fs.rmSync(path.join(CACHE_DIR, 'hls', `active_torrent_${session.streamId}_${session.fileIndex || 0}.json`), { force: true }); } catch (_) {}
+    }
+    if (session.heartbeatTimer) {
+      try { clearInterval(session.heartbeatTimer); } catch (_) {}
     }
     hlsSessions.delete(sessionId);
     HLS_TRANSCODE_ACTIVE.delete(sessionId);
@@ -3760,6 +3766,15 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
         }
       }
     });
+    const heartbeatTimer = setInterval(async () => {
+      try {
+        const pingServer = await getActiveTorrentServer();
+        await fetch(`${pingServer}/api/torrent/stream/${encodeURIComponent(streamId)}/touch`, {
+          method: 'POST',
+          signal: AbortSignal.timeout(4000)
+        }).catch(() => {});
+      } catch (_) {}
+    }, 25000);
     hlsSessions.set(sessionId, {
       dir: hlsDir,
       ffmpegProcess,
@@ -3768,7 +3783,8 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
       fileIndex,
       key: sessionKey,
       offset,
-      startedAt: Date.now()
+      startedAt: Date.now(),
+      heartbeatTimer
     });
     hlsActiveByKey.set(sessionKey, sessionId);
     try {
@@ -3781,6 +3797,7 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
     pruneSameKeySessions(sessionKey, 2);
 
     ffmpegProcess.on('error', (err) => {
+      try { clearInterval(heartbeatTimer); } catch (_) {}
       console.error('[Torrent HLS] FFmpeg launch error:', err.message);
       cleanupHlsSession(sessionId);
       if (!res.headersSent) res.status(500).send('Transcoding failed to start');
@@ -3791,6 +3808,7 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
     let ffmpegExitCode = null;
     ffmpegProcess.on('exit', (code) => {
       ffmpegExited = true;
+      try { clearInterval(heartbeatTimer); } catch (_) {}
       ffmpegExitCode = code;
       if (code !== 0 && code !== null) {
         console.warn(`[Torrent HLS] FFmpeg exited with code ${code}`);
@@ -3918,7 +3936,10 @@ app.get('/api/stream/hls/:sessionId/:file', (req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Access-Control-Allow-Origin', '*');
     const origin = getHostOrigin(req);
-    const rewritten = playlist.replace(/^(?:.*[\\/])?(seg_\d+\.ts)\r?$/gm, (match, p1) => `${origin}/api/stream/hls/${sessionId}/${p1}`);
+    let rewritten = playlist.replace(/^(?:.*[\\/])?(seg_\d+\.ts)\r?$/gm, (match, p1) => `${origin}/api/stream/hls/${sessionId}/${p1}`);
+    if (rewritten.includes('#EXT-X-ENDLIST')) {
+      rewritten = rewritten.replace('#EXT-X-PLAYLIST-TYPE:EVENT', '#EXT-X-PLAYLIST-TYPE:VOD');
+    }
     console.log(`[HLS Serve] m3u8 session=${sessionId} segments=${(rewritten.match(/seg_\d+\.ts/g) || []).length}`);
     res.end(rewritten);
   } else {

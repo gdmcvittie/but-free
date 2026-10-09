@@ -3230,7 +3230,7 @@ sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, file
     vidContent = CreateObject("roSGNode", "ContentNode")
     vidContent.url = playUrl
     vidContent.title = title
-    vidContent.bufferingTargetSeconds = 12
+    vidContent.bufferingTargetSeconds = 30
     if forceHls
         vidContent.streamFormat = "hls"
         vidContent.live = false
@@ -3285,7 +3285,7 @@ end sub
 function detectStreamFormat(str as String) as String
     if str = invalid return "mp4"
     lStr = LCase(str)
-    if Instr(1, lStr, "drive-hls") > 0 or Instr(1, lStr, "hls=true") > 0 or Instr(1, lStr, "hls=1") > 0
+    if Instr(1, lStr, "drive-hls") > 0 or Instr(1, lStr, "torrent-hls") > 0 or Instr(1, lStr, "hls=true") > 0 or Instr(1, lStr, "hls=1") > 0
         return "hls"
     end if
     if Instr(1, lStr, "transcode=true") > 0 or Instr(1, lStr, "transcode=1") > 0
@@ -3350,8 +3350,8 @@ function chunkSeconds() as Integer
     if m.serverChunkSeconds <> invalid and m.serverChunkSeconds > 0
         return m.serverChunkSeconds
     end if
-    ' Default matches HLS_CHUNK_SECONDS in server.js (7200 = 2 hours).
-    return 7200
+    ' Default matches HLS_CHUNK_SECONDS in server.js (14400 = 4 hours).
+    return 14400
 end function
 
 function rebuildStreamUrlWithOffset(url as String, newOffset as Integer) as String

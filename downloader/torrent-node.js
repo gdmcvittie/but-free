@@ -497,7 +497,7 @@ app.post('/api/cookies', requireAuth, (req, res) => {
 // -------------------------------------------------------------
 // Freevee TV: Torrent Streaming Endpoints
 // -------------------------------------------------------------
-app.post('/api/torrent/stream', (req, res) => {
+app.post(['/api/torrent/stream', '/api/roku/stream'], (req, res) => {
   const { url } = req.body || {};
   if (!url || typeof url !== 'string') {
     return res.status(400).json({ error: 'Missing torrent URL or magnet' });
@@ -517,6 +517,7 @@ app.post('/api/torrent/stream', (req, res) => {
   if (activeStreams.has(streamId)) {
     const existing = activeStreams.get(streamId);
     if (existing && existing.file) {
+      existing.lastActivity = Date.now();
       console.log(`[Stream Reused]: ${existing.file.name}`);
       return res.json({
         success: true,
@@ -687,6 +688,19 @@ const handleServeStream = (req, res) => {
   }
 
   streamInfo.lastActivity = Date.now();
+  streamInfo.activeReaders = (streamInfo.activeReaders || 0) + 1;
+
+  let readerDecremented = false;
+  const decrementReader = () => {
+    if (!readerDecremented) {
+      readerDecremented = true;
+      streamInfo.lastActivity = Date.now();
+      streamInfo.activeReaders = Math.max(0, (streamInfo.activeReaders || 1) - 1);
+    }
+  };
+
+  res.on('finish', decrementReader);
+  res.on('close', decrementReader);
 
   const idx = parseInt(fileIndex, 10);
   const file = (!isNaN(idx) && streamInfo.files && streamInfo.files[idx]) ? streamInfo.files[idx] : streamInfo.file;
@@ -722,6 +736,7 @@ const handleServeStream = (req, res) => {
     }
 
     if (isNaN(start) || isNaN(end) || start > end || start >= fileSize) {
+      decrementReader();
       return res.status(416).send('Requested range not satisfiable');
     }
 
@@ -733,19 +748,33 @@ const handleServeStream = (req, res) => {
       'Content-Type': contentType
     });
 
-    if (req.method === 'HEAD') return res.end();
+    if (req.method === 'HEAD') {
+      decrementReader();
+      return res.end();
+    }
 
     try {
       const readStream = file.createReadStream({ start, end });
+      let lastDataActivity = 0;
+      readStream.on('data', () => {
+        const now = Date.now();
+        if (now - lastDataActivity > 10000) {
+          lastDataActivity = now;
+          streamInfo.lastActivity = now;
+        }
+      });
       readStream.pipe(res);
       readStream.on('error', (err) => {
+        decrementReader();
         if (!res.headersSent) res.status(500).end();
         else res.end();
       });
       req.on('close', () => {
+        decrementReader();
         try { readStream.destroy(); } catch (_) {}
       });
     } catch (err) {
+      decrementReader();
       if (!res.headersSent) res.status(500).end();
     }
   } else {
@@ -755,28 +784,68 @@ const handleServeStream = (req, res) => {
       'Accept-Ranges': 'bytes'
     });
 
-    if (req.method === 'HEAD') return res.end();
+    if (req.method === 'HEAD') {
+      decrementReader();
+      return res.end();
+    }
 
     try {
       const readStream = file.createReadStream();
+      let lastDataActivity = 0;
+      readStream.on('data', () => {
+        const now = Date.now();
+        if (now - lastDataActivity > 10000) {
+          lastDataActivity = now;
+          streamInfo.lastActivity = now;
+        }
+      });
       readStream.pipe(res);
       readStream.on('error', (err) => {
+        decrementReader();
         if (!res.headersSent) res.status(500).end();
         else res.end();
       });
       req.on('close', () => {
+        decrementReader();
         try { readStream.destroy(); } catch (_) {}
       });
     } catch (err) {
+      decrementReader();
       if (!res.headersSent) res.status(500).end();
     }
   }
 };
 
+// Stream serving endpoints
 app.get('/api/torrent/serve/:streamId/:fileIndex', handleServeStream);
 app.head('/api/torrent/serve/:streamId/:fileIndex', handleServeStream);
 app.get('/api/torrent/stream/:streamId/file/:fileIndex', handleServeStream);
 app.head('/api/torrent/stream/:streamId/file/:fileIndex', handleServeStream);
+
+// Dedicated Roku streaming endpoints (additive)
+app.get('/api/roku/serve/:streamId/:fileIndex', handleServeStream);
+app.head('/api/roku/serve/:streamId/:fileIndex', handleServeStream);
+
+// Stream heartbeat / touch endpoints (additive)
+const handleTouchStream = (req, res) => {
+  const { streamId } = req.params;
+  const streamInfo = activeStreams.get(streamId);
+  if (streamInfo) {
+    streamInfo.lastActivity = Date.now();
+    return res.json({
+      success: true,
+      streamId,
+      lastActivity: streamInfo.lastActivity,
+      activeReaders: streamInfo.activeReaders || 0
+    });
+  }
+  return res.status(404).json({ success: false, error: 'Stream not found or expired' });
+};
+
+app.post('/api/torrent/stream/:streamId/touch', handleTouchStream);
+app.get('/api/torrent/stream/:streamId/touch', handleTouchStream);
+app.post('/api/roku/stream/:streamId/touch', handleTouchStream);
+app.get('/api/roku/stream/:streamId/touch', handleTouchStream);
 
 // Stop stream endpoint
 const stopStreamById = (streamId) => {
@@ -861,11 +930,15 @@ app.post('/api/torrent/cache/clear', requireAuth, (req, res) => {
   }
 });
 
-// Periodic idle stream cleanup (10 min idle)
+// Periodic idle stream cleanup (default 240 min idle; never clean active streams with active readers)
 setInterval(() => {
   const now = Date.now();
-  const idleMs = (parseInt(process.env.MAX_STREAM_IDLE_MINUTES || '10', 10)) * 60 * 1000;
+  const idleMs = (parseInt(process.env.MAX_STREAM_IDLE_MINUTES || '240', 10)) * 60 * 1000;
   for (const [id, stream] of activeStreams.entries()) {
+    if ((stream.activeReaders || 0) > 0) {
+      stream.lastActivity = now;
+      continue;
+    }
     const last = stream.lastActivity || stream.addedAt || now;
     if (now - last > idleMs) {
       stopStreamById(id);
