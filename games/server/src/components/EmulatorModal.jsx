@@ -163,25 +163,6 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
   }, []);
 
   useEffect(() => {
-    window.__freeplayAndroidKey = (type, key, code, keyCode) => {
-      const browserPadConnected = typeof navigator.getGamepads === 'function'
-        && Array.from(navigator.getGamepads()).some((pad) => pad && pad.connected);
-      if (browserPadConnected) return;
-      const event = new KeyboardEvent(type, { key, code, bubbles: true, cancelable: true, composed: true });
-      try { Object.defineProperty(event, 'keyCode', { value: keyCode, configurable: true }); } catch { /* legacy engine */ }
-      try { Object.defineProperty(event, 'which', { value: keyCode, configurable: true }); } catch { /* legacy engine */ }
-      const canvas = document.querySelector('.game-canvas');
-      if (canvas) {
-        try { canvas.focus({ preventScroll: true }); } catch { canvas.focus(); }
-        canvas.dispatchEvent(event);
-      } else {
-        window.dispatchEvent(event);
-      }
-    };
-    return () => { delete window.__freeplayAndroidKey; };
-  }, []);
-
-  useEffect(() => {
     const bridge = window.FreeplayAndroid;
     if (!bridge?.setImmersiveMode) return undefined;
     bridge.setImmersiveMode(!isWebGame && !isPcGame && hasPhysicalGamepad);

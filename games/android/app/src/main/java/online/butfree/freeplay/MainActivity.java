@@ -10,7 +10,6 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.view.InputDevice;
-import android.view.KeyEvent;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -329,42 +328,6 @@ public class MainActivity extends Activity {
         String script = "window.dispatchEvent(new CustomEvent('freeplay:controllerchange',{detail:{connected:"
                 + connected + "}}));";
         webView.evaluateJavascript(script, null);
-    }
-
-    private String[] mapControllerKey(int keyCode) {
-        switch (keyCode) {
-            case KeyEvent.KEYCODE_DPAD_UP: return new String[] {"ArrowUp", "ArrowUp", "38"};
-            case KeyEvent.KEYCODE_DPAD_DOWN: return new String[] {"ArrowDown", "ArrowDown", "40"};
-            case KeyEvent.KEYCODE_DPAD_LEFT: return new String[] {"ArrowLeft", "ArrowLeft", "37"};
-            case KeyEvent.KEYCODE_DPAD_RIGHT: return new String[] {"ArrowRight", "ArrowRight", "39"};
-            case KeyEvent.KEYCODE_BUTTON_A: return new String[] {"x", "KeyX", "88"};
-            case KeyEvent.KEYCODE_BUTTON_B: return new String[] {"z", "KeyZ", "90"};
-            case KeyEvent.KEYCODE_BUTTON_X: return new String[] {"s", "KeyS", "83"};
-            case KeyEvent.KEYCODE_BUTTON_Y: return new String[] {"a", "KeyA", "65"};
-            case KeyEvent.KEYCODE_BUTTON_L1: return new String[] {"q", "KeyQ", "81"};
-            case KeyEvent.KEYCODE_BUTTON_R1: return new String[] {"w", "KeyW", "87"};
-            case KeyEvent.KEYCODE_BUTTON_SELECT: return new String[] {"Shift", "ShiftLeft", "16"};
-            case KeyEvent.KEYCODE_BUTTON_START: return new String[] {"Enter", "Enter", "13"};
-            default: return null;
-        }
-    }
-
-    @Override
-    public boolean dispatchKeyEvent(KeyEvent event) {
-        if (webView != null && event != null
-                && (event.getAction() == KeyEvent.ACTION_DOWN || event.getAction() == KeyEvent.ACTION_UP)) {
-            InputDevice device = event.getDevice();
-            int sources = event.getSource() | (device == null ? 0 : device.getSources());
-            String[] mapped = mapControllerKey(event.getKeyCode());
-            if (mapped != null && isControllerSource(sources)) {
-                String action = event.getAction() == KeyEvent.ACTION_DOWN ? "keydown" : "keyup";
-                String script = "window.__freeplayAndroidKey&&window.__freeplayAndroidKey('" + action
-                        + "','" + mapped[0] + "','" + mapped[1] + "'," + mapped[2] + ");";
-                webView.evaluateJavascript(script, null);
-                return true;
-            }
-        }
-        return super.dispatchKeyEvent(event);
     }
 
     private void openCloud() {
