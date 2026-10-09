@@ -3,7 +3,7 @@ import path from 'path';
 import http from 'http';
 import https from 'https';
 import WebTorrent from 'webtorrent';
-import { isVideoFile, cleanMediaFilename, resolveMediaMeta, enrichMagnet, TRACKERS } from './util.js';
+import { isVideoFile, cleanMediaFilename, resolveMediaMeta, enrichMagnet, infoHashOf, TRACKERS } from './util.js';
 import { transcodeMediaFile } from './transcoder.js';
 import { resolveTargetFolderId, uploadFileToGoogleDrive, findOrCreateFolder } from './driveUploader.js';
 
@@ -36,6 +36,11 @@ let activeDownloadJob = null;
 
 const transcodeQueue = [];
 let activeTranscodeJob = null;
+
+// Drive uploads can run for 30-90 minutes for a large file with no local disk
+// writes, so the job must stay registered as active for the whole phase or the
+// orphan sweep will delete the file being uploaded.
+let activeUploadJob = null;
 
 function loadHistory() {
   try {
@@ -340,15 +345,32 @@ async function runDownloadPhase(job) {
   try {
     // If this torrent is already registered in WebTorrent, cleanly remove the stale instance first
     try {
-      const existing = wt.get(targetMagnet) || (job.magnet ? wt.get(job.magnet) : null);
+      const targetHash = infoHashOf(targetMagnet) || infoHashOf(job.magnet);
+      let existing = null;
+      if (targetHash && Array.isArray(wt.torrents)) {
+        existing = wt.torrents.find(t => t && t.infoHash && t.infoHash.toLowerCase() === targetHash.toLowerCase()) || null;
+      }
+      if (!existing && typeof wt.get === 'function') {
+        existing = await wt.get(targetMagnet).catch(() => null);
+        if (!existing && job.magnet && job.magnet !== targetMagnet) {
+          existing = await wt.get(job.magnet).catch(() => null);
+        }
+      }
       if (existing) {
         console.log(`[TvDownloadManager] Clearing existing swarm instance for ${job.id}`);
-        await new Promise(r => {
-          try { wt.remove(existing, { destroyStore: false }, () => r()); }
-          catch (_) { r(); }
-        });
+        try {
+          if (typeof wt.remove === 'function') {
+            await wt.remove(existing, { destroyStore: false }).catch(() => {});
+          } else if (typeof existing.destroy === 'function') {
+            existing.destroy({ destroyStore: false });
+          }
+        } catch (_) {
+          try { existing.destroy({ destroyStore: false }); } catch (_) {}
+        }
       }
-    } catch (_) {}
+    } catch (swarmErr) {
+      console.warn(`[TvDownloadManager] Stale swarm check error for ${job.id}:`, swarmErr?.message || swarmErr);
+    }
 
     await new Promise((resolve, reject) => {
       const finish = (err) => {
@@ -382,48 +404,64 @@ async function runDownloadPhase(job) {
       };
       resetStallTimer();
 
-      try {
-        torrent = wt.add(targetMagnet, { path: jobDir, announce: TRACKERS }, (t) => {
-          job.torrent = t;
-          if (metadataTimeout) {
-            clearTimeout(metadataTimeout);
-            metadataTimeout = null;
-          }
+      const ontorrent = (t) => {
+        job.torrent = t;
+        if (metadataTimeout) {
+          clearTimeout(metadataTimeout);
+          metadataTimeout = null;
+        }
 
-          // If torrent is already 100% complete (cached or pre-existing on disk)
-          if (t.done || t.progress >= 1) {
-            job.downloadPercent = 100;
-            job.downloadSpeed = 0;
-            job.downloadedBytes = t.length;
-            job.totalBytes = t.length;
-            return finish();
-          }
+        // If torrent is already 100% complete (cached or pre-existing on disk)
+        if (t.done || t.progress >= 1) {
+          job.downloadPercent = 100;
+          job.downloadSpeed = 0;
+          job.downloadedBytes = t.length;
+          job.totalBytes = t.length;
+          return finish();
+        }
 
-          t.on('download', () => {
-            if (job.cancelled) return;
-            resetStallTimer();
-            job.downloadPercent = Math.min(100, Math.round(t.progress * 100));
-            job.downloadSpeed = t.downloadSpeed;
-            job.numPeers = t.numPeers;
-            job.downloadedBytes = t.downloaded;
-            job.totalBytes = t.length;
-            job.updatedAt = Date.now();
-          });
-
-          t.on('done', () => {
-            job.downloadPercent = 100;
-            job.downloadSpeed = 0;
-            job.downloadedBytes = t.length;
-            job.totalBytes = t.length;
-            finish();
-          });
-
-          t.on('error', (err) => {
-            finish(err);
-          });
+        t.on('download', () => {
+          if (job.cancelled) return;
+          resetStallTimer();
+          job.downloadPercent = Math.min(100, Math.round(t.progress * 100));
+          job.downloadSpeed = t.downloadSpeed;
+          job.numPeers = t.numPeers;
+          job.downloadedBytes = t.downloaded;
+          job.totalBytes = t.length;
+          job.updatedAt = Date.now();
         });
+
+        t.on('done', () => {
+          job.downloadPercent = 100;
+          job.downloadSpeed = 0;
+          job.downloadedBytes = t.length;
+          job.totalBytes = t.length;
+          finish();
+        });
+
+        t.on('error', (err) => {
+          finish(err);
+        });
+      };
+
+      try {
+        torrent = wt.add(targetMagnet, { path: jobDir, announce: TRACKERS }, ontorrent);
       } catch (addErr) {
-        return finish(addErr);
+        if (addErr && String(addErr.message || '').toLowerCase().includes('duplicate')) {
+          console.warn(`[TvDownloadManager] Duplicate torrent error on add for ${job.id}, clearing old swarm and retrying...`);
+          const targetHash = infoHashOf(targetMagnet) || infoHashOf(job.magnet);
+          const old = (wt.torrents || []).find(t => t?.infoHash?.toLowerCase() === targetHash?.toLowerCase());
+          if (old) {
+            try { old.destroy({ destroyStore: false }); } catch (_) {}
+          }
+          try {
+            torrent = wt.add(targetMagnet, { path: jobDir, announce: TRACKERS }, ontorrent);
+          } catch (retryErr) {
+            return finish(retryErr);
+          }
+        } else {
+          return finish(addErr);
+        }
       }
 
       job.torrent = torrent;
@@ -613,6 +651,7 @@ async function runUploadPhase(job) {
   if (job.cancelled) return;
 
   const jobDir = path.join(DOWNLOADS_DIR, job.id);
+  activeUploadJob = job;
 
   try {
     if (job.driveConfig && job.driveConfig.accessToken && job.driveConfig.rootFolderId) {
@@ -734,6 +773,7 @@ async function runUploadPhase(job) {
   } catch (err) {
     handleJobError(job, err);
   } finally {
+    if (activeUploadJob && activeUploadJob.id === job.id) activeUploadJob = null;
     saveHistory();
   }
 }
@@ -756,6 +796,7 @@ export function cleanupOrphanedTvDownloads() {
 
       const isJobActive = (activeDownloadJob?.id === entry) ||
                           (activeTranscodeJob?.id === entry) ||
+                          (activeUploadJob?.id === entry) ||
                           downloadQueue.some(q => q.id === entry) ||
                           transcodeQueue.some(q => q.id === entry);
 

@@ -181,7 +181,11 @@ export async function transcodeMediaFile(filePath, targetOutputPath, options = {
         }
       } else {
         try { if (fs.existsSync(tempOut)) fs.unlinkSync(tempOut); } catch (_) {}
-        reject(new Error(`FFmpeg exited with code ${code}: ${stderr.slice(-300)}`));
+        if (code === 0) {
+          reject(new Error(`FFmpeg exited with code 0 but produced no usable output: the temporary file was deleted while transcoding (a disk cleanup sweep wiped the job directory mid-encode). ${stderr.slice(-200)}`));
+        } else {
+          reject(new Error(`FFmpeg exited with code ${code}: ${stderr.slice(-300)}`));
+        }
       }
     };
 

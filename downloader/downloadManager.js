@@ -354,12 +354,34 @@ async function runDownloadPhase(job) {
       fn(arg);
     };
 
+    const client = getClient();
+    const hash = job.infoHash || infoHashOf(job.source);
+    if (hash && Array.isArray(client.torrents)) {
+      const existing = client.torrents.find((t) => t && t.infoHash && t.infoHash.toLowerCase() === hash.toLowerCase());
+      if (existing) {
+        try { existing.destroy({ destroyStore: false }); } catch (_) {}
+      }
+    }
+
     let torrent;
     try {
-      torrent = getClient().add(job.source, { path: jobDir });
+      torrent = client.add(job.source, { path: jobDir });
     } catch (err) {
-      reject(err);
-      return;
+      if (err && String(err.message || '').toLowerCase().includes('duplicate') && hash) {
+        const existing = (client.torrents || []).find((t) => t && t.infoHash && t.infoHash.toLowerCase() === hash.toLowerCase());
+        if (existing) {
+          try { existing.destroy({ destroyStore: false }); } catch (_) {}
+        }
+        try {
+          torrent = client.add(job.source, { path: jobDir });
+        } catch (retryErr) {
+          reject(retryErr);
+          return;
+        }
+      } else {
+        reject(err);
+        return;
+      }
     }
 
     entry.torrent = torrent;
@@ -711,7 +733,12 @@ async function fetchCover(url, destPath) {
 function failJob(job, err) {
   if (job.cancelled) return;
   const entry = active.get(job.id);
-  if (entry) clearTimeout(entry.stallTimer);
+  if (entry) {
+    clearTimeout(entry.stallTimer);
+    if (entry.torrent) {
+      try { entry.torrent.destroy({ destroyStore: false }); } catch (_) {}
+    }
+  }
   active.delete(job.id);
 
   update(job, {
@@ -766,6 +793,11 @@ export function cleanupOrphanedDownloads() {
 
       const isActive = active.has(entry) || queue.some((j) => j.id === entry);
       if (isActive) continue;
+
+      // TV pipeline jobs (dl_*) share this directory but are tracked and cleaned
+      // up exclusively by tvDownloadManager.js. Sweeping them here deletes active
+      // download/transcode/upload sources mid-pipeline.
+      if (entry.startsWith('dl_')) continue;
 
       const record = jobs.get(entry);
       const finished = record && ['completed', 'error', 'cancelled'].includes(record.status);
