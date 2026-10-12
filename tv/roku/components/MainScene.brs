@@ -1617,6 +1617,7 @@ sub onProgressTimerFire()
     startOffset = 0
     if m.initialPlayOffset <> invalid and m.initialPlayOffset > 0 then startOffset = m.initialPlayOffset
     effectivePos = startOffset + vidPos
+    if m.maxPlaybackPosition = invalid or effectivePos > m.maxPlaybackPosition then m.maxPlaybackPosition = effectivePos
 
     posterPath = ""
     title = m.currentStreamTitle
@@ -3210,6 +3211,7 @@ sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, file
     m.bufferingStallCount = 0
     m.lastBufferingPercent = 0
     m.initialPlayOffset = offset
+    m.maxPlaybackPosition = offset
     m.hasPlayedContent = false
     m.nextChunkWarmOffset = -1
     if m.chunkWarmTask <> invalid
@@ -3230,7 +3232,7 @@ sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, file
     vidContent = CreateObject("roSGNode", "ContentNode")
     vidContent.url = playUrl
     vidContent.title = title
-    vidContent.bufferingTargetSeconds = 30
+    vidContent.bufferingTargetSeconds = 12
     if forceHls
         vidContent.streamFormat = "hls"
         vidContent.live = false
@@ -3455,12 +3457,12 @@ sub startBufferingWatchdog()
     m.lastBufferingPercent = 0
     if m.bufferingWatchdogTimer = invalid
         m.bufferingWatchdogTimer = CreateObject("roSGNode", "Timer")
-        m.bufferingWatchdogTimer.duration = 25
+        m.bufferingWatchdogTimer.duration = 35
         m.bufferingWatchdogTimer.repeat = false
         m.bufferingWatchdogTimer.observeField("fire", "onBufferingWatchdogFired")
         m.top.appendChild(m.bufferingWatchdogTimer)
     end if
-    m.bufferingWatchdogTimer.duration = 25
+    m.bufferingWatchdogTimer.duration = 35
     m.bufferingWatchdogTimer.control = "stop"
     m.bufferingWatchdogTimer.control = "start"
 end sub
@@ -3481,7 +3483,7 @@ sub onBufferingStatusChange()
         m.lastBufferingPercent = pct
         if m.bufferingWatchdogTimer <> invalid and m.bufferingWatchdogTimer.control = "start"
             m.bufferingWatchdogTimer.control = "stop"
-            m.bufferingWatchdogTimer.duration = 25
+            m.bufferingWatchdogTimer.duration = 35
             m.bufferingWatchdogTimer.control = "start"
         end if
     end if
@@ -3495,6 +3497,7 @@ sub onBufferingWatchdogFired()
         startOffset = 0
         if m.initialPlayOffset <> invalid then startOffset = m.initialPlayOffset
         curOffset = startOffset + vidPos
+        if m.maxPlaybackPosition <> invalid and m.maxPlaybackPosition > curOffset then curOffset = m.maxPlaybackPosition
 
         if m.bufferingStallCount = invalid then m.bufferingStallCount = 0
         m.bufferingStallCount = m.bufferingStallCount + 1
@@ -3504,7 +3507,7 @@ sub onBufferingWatchdogFired()
         if m.bufferingStallCount < 2
             m.folderBreadcrumb.text = "Buffering... (waiting for stream)"
             if m.bufferingWatchdogTimer <> invalid
-                m.bufferingWatchdogTimer.duration = 15
+                m.bufferingWatchdogTimer.duration = 35
                 m.bufferingWatchdogTimer.control = "start"
             end if
             return
@@ -3646,6 +3649,7 @@ sub onVideoStateChange()
                     startOffset = 0
                     if m.initialPlayOffset <> invalid then startOffset = m.initialPlayOffset
                     curOffset = startOffset + vidPos
+                    if m.maxPlaybackPosition <> invalid and m.maxPlaybackPosition > curOffset then curOffset = m.maxPlaybackPosition
                     if curOffset > 5
                         if Instr(1, fallbackUrl, "?") > 0
                             fallbackUrl = fallbackUrl + "&offset=" + Stri(Fix(curOffset)).trim()
@@ -3697,6 +3701,7 @@ sub onVideoStateChange()
             startOffset = 0
             if m.initialPlayOffset <> invalid then startOffset = m.initialPlayOffset
             resumePos = startOffset + vidPos
+            if m.maxPlaybackPosition <> invalid and m.maxPlaybackPosition > resumePos then resumePos = m.maxPlaybackPosition
             if resumePos > 10
                 m.folderBreadcrumb.text = "Recovering stream at " + Stri(Int(resumePos)).trim() + "s..."
                 retryFile = m.currentPlayFilename

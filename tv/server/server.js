@@ -3083,8 +3083,8 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
       '-reconnect', '1',
       '-reconnect_streamed', '1',
       '-reconnect_delay_max', '5',
-      '-analyzeduration', '2M',
-      '-probesize', '2M'
+      '-analyzeduration', '5M',
+      '-probesize', '5M'
     ];
 
     if (offset > 0) {
@@ -3106,7 +3106,7 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
       '-b:v', '2000k',
       '-maxrate', '2500k',
       '-bufsize', '5000k',
-      '-g', '48',
+      '-force_key_frames', 'expr:gte(t,n_forced*6)',
       '-keyint_min', '48',
       '-sc_threshold', '0',
       '-x264-params', 'repeat-headers=1:no-deblock=1',
@@ -3124,7 +3124,7 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
       '-t', String(HLS_CHUNK_SECONDS),
       '-hls_playlist_type', 'event',
       '-hls_list_size', '0',
-      '-hls_flags', 'temp_file',
+      '-hls_flags', 'independent_segments+temp_file',
       '-hls_segment_filename', path.join(hlsDir, 'seg_%05d.ts'),
       path.join(hlsDir, 'index.m3u8')
     );
@@ -3217,7 +3217,7 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
           // Wait for 3 segments (18s of video) or end-of-file before redirecting.
           // This ensures Roku has a deep initial buffer cushion, preventing mid-stream buffering stalls.
           const elapsed = Date.now() - waitStarted;
-          if (segCount >= 3 || isComplete || (segCount >= 2 && elapsed > 7000)) {
+          if (segCount >= 4 || isComplete || (segCount >= 3 && elapsed > 12000) || (segCount >= 2 && elapsed > 20000)) {
             if (resolveLock) { resolveLock(sessionId); hlsStartingByKeyOffset.delete(lockKey); }
             const origin = getHostOrigin(req);
             console.log(`[Drive HLS] Playlist ready session=${sessionId} segments=${segCount} (${elapsed}ms) -> redirecting to ${origin}/api/stream/hls/${sessionId}/index.m3u8`);
@@ -3257,7 +3257,7 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
 // and the Roku silently "finishes" a movie that was only ~33% done. To avoid
 // that, we resume the upstream fetch from the last byte we actually delivered
 // (via a fresh Range request) so the transcode keeps producing segments.
-const DRIVE_INPUT_RETRY_DELAY_MS = 600;
+const DRIVE_INPUT_RETRY_DELAY_MS = 300;
 
 async function driveHlsInputHandler(req, res) {
   const { sessionId, fileId } = req.params;
@@ -3517,7 +3517,7 @@ async function driveHlsInputHandler(req, res) {
         return;
       }
       if (result && result.retryable) {
-        const delay = result.authRefreshed ? 100 : Math.min(DRIVE_INPUT_RETRY_DELAY_MS * (attempt + 1), 5000);
+        const delay = (result.authRefreshed || bytesSent > bytesBefore) ? 0 : Math.min(DRIVE_INPUT_RETRY_DELAY_MS * (attempt + 1), 3000);
         const errDetail = result.err?.message || (result.prematureEof ? 'premature EOF' : 'stalled stream');
         console.error(`[Drive HLS Input] Upstream dropped at ${currentFileOffset} bytes (${errDetail}, delivered ${bytesSent}/${expectedBytesForThisRequest || 'unknown'}); resuming in ${delay}ms for fileId=${fileId}`);
         await new Promise(r => setTimeout(r, delay));
@@ -3708,8 +3708,8 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
       '-reconnect', '1',
       '-reconnect_streamed', '1',
       '-reconnect_delay_max', '5',
-      '-analyzeduration', '2M',
-      '-probesize', '2M'
+      '-analyzeduration', '5M',
+      '-probesize', '5M'
     ];
 
     if (offset > 0) {
@@ -3731,7 +3731,7 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
       '-b:v', '2000k',
       '-maxrate', '2500k',
       '-bufsize', '5000k',
-      '-g', '48',
+      '-force_key_frames', 'expr:gte(t,n_forced*6)',
       '-keyint_min', '48',
       '-sc_threshold', '0',
       '-x264-params', 'repeat-headers=1:no-deblock=1',
@@ -3748,7 +3748,7 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
       '-t', String(HLS_CHUNK_SECONDS),
       '-hls_playlist_type', 'event',
       '-hls_list_size', '0',
-      '-hls_flags', 'temp_file',
+      '-hls_flags', 'independent_segments+temp_file',
       '-hls_segment_filename', path.join(hlsDir, 'seg_%05d.ts'),
       path.join(hlsDir, 'index.m3u8')
     );
@@ -3846,7 +3846,7 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
           // Wait for 3 segments (18s of video) or end-of-file before redirecting.
           // This ensures Roku has a deep initial buffer cushion, preventing mid-stream buffering stalls.
           const elapsed = Date.now() - waitStarted;
-          if (segCount >= 3 || isComplete || (segCount >= 2 && elapsed > 7000)) {
+          if (segCount >= 4 || isComplete || (segCount >= 3 && elapsed > 12000) || (segCount >= 2 && elapsed > 20000)) {
             if (resolveLock) { resolveLock(sessionId); hlsStartingByKeyOffset.delete(lockKey); }
             const origin = getHostOrigin(req);
             console.log(`[Torrent HLS] Playlist ready session=${sessionId} segments=${segCount} (${elapsed}ms) -> redirecting to ${origin}/api/stream/hls/${sessionId}/index.m3u8`);
