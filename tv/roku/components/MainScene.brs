@@ -3207,7 +3207,11 @@ sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, file
     if m.playerScreen <> invalid then m.playerScreen.visible = true
     m.state = "player"
     m.triedTranscodeFallback = false
-    if offset = 0 then m.triedStreamRetry = false
+    if offset = 0
+        m.triedStreamRetry = false
+        m.chainStallCount = 0
+        m.lastChainOffset = -1
+    end if
     m.bufferingStallCount = 0
     m.lastBufferingPercent = 0
     m.initialPlayOffset = offset
@@ -3391,22 +3395,41 @@ function chainToNextHlsChunk() as Boolean
     ' If the playlist played to its natural end and its duration was significantly
     ' less than the expected chunk size (e.g. video was 20 mins while chunk size was 30 mins / 2 hrs),
     ' then the video file has finished! Do NOT attempt to chain to a non-existent next chunk.
-    if playedSec < (chunkSeconds() - 15)
-        print "[ChunkChain] Video finished at natural end-of-file (played "; playedSec; "s < chunk "; chunkSeconds(); "s). Not chaining."
-        return false
-    end if
+    rem Seamless chunk chaining / resume
+
+
+
 
     ' Use the fixed chunk size (not the measured duration) so the chain offset exactly
     ' matches the ?offset= that was already pre-warmed on the server.
     startOffset = 0
     if m.initialPlayOffset <> invalid then startOffset = m.initialPlayOffset
-    nextOffset = startOffset + chunkSeconds()
+    vidPos = m.video.position
+    if vidPos = invalid then vidPos = 0
+    curOffset = startOffset + vidPos
+    if m.maxPlaybackPosition <> invalid and m.maxPlaybackPosition > curOffset then curOffset = m.maxPlaybackPosition
+
+    if m.lastChainOffset <> invalid and Abs(curOffset - m.lastChainOffset) < 5
+        if m.chainStallCount = invalid then m.chainStallCount = 0
+        m.chainStallCount = m.chainStallCount + 1
+        if m.chainStallCount > 2
+            print "[ChunkChain] Reached same offset "; curOffset; " repeatedly. End of stream reached."
+            return false
+        end if
+    else
+        m.chainStallCount = 0
+    end if
+    m.lastChainOffset = curOffset
+
+    nextOffset = Fix(curOffset)
+    if nextOffset <= 0 return false
 
     newUrl = rebuildStreamUrlWithOffset(safeStr(m.currentStreamUrl), nextOffset)
     if newUrl = "" or newUrl = safeStr(m.currentStreamUrl) return false
 
     retryFile = m.currentPlayFilename
     if retryFile = invalid or retryFile = "" then retryFile = m.currentPlayFilePath
+    print "[ChunkChain] Continuing stream playback at offset="; nextOffset; " (playedSec="; playedSec; ")"
     playVideoUrl(newUrl, m.currentStreamTitle, nextOffset, retryFile, true)
     return true
 end function

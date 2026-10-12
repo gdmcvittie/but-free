@@ -503,8 +503,8 @@ function computePlaylistStats(m3u8Path) {
 function isTerminalChunkRequest(meta, offset) {
   if (!meta || !offset || offset <= 0) return false;
   const dur = meta.durationSec;
-  if (typeof dur === 'number' && dur > 0 && offset >= dur - 2) return true;
-  if (meta.atEndOfFile === true && typeof meta.lastChunkStart === 'number') {
+  if (typeof dur === 'number' && dur > 0) return offset >= dur - 5;
+  if (meta.atEndOfFile === true && typeof meta.lastChunkStart === 'number' && typeof meta.chunkDurationSec === 'number' && meta.chunkDurationSec > 0) {
     const endOffset = meta.lastChunkStart + (meta.chunkDurationSec || 0);
     if (endOffset > 0 && offset >= endOffset - 2) return true;
   }
@@ -2642,6 +2642,7 @@ app.get(['/api/stream/drive/:fileId', '/api/stream/drive/:fileId/:fileName'], op
 
       if (!driveResponse.ok && driveResponse.status !== 206) {
         console.error(`[Stream Drive] Google error ${driveResponse.status} for fileId=${fileId}`);
+        if (driveResponse.status >= 500 || driveResponse.status === 429 || driveResponse.status === 408) return { retryable: true, err: new Error('Google status ' + driveResponse.status) };
         if (!headersSent && !responded) {
           responded = true;
           return res.status(driveResponse.status).send(`Google Drive error: ${driveResponse.statusText}`);
@@ -3083,6 +3084,8 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
       '-reconnect', '1',
       '-reconnect_streamed', '1',
       '-reconnect_delay_max', '5',
+      '-reconnect_at_eof', '1',
+      '-reconnect_on_http_error', '1',
       '-analyzeduration', '5M',
       '-probesize', '5M'
     ];
@@ -3188,7 +3191,7 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
           // Record chunking metadata so the next chained ?offset= request knows where
           // the content ends and whether end-of-file was reached within this chunk.
           const stats = computePlaylistStats(m3u8Path);
-          const atEndOfFile = stats.durationSec > 0 && stats.durationSec < HLS_CHUNK_SECONDS - 6;
+          const atEndOfFile = Boolean(sessionTotalDurationSec && sessionTotalDurationSec > 0 && (offset + stats.durationSec >= sessionTotalDurationSec - 5));
           const meta = { atEndOfFile, lastChunkStart: offset, chunkDurationSec: stats.durationSec, segmentCount: stats.segmentCount };
           if (sessionTotalDurationSec) meta.durationSec = sessionTotalDurationSec;
           writeHlsMetaFile(getHlsMetaFile(fileId), meta);
@@ -3378,11 +3381,12 @@ async function driveHlsInputHandler(req, res) {
 
     if (!driveResponse.ok && driveResponse.status !== 206) {
       console.error(`[Drive HLS Input] Google error ${driveResponse.status} for fileId=${fileId}`);
-      if (!headersSent && !responded) {
-        responded = true;
-        return res.status(driveResponse.status).send(`Google Drive error: ${driveResponse.statusText}`);
-      }
-      return { retryable: true };
+      return { retryable: true, err: new Error(`Google error ${driveResponse.status}: ${driveResponse.statusText}`) };
+
+
+
+
+
     }
 
     // Determine total file size and expected bytes for this Range request
@@ -3483,6 +3487,10 @@ async function driveHlsInputHandler(req, res) {
       // Check if upstream closed early before delivering all requested bytes
       if (expectedBytesForThisRequest !== null && bytesSent < expectedBytesForThisRequest) {
         console.warn(`[Drive HLS Input] Premature EOF from Google Drive at ${bytesSent}/${expectedBytesForThisRequest} bytes (file offset ${currentFileOffset + bytesSent}) for fileId=${fileId}. Resuming...`);
+        return { retryable: true, prematureEof: true };
+      }
+      if (bytesSent === 0) {
+        console.warn(`[Drive HLS Input] Zero bytes delivered from Google Drive for fileId=${fileId}. Resuming...`);
         return { retryable: true, prematureEof: true };
       }
 
@@ -3708,6 +3716,8 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
       '-reconnect', '1',
       '-reconnect_streamed', '1',
       '-reconnect_delay_max', '5',
+      '-reconnect_at_eof', '1',
+      '-reconnect_on_http_error', '1',
       '-analyzeduration', '5M',
       '-probesize', '5M'
     ];
@@ -3819,7 +3829,7 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
           // Record chunking metadata so the next chained ?offset= request knows where
           // the content ends and whether end-of-file was reached within this chunk.
           const stats = computePlaylistStats(m3u8Path);
-          const atEndOfFile = stats.durationSec > 0 && stats.durationSec < HLS_CHUNK_SECONDS - 6;
+          const atEndOfFile = Boolean(sessionTotalDurationSec && sessionTotalDurationSec > 0 && (offset + stats.durationSec >= sessionTotalDurationSec - 5));
           const meta = { atEndOfFile, lastChunkStart: offset, chunkDurationSec: stats.durationSec, segmentCount: stats.segmentCount };
           if (sessionTotalDurationSec) meta.durationSec = sessionTotalDurationSec;
           writeHlsMetaFile(getTorrentHlsMetaFile(streamId, fileIndex), meta);
