@@ -345,8 +345,8 @@ const HLS_CHUNK_SECONDS = parseInt(process.env.HLS_CHUNK_SECONDS, 10) || 7200; /
 
 
 
-let isLoopbackPortOpen = null; // null = unknown, true = ffmpeg can reach 127.0.0.1:PORT
-let isLoopbackProbeDone = false;
+let isLoopbackPortOpen = null;
+
 let loopbackProbePromise = null;
 
 async function probeLoopbackPort(port) {
@@ -370,7 +370,62 @@ async function probeLoopbackPort(port) {
   });
 }
 
+let internalHttpServer = null;
+let internalLoopbackServer = null;
+let internalLoopbackPort = null;
+let internalLoopbackReadyPromise = null;
+
+function ensureInternalLoopbackServer() {
+  if (internalLoopbackReadyPromise) return internalLoopbackReadyPromise;
+  internalLoopbackReadyPromise = new Promise((resolve) => {
+    try {
+      internalHttpServer = http.createServer((req, res) => {
+        app(req, res);
+      });
+      if (typeof internalHttpServer.requestTimeout !== 'undefined') internalHttpServer.requestTimeout = 0;
+      if (typeof internalHttpServer.timeout !== 'undefined') internalHttpServer.timeout = 0;
+      if (typeof internalHttpServer.headersTimeout !== 'undefined') internalHttpServer.headersTimeout = 0;
+
+      internalLoopbackServer = net.createServer((socket) => {
+        if (typeof socket.setTimeout === 'function') socket.setTimeout(0);
+        internalHttpServer.emit('connection', socket);
+      });
+      const bindTimer = setTimeout(() => {
+        console.warn('[Transcoder] Loopback net.Server bind timed out (3s)');
+        resolve(null);
+      }, 3000);
+
+      internalLoopbackServer.listen(0, '127.0.0.1', () => {
+        clearTimeout(bindTimer);
+        const addr = internalLoopbackServer.address();
+        internalLoopbackPort = addr && typeof addr === 'object' ? addr.port : null;
+        console.log(`[Transcoder] Dedicated internal loopback server active on 127.0.0.1:${internalLoopbackPort} (bypasses Apache 300s proxy timeout)`);
+        resolve(internalLoopbackPort);
+      });
+
+      internalLoopbackServer.on('error', (err) => {
+        clearTimeout(bindTimer);
+        console.warn('[Transcoder] Internal loopback server error:', err.message);
+        resolve(null);
+      });
+    } catch (err) {
+      console.warn('[Transcoder] Failed to start internal loopback server:', err.message);
+      resolve(null);
+    }
+  });
+  return internalLoopbackReadyPromise;
+}
+
 async function initLoopbackProbe() {
+  try {
+    await Promise.race([
+      ensureInternalLoopbackServer(),
+      new Promise((r) => setTimeout(() => r(null), 2500))
+    ]);
+  } catch (_) {}
+  return internalLoopbackPort;
+}
+function _oldInitLoopbackProbe() {
   if (isLoopbackProbeDone) return isLoopbackPortOpen;
   if (!loopbackProbePromise) {
     loopbackProbePromise = (async () => {
@@ -392,6 +447,9 @@ async function getFfmpegInputUrl(sessionId, fileId, req) {
   // Always wait for the probe so a very-fast-first request cannot pick the
   // wrong input URL before we know whether loopback is reachable.
   await initLoopbackProbe();
+  if (internalLoopbackPort) {
+    return `http://127.0.0.1:${internalLoopbackPort}/api/stream/drive-hls-input/${sessionId}/${fileId}`;
+  }
   const port = (typeof PORT === 'number' || (typeof PORT === 'string' && /^\d+$/.test(PORT))) ? PORT : 3001;
 
   // Prefer the public origin if loopback is definitely closed/unreachable.
