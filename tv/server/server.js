@@ -305,7 +305,7 @@ const hlsStartingByKeyOffset = new Map();
 // On-demand content (Drive / torrent) is transcoded in bounded VOD chunks. Each chunk is a
 // complete ~2-hour playlist ending in #EXT-X-ENDLIST, so Roku always sees a closed VOD
 // playlist instead of an unbounded event list. The Roku app chains chunks via ?offset=.
-const HLS_CHUNK_SECONDS = parseInt(process.env.HLS_CHUNK_SECONDS, 10) || 14400; // 4-hour chunks (14400s) default
+const HLS_CHUNK_SECONDS = parseInt(process.env.HLS_CHUNK_SECONDS, 10) || 360; // 6-minute chunks (360s) default
 // Function to resolve ffmpeg's input proxy URL.
 // When running as a standalone Node service (e.g. systemd on Debian VPS or local dev),
 // uses 127.0.0.1:PORT directly to bypass external reverse proxy (Nginx) timeouts,
@@ -314,6 +314,37 @@ const HLS_CHUNK_SECONDS = parseInt(process.env.HLS_CHUNK_SECONDS, 10) || 14400; 
 // socket (the Node process never actually opens a TCP listener on PORT), so ffmpeg
 // cannot reach 127.0.0.1:PORT. The availability is probed at startup and the public
 // origin / BASE_URL is used instead in that case.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 let isLoopbackPortOpen = null; // null = unknown, true = ffmpeg can reach 127.0.0.1:PORT
 let isLoopbackProbeDone = false;
 let loopbackProbePromise = null;
@@ -354,6 +385,10 @@ async function initLoopbackProbe() {
 }
 
 async function getFfmpegInputUrl(sessionId, fileId, req) {
+
+
+
+
   // Always wait for the probe so a very-fast-first request cannot pick the
   // wrong input URL before we know whether loopback is reachable.
   await initLoopbackProbe();
@@ -569,6 +604,15 @@ app.use((req, res, next) => {
   next();
 });
 app.use(cors({ origin: true, credentials: true }));
+app.use((req, res, next) => {
+  const url = req.path || req.url || '';
+  if (url.includes('/api/stream/')) {
+    if (typeof req.setTimeout === 'function') req.setTimeout(0);
+    if (typeof res.setTimeout === 'function') res.setTimeout(0);
+    if (req.socket && typeof req.socket.setTimeout === 'function') req.socket.setTimeout(0);
+  }
+  next();
+});
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
 
@@ -2838,6 +2882,12 @@ function serveHlsPlaylist(sessionId, req, res) {
     return res.status(404).send('Playlist not ready');
   }
   touchHlsSession(sessionId);
+  const memSession = hlsSessions.get(sessionId);
+  const isProcessRunning = Boolean(memSession?.ffmpegProcess && memSession.ffmpegProcess.exitCode === null);
+  if (!isProcessRunning && !playlist.includes('#EXT-X-ENDLIST')) {
+    playlist = playlist.trimEnd() + '\n#EXT-X-ENDLIST\n';
+    try { fs.writeFileSync(filePath, playlist); } catch (_) {}
+  }
   let rewritten = playlist.replace(/^(?:.*[\\/])?(seg_\d+\.ts)\r?$/gm, (match, p1) => `/api/stream/hls/${sessionId}/${p1}`);
   if (rewritten.includes('#EXT-X-ENDLIST')) {
     rewritten = rewritten.replace('#EXT-X-PLAYLIST-TYPE:EVENT', '#EXT-X-PLAYLIST-TYPE:VOD');
@@ -3041,7 +3091,7 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
             const sKey = sMeta.streamId !== undefined
               ? `torrent:${sMeta.streamId}:${sMeta.fileIndex}`
               : `drive:${sMeta.userId || effectiveUserId || 'anon'}:${sMeta.fileId}`;
-            if (sKey !== sessionKey || sMeta.offset !== offset) {
+            if (sKey !== sessionKey) {
               console.log(`[Drive HLS] Preempting existing transcode session=${ent} (pid=${sMeta.pid} offset=${sMeta.offset}) for new playback at offset=${offset}`);
               cleanupHlsSession(ent);
             }
@@ -3100,20 +3150,20 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
       '-map', '0:a:0?',
       '-sn',
       '-c:v', 'libx264',
-      '-profile:v', 'main',
-      '-level', '4.1',
+
+
       '-preset', 'ultrafast',
-      '-tune', 'fastdecode',
-      '-threads', '0',
+
+      '-threads', '4',
       '-crf', '28',
-      '-b:v', '2000k',
+
       '-maxrate', '2500k',
       '-bufsize', '5000k',
       '-force_key_frames', 'expr:gte(t,n_forced*6)',
-      '-keyint_min', '48',
+
       '-sc_threshold', '0',
-      '-x264-params', 'repeat-headers=1:no-deblock=1',
-      '-vf', "scale=-2:'min(720,ih)':flags=fast_bilinear",
+      '-x264-params', 'repeat-headers=1',
+      '-vf', "scale=-2:'min(720,2*trunc(ih/2))':flags=fast_bilinear",
       '-pix_fmt', 'yuv420p',
       '-c:a', 'aac',
       '-ar', '44100',
@@ -3127,7 +3177,7 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
       '-t', String(HLS_CHUNK_SECONDS),
       '-hls_playlist_type', 'event',
       '-hls_list_size', '0',
-      '-hls_flags', 'independent_segments+temp_file',
+      '-hls_flags', 'independent_segments',
       '-hls_segment_filename', path.join(hlsDir, 'seg_%05d.ts'),
       path.join(hlsDir, 'index.m3u8')
     );
@@ -3179,15 +3229,36 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
 
     let ffmpegExited = false;
     let ffmpegExitCode = null;
-    ffmpegProcess.on('exit', (code) => {
+    ffmpegProcess.on('exit', (code, signal) => {
       ffmpegExited = true;
       ffmpegExitCode = code;
       if (code !== 0 && code !== null) {
-        console.warn(`[Drive HLS] FFmpeg exited with code ${code}`);
+        console.warn(`[Drive HLS] FFmpeg exited with code ${code} signal=${signal}`);
+        console.warn('[Drive HLS] FFmpeg stderr tail:', ffmpegErrTail);
+
+      } else if (code === null) {
+        console.warn(`[Drive HLS] FFmpeg terminated by signal ${signal} session=${sessionId}`);
         console.warn('[Drive HLS] FFmpeg stderr tail:', ffmpegErrTail);
       } else {
         console.log(`[Drive HLS] FFmpeg done session=${sessionId} code=${code}`);
-        if (code === 0) {
+      }
+
+      // ALWAYS ensure index.m3u8 has #EXT-X-ENDLIST once FFmpeg is done/exited,
+      // regardless of exit code or signal. A dead transcode will never produce more
+      // segments; without ENDLIST, Roku hangs in buffering indefinitely.
+      try {
+        if (fs.existsSync(m3u8Path)) {
+          let m3u8Content = fs.readFileSync(m3u8Path, 'utf-8');
+          if (!m3u8Content.includes('#EXT-X-ENDLIST')) {
+            m3u8Content = m3u8Content.trimEnd() + '\n#EXT-X-ENDLIST\n';
+            fs.writeFileSync(m3u8Path, m3u8Content);
+            console.log(`[Drive HLS] Injected #EXT-X-ENDLIST on exit session=${sessionId}`);
+          }
+        }
+      } catch (err) {
+        console.error('[Drive HLS] Error ensuring #EXT-X-ENDLIST:', err.message);
+      }
+        if (code === 0 || code === null) {
           // Record chunking metadata so the next chained ?offset= request knows where
           // the content ends and whether end-of-file was reached within this chunk.
           const stats = computePlaylistStats(m3u8Path);
@@ -3196,8 +3267,16 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
           if (sessionTotalDurationSec) meta.durationSec = sessionTotalDurationSec;
           writeHlsMetaFile(getHlsMetaFile(fileId), meta);
           console.log(`[Drive HLS] Chunk complete session=${sessionId} segs=${stats.segmentCount} duration=${stats.durationSec.toFixed(1)}s chunkStart=${offset}s atEndOfFile=${atEndOfFile} totalDuration=${sessionTotalDurationSec === null ? 'unknown' : sessionTotalDurationSec}`);
+          if (code === 0 && !atEndOfFile) {
+            const nextOffset = offset + stats.durationSec;
+            if (!sessionTotalDurationSec || nextOffset < sessionTotalDurationSec - 5) {
+              const prewarmUrl = `${getHostOrigin()}/api/stream/drive-hls/${fileId}.m3u8?offset=${nextOffset}`;
+              console.log(`[Drive HLS] Server auto-prewarming next chunk fileId=${fileId} nextOffset=${nextOffset}s`);
+              fetch(prewarmUrl, { headers: { Authorization: `Bearer ${accessToken}` } }).catch(() => {});
+            }
+          }
         }
-      }
+
       HLS_TRANSCODE_ACTIVE.delete(sessionId);
     });
 
@@ -3220,7 +3299,7 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
           // Wait for 3 segments (18s of video) or end-of-file before redirecting.
           // This ensures Roku has a deep initial buffer cushion, preventing mid-stream buffering stalls.
           const elapsed = Date.now() - waitStarted;
-          if (segCount >= 4 || isComplete || (segCount >= 3 && elapsed > 12000) || (segCount >= 2 && elapsed > 20000)) {
+          if (segCount >= 2 || isComplete || (segCount >= 1 && elapsed > 10000)) {
             if (resolveLock) { resolveLock(sessionId); hlsStartingByKeyOffset.delete(lockKey); }
             const origin = getHostOrigin(req);
             console.log(`[Drive HLS] Playlist ready session=${sessionId} segments=${segCount} (${elapsed}ms) -> redirecting to ${origin}/api/stream/hls/${sessionId}/index.m3u8`);
@@ -3290,6 +3369,10 @@ async function driveHlsInputHandler(req, res) {
     return res.status(404).send('Session not found');
   }
   touchHlsSession(sessionId);
+  if (typeof req.setTimeout === 'function') req.setTimeout(0);
+  if (typeof res.setTimeout === 'function') res.setTimeout(0);
+  if (req.socket && typeof req.socket.setTimeout === 'function') req.socket.setTimeout(0);
+  res.setHeader('Connection', 'keep-alive');
 
   const driveUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
   let bytesSent = 0;
@@ -3681,7 +3764,7 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
             const sKey = sMeta.streamId !== undefined
               ? `torrent:${sMeta.streamId}:${sMeta.fileIndex}`
               : `drive:${sMeta.userId || 'anon'}:${sMeta.fileId}`;
-            if (sKey !== sessionKey || sMeta.offset !== offset) {
+            if (sKey !== sessionKey) {
               console.log(`[Torrent HLS] Preempting existing transcode session=${ent} (pid=${sMeta.pid} offset=${sMeta.offset}) for new playback at offset=${offset}`);
               cleanupHlsSession(ent);
             }
@@ -3732,20 +3815,20 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
       '-map', '0:a:0?',
       '-sn',
       '-c:v', 'libx264',
-      '-profile:v', 'main',
-      '-level', '4.1',
+
+
       '-preset', 'ultrafast',
-      '-tune', 'fastdecode',
-      '-threads', '0',
+
+      '-threads', '4',
       '-crf', '28',
-      '-b:v', '2000k',
+
       '-maxrate', '2500k',
       '-bufsize', '5000k',
       '-force_key_frames', 'expr:gte(t,n_forced*6)',
-      '-keyint_min', '48',
+
       '-sc_threshold', '0',
-      '-x264-params', 'repeat-headers=1:no-deblock=1',
-      '-vf', "scale=-2:'min(720,ih)':flags=fast_bilinear",
+      '-x264-params', 'repeat-headers=1',
+      '-vf', "scale=-2:'min(720,2*trunc(ih/2))':flags=fast_bilinear",
       '-pix_fmt', 'yuv420p',
       '-c:a', 'aac',
       '-ar', '44100',
@@ -3758,7 +3841,7 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
       '-t', String(HLS_CHUNK_SECONDS),
       '-hls_playlist_type', 'event',
       '-hls_list_size', '0',
-      '-hls_flags', 'independent_segments+temp_file',
+      '-hls_flags', 'independent_segments',
       '-hls_segment_filename', path.join(hlsDir, 'seg_%05d.ts'),
       path.join(hlsDir, 'index.m3u8')
     );
@@ -3816,16 +3899,35 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
 
     let ffmpegExited = false;
     let ffmpegExitCode = null;
-    ffmpegProcess.on('exit', (code) => {
+    ffmpegProcess.on('exit', (code, signal) => {
       ffmpegExited = true;
       try { clearInterval(heartbeatTimer); } catch (_) {}
       ffmpegExitCode = code;
       if (code !== 0 && code !== null) {
-        console.warn(`[Torrent HLS] FFmpeg exited with code ${code}`);
+        console.warn(`[Torrent HLS] FFmpeg exited with code ${code} signal=${signal}`);
+        console.warn('[Torrent HLS] FFmpeg stderr tail:', ffmpegErrTail);
+
+      } else if (code === null) {
+        console.warn(`[Torrent HLS] FFmpeg terminated by signal ${signal} session=${sessionId}`);
         console.warn('[Torrent HLS] FFmpeg stderr tail:', ffmpegErrTail);
       } else {
         console.log(`[Torrent HLS] FFmpeg done session=${sessionId} code=${code}`);
-        if (code === 0) {
+      }
+
+      // ALWAYS ensure index.m3u8 has #EXT-X-ENDLIST once FFmpeg is done/exited
+      try {
+        if (fs.existsSync(m3u8Path)) {
+          let m3u8Content = fs.readFileSync(m3u8Path, 'utf-8');
+          if (!m3u8Content.includes('#EXT-X-ENDLIST')) {
+            m3u8Content = m3u8Content.trimEnd() + '\n#EXT-X-ENDLIST\n';
+            fs.writeFileSync(m3u8Path, m3u8Content);
+            console.log(`[Torrent HLS] Injected #EXT-X-ENDLIST on exit session=${sessionId}`);
+          }
+        }
+      } catch (err) {
+        console.error('[Torrent HLS] Error ensuring #EXT-X-ENDLIST:', err.message);
+      }
+        if (code === 0 || code === null) {
           // Record chunking metadata so the next chained ?offset= request knows where
           // the content ends and whether end-of-file was reached within this chunk.
           const stats = computePlaylistStats(m3u8Path);
@@ -3834,8 +3936,16 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
           if (sessionTotalDurationSec) meta.durationSec = sessionTotalDurationSec;
           writeHlsMetaFile(getTorrentHlsMetaFile(streamId, fileIndex), meta);
           console.log(`[Torrent HLS] Chunk complete session=${sessionId} segs=${stats.segmentCount} duration=${stats.durationSec.toFixed(1)}s chunkStart=${offset}s atEndOfFile=${atEndOfFile} totalDuration=${sessionTotalDurationSec === null ? 'unknown' : sessionTotalDurationSec}`);
+          if (code === 0 && !atEndOfFile) {
+            const nextOffset = offset + stats.durationSec;
+            if (!sessionTotalDurationSec || nextOffset < sessionTotalDurationSec - 5) {
+              const prewarmUrl = `${getHostOrigin()}/api/stream/torrent-hls/${streamId}/${fileIndex || 0}/master.m3u8?offset=${nextOffset}`;
+              console.log(`[Torrent HLS] Server auto-prewarming next chunk streamId=${streamId} nextOffset=${nextOffset}s`);
+              fetch(prewarmUrl).catch(() => {});
+            }
+          }
         }
-      }
+
       HLS_TRANSCODE_ACTIVE.delete(sessionId);
     });
 
@@ -3856,7 +3966,7 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
           // Wait for 3 segments (18s of video) or end-of-file before redirecting.
           // This ensures Roku has a deep initial buffer cushion, preventing mid-stream buffering stalls.
           const elapsed = Date.now() - waitStarted;
-          if (segCount >= 4 || isComplete || (segCount >= 3 && elapsed > 12000) || (segCount >= 2 && elapsed > 20000)) {
+          if (segCount >= 2 || isComplete || (segCount >= 1 && elapsed > 10000)) {
             if (resolveLock) { resolveLock(sessionId); hlsStartingByKeyOffset.delete(lockKey); }
             const origin = getHostOrigin(req);
             console.log(`[Torrent HLS] Playlist ready session=${sessionId} segments=${segCount} (${elapsed}ms) -> redirecting to ${origin}/api/stream/hls/${sessionId}/index.m3u8`);
@@ -7417,6 +7527,12 @@ try {
 
 const listenTarget = typeof PhusionPassenger !== 'undefined' ? 'passenger' : PORT;
 httpServer = app.listen(listenTarget, () => {
+  if (httpServer) {
+    if (typeof httpServer.requestTimeout !== 'undefined') httpServer.requestTimeout = 0;
+    if (typeof httpServer.timeout !== 'undefined') httpServer.timeout = 0;
+    if (typeof httpServer.headersTimeout !== 'undefined') httpServer.headersTimeout = 0;
+  }
+
   checkFfmpegAvailability();
   initLoopbackProbe();
   console.log(`=============================================`);

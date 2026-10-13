@@ -1601,6 +1601,7 @@ sub startProgressTimer()
     end if
     m.progressTimer = CreateObject("roSGNode", "Timer")
     m.progressTimer.duration = 10
+    m.progressTimer.repeat = true
     m.progressTimer.observeField("fire", "onProgressTimerFire")
     m.top.appendChild(m.progressTimer)
     m.progressTimer.control = "start"
@@ -1612,7 +1613,10 @@ sub onProgressTimerFire()
     if vidPos = invalid or vidPos < 5 then return
     vidDur = m.video.duration
     if vidDur = invalid then vidDur = 0
-    if vidPos > vidDur * 0.95 then return
+    if isChunkedHlsStream() and vidPos >= (chunkSeconds() - 120) and vidPos > 30
+        startNextChunkWarm()
+    end if
+    if vidDur > 0 and vidPos > vidDur * 0.95 then return
 
     startOffset = 0
     if m.initialPlayOffset <> invalid and m.initialPlayOffset > 0 then startOffset = m.initialPlayOffset
@@ -1635,11 +1639,6 @@ sub onProgressTimerFire()
 
     submitPlaybackProgress(mediaPath, effectivePos, vidDur, title, typeStr, showName, season, episode, posterPath)
 
-    ' If watching a chunked HLS stream and approaching the end of the current chunk,
-    ' pre-warm the next chunk so chaining will be seamless with no buffering gap.
-    if isChunkedHlsStream() and vidPos >= (chunkSeconds() - 90) and vidPos > 30
-        startNextChunkWarm()
-    end if
 end sub
 
 ' ---- Sidebar Navigation Helpers ----
@@ -3209,13 +3208,11 @@ sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, file
     m.triedTranscodeFallback = false
     if offset = 0
         m.triedStreamRetry = false
-        m.chainStallCount = 0
-        m.lastChainOffset = -1
+        m.lastChainedOffset = -1
     end if
     m.bufferingStallCount = 0
     m.lastBufferingPercent = 0
     m.initialPlayOffset = offset
-    m.maxPlaybackPosition = offset
     m.hasPlayedContent = false
     m.nextChunkWarmOffset = -1
     if m.chunkWarmTask <> invalid
@@ -3344,7 +3341,7 @@ end function
 function isChunkedHlsStream() as Boolean
     url = safeStr(m.currentStreamUrl)
     lUrl = LCase(url)
-    if lUrl = "" return false
+    if lUrl = "" then return false
     return Instr(1, lUrl, "drive-hls") > 0 or Instr(1, lUrl, "torrent-hls") > 0
 end function
 
@@ -3356,12 +3353,12 @@ function chunkSeconds() as Integer
     if m.serverChunkSeconds <> invalid and m.serverChunkSeconds > 0
         return m.serverChunkSeconds
     end if
-    ' Default matches HLS_CHUNK_SECONDS in server.js (14400 = 4 hours).
-    return 14400
+    ' Default matches HLS_CHUNK_SECONDS in server.js (360 = 6 minutes).
+    return 360
 end function
 
 function rebuildStreamUrlWithOffset(url as String, newOffset as Integer) as String
-    if url = "" return ""
+    if url = "" then return ""
     newOff = "offset=" + Stri(newOffset).trim()
     offIdx = Instr(1, url, "&offset=")
     if offIdx = 0 then offIdx = Instr(1, url, "?offset=")
@@ -3389,40 +3386,31 @@ function chainToNextHlsChunk() as Boolean
 
     vidDur = m.video.duration
     if vidDur = invalid then vidDur = 0
-    playedSec = Int(vidDur)
-    if playedSec < 3 return false
-
-    ' If the playlist played to its natural end and its duration was significantly
-    ' less than the expected chunk size (e.g. video was 20 mins while chunk size was 30 mins / 2 hrs),
-    ' then the video file has finished! Do NOT attempt to chain to a non-existent next chunk.
-    rem Seamless chunk chaining / resume
-
-
-
-
-    ' Use the fixed chunk size (not the measured duration) so the chain offset exactly
-    ' matches the ?offset= that was already pre-warmed on the server.
-    startOffset = 0
-    if m.initialPlayOffset <> invalid then startOffset = m.initialPlayOffset
     vidPos = m.video.position
     if vidPos = invalid then vidPos = 0
-    curOffset = startOffset + vidPos
-    if m.maxPlaybackPosition <> invalid and m.maxPlaybackPosition > curOffset then curOffset = m.maxPlaybackPosition
 
-    if m.lastChainOffset <> invalid and Abs(curOffset - m.lastChainOffset) < 5
-        if m.chainStallCount = invalid then m.chainStallCount = 0
-        m.chainStallCount = m.chainStallCount + 1
-        if m.chainStallCount > 2
-            print "[ChunkChain] Reached same offset "; curOffset; " repeatedly. End of stream reached."
-            return false
-        end if
+    playedSec = Int(vidDur)
+    if playedSec <= 0 then playedSec = Int(vidPos)
+    if playedSec < 3 return false
+
+    startOffset = 0
+    if m.initialPlayOffset <> invalid then startOffset = m.initialPlayOffset
+
+    ' If the chunk played close to its full expected duration, advance by the fixed chunk size
+    ' so the chain offset exactly matches the ?offset= that was pre-warmed on the server.
+    ' If the chunk finished early (e.g. host killed transcode or premature exit), advance by
+    ' the actual played duration so playback seamlessly picks up right where it stopped.
+    if playedSec >= (chunkSeconds() - 15)
+        nextOffset = startOffset + chunkSeconds()
     else
-        m.chainStallCount = 0
+        nextOffset = startOffset + playedSec
     end if
-    m.lastChainOffset = curOffset
 
-    nextOffset = Fix(curOffset)
-    if nextOffset <= 0 return false
+    if m.lastChainedOffset <> invalid and m.lastChainedOffset = nextOffset
+        print "[ChunkChain] Loop detected at offset "; nextOffset; ". Not chaining."
+        return false
+    end if
+    m.lastChainedOffset = nextOffset
 
     newUrl = rebuildStreamUrlWithOffset(safeStr(m.currentStreamUrl), nextOffset)
     if newUrl = "" or newUrl = safeStr(m.currentStreamUrl) return false
@@ -3438,19 +3426,19 @@ end function
 ' By the time this chunk finishes, the next playlist already exists, so the chain request
 ' hits the reuse path (instant 302, no buffering gap).
 sub startNextChunkWarm()
-    if not isChunkedHlsStream() return
+    if not isChunkedHlsStream() then return
     cur = safeStr(m.currentStreamUrl)
-    if cur = "" return
+    if cur = "" then return
 
     startOffset = 0
     if m.initialPlayOffset <> invalid then startOffset = m.initialPlayOffset
     target = startOffset + chunkSeconds()
 
-    if m.nextChunkWarmOffset <> -1 and m.nextChunkWarmOffset = target return
-    if m.chunkWarmTask <> invalid and m.chunkWarmTask.control = "run" return
+    if m.nextChunkWarmOffset <> -1 and m.nextChunkWarmOffset = target then return
+    if m.chunkWarmTask <> invalid and m.chunkWarmTask.control = "run" then return
 
     warmUrl = rebuildStreamUrlWithOffset(cur, target)
-    if warmUrl = "" or warmUrl = cur return
+    if warmUrl = "" or warmUrl = cur then return
 
     m.nextChunkWarmOffset = target
     m.chunkWarmTask = CreateObject("roSGNode", "HttpTask")
@@ -3491,20 +3479,20 @@ sub startBufferingWatchdog()
 end sub
 
 sub stopBufferingWatchdog()
-    if m.bufferingWatchdogTimer <> invalid
+    if m.bufferingWatchdogTimer <> invalid then
         m.bufferingWatchdogTimer.control = "stop"
     end if
 end sub
 
 sub onBufferingStatusChange()
-    if m.video = invalid or m.video.bufferingStatus = invalid return
+    if m.video = invalid or m.video.bufferingStatus = invalid then return
     status = m.video.bufferingStatus
     pct = 0
     if status.percentage <> invalid then pct = status.percentage
     ' If buffering percentage is actively progressing or positive, refresh watchdog to allow download to finish
-    if pct > m.lastBufferingPercent or (pct > 0 and m.bufferingWatchdogTimer <> invalid and m.bufferingWatchdogTimer.duration < 15)
+    if pct > m.lastBufferingPercent or (pct > 0 and m.bufferingWatchdogTimer <> invalid and m.bufferingWatchdogTimer.duration < 15) then
         m.lastBufferingPercent = pct
-        if m.bufferingWatchdogTimer <> invalid and m.bufferingWatchdogTimer.control = "start"
+        if m.bufferingWatchdogTimer <> invalid and m.bufferingWatchdogTimer.control = "start" then
             m.bufferingWatchdogTimer.control = "stop"
             m.bufferingWatchdogTimer.duration = 35
             m.bufferingWatchdogTimer.control = "start"
@@ -3514,22 +3502,21 @@ end sub
 
 sub onBufferingWatchdogFired()
     stopBufferingWatchdog()
-    if m.state = "player" and m.video <> invalid and m.video.state = "buffering" and m.isLiveChannel <> true
+    if m.state = "player" and m.video <> invalid and m.video.state = "buffering" and m.isLiveChannel <> true then
         vidPos = m.video.position
         if vidPos = invalid then vidPos = 0
         startOffset = 0
         if m.initialPlayOffset <> invalid then startOffset = m.initialPlayOffset
         curOffset = startOffset + vidPos
-        if m.maxPlaybackPosition <> invalid and m.maxPlaybackPosition > curOffset then curOffset = m.maxPlaybackPosition
 
         if m.bufferingStallCount = invalid then m.bufferingStallCount = 0
         m.bufferingStallCount = m.bufferingStallCount + 1
         print "[Watchdog] Buffering stalled (stall #"; m.bufferingStallCount; ") for 25s at offset: "; curOffset
 
         ' First stall detection: allow an extra 15s grace period before tearing down playback
-        if m.bufferingStallCount < 2
+        if m.bufferingStallCount < 2 then
             m.folderBreadcrumb.text = "Buffering... (waiting for stream)"
-            if m.bufferingWatchdogTimer <> invalid
+            if m.bufferingWatchdogTimer <> invalid then
                 m.bufferingWatchdogTimer.duration = 35
                 m.bufferingWatchdogTimer.control = "start"
             end if
@@ -3537,19 +3524,19 @@ sub onBufferingWatchdogFired()
         end if
 
         ' Maximum 1 hard recovery attempt to prevent endless restart loops
-        if m.bufferingStallCount > 2
+        if m.bufferingStallCount > 2 then
             print "[Watchdog] Maximum recovery attempts reached for offset "; curOffset; ". Not retrying."
             m.folderBreadcrumb.text = "Stream interrupted. Press Back to exit."
             return
         end if
 
-        if curOffset > 5 and m.currentStreamUrl <> invalid and m.currentStreamUrl <> ""
+        if curOffset > 5 and m.currentStreamUrl <> invalid and m.currentStreamUrl <> "" then
             m.folderBreadcrumb.text = "Stream stalled. Recovering at " + Stri(Fix(curOffset)).trim() + "s..."
             retryFile = m.currentPlayFilename
             if retryFile = invalid or retryFile = "" then retryFile = m.currentPlayFilePath
             isHls = false
             if m.video.content <> invalid and m.video.content.streamFormat = "hls" then isHls = true
-            if isHls
+            if isHls then
                 ' For HLS streams, the server handles seeking via -ss offset, so the
                 ' transcoded playlist timeline starts at 0. Do NOT pass the offset as
                 ' PlayStart — Roku would look for segment N (misaligned) while the
@@ -3559,12 +3546,12 @@ sub onBufferingWatchdogFired()
                 newOffsetParam = "offset=" + Stri(Fix(curOffset)).trim()
                 offIdx = Instr(1, resumeUrl, "&offset=")
                 if offIdx = 0 then offIdx = Instr(1, resumeUrl, "?offset=")
-                if offIdx > 0
+                if offIdx > 0 then
                     ' Replace existing offset parameter value (offIdx points at & or ?)
                     pre = Left(resumeUrl, offIdx)
                     rest = Mid(resumeUrl, offIdx + 1)
                     qIdx = Instr(1, rest, "&")
-                    if qIdx > 0
+                    if qIdx > 0 then
                         post = Mid(rest, qIdx)
                     else
                         post = ""
