@@ -3265,6 +3265,7 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
     // Range requests (seeking for moov atom etc.) and playback starts as soon
     // as ffmpeg pulls the first bytes - no full download required upfront.
     const inputUrl = await getFfmpegInputUrl(sessionId, fileId, req);
+    console.log(`[Drive HLS] Transcode inputUrl="${inputUrl}" session=${sessionId}`);
 
     // Roku-compatible HLS transcoding matching root server.js with guaranteed keyframes:
     const ffmpegArgs = [
@@ -3404,7 +3405,8 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
           if (sessionTotalDurationSec) meta.durationSec = sessionTotalDurationSec;
           writeHlsMetaFile(getHlsMetaFile(fileId), meta);
           console.log(`[Drive HLS] Chunk complete session=${sessionId} segs=${stats.segmentCount} duration=${stats.durationSec.toFixed(1)}s chunkStart=${offset}s atEndOfFile=${atEndOfFile} totalDuration=${sessionTotalDurationSec === null ? 'unknown' : sessionTotalDurationSec}`);
-          if (!session?.stoppedByUser && (code === 0 || code === null) && stats.segmentCount >= 3 && !atEndOfFile && !isPrewarmReq) {
+          const memSession = hlsSessions.get(sessionId);
+          if (!memSession?.stoppedByUser && (code === 0 || code === null) && stats.segmentCount >= 3 && !atEndOfFile && !isPrewarmReq) {
             const nextOffset = Math.round(offset + stats.durationSec);
             if (!sessionTotalDurationSec || nextOffset < sessionTotalDurationSec - 5) {
               const prewarmUrl = `${getHostOrigin()}/api/stream/drive-hls/${fileId}.m3u8?offset=${nextOffset}&prewarm=1${effectiveUserId ? `&user=${effectiveUserId}` : ''}`;
