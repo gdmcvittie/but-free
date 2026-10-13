@@ -567,7 +567,7 @@ function sendTerminalPlaylist(res) {
 function pruneSameKeySessions(key, keepCount = 2, keepExplicit = null) {
   const ids = [];
   for (const [id, s] of hlsSessions) {
-    if (s && s.key === key) ids.push(id);
+    if (s && (s.key === key || (s.fileId && key.includes(s.fileId)))) ids.push(id);
   }
   ids.sort((a, b) => {
     const sa = hlsSessions.get(a);
@@ -2995,10 +2995,10 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
   if (fileId && fileId.endsWith('.m3u8')) {
     fileId = fileId.replace(/\.m3u8$/, '');
   }
-  const userId = req.user?.id;
+  const userId = req.user?.id || req.query.user;
   const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
   const sessionKey = `${userId || 'anon'}:${fileId}`;
-  const lockKey = `${sessionKey}:${offset}`;
+  const lockKey = `${fileId}:${offset}`;
 
   // In-flight deduplication: if another request is currently initializing this exact transcode,
   // wait for it rather than spawning a second redundant FFmpeg process.
@@ -3014,6 +3014,70 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
         return res.end();
       }
     } catch (_) {}
+  }
+
+  // 1. Check in-memory hlsSessions for ANY session of this fileId matching offset (within 5 seconds)
+  let reusableSessionId = null;
+  for (const [sid, s] of hlsSessions) {
+    if (s && s.fileId === fileId && typeof s.offset === 'number' && Math.abs(s.offset - offset) <= 5) {
+      const isRunning = Boolean(s.ffmpegProcess && s.ffmpegProcess.exitCode === null);
+      const m3u8Path = path.join(s.dir || path.join(CACHE_DIR, 'hls', sid), 'index.m3u8');
+      if (fs.existsSync(m3u8Path)) {
+        try {
+          const m3u8Content = fs.readFileSync(m3u8Path, 'utf-8');
+          const hasSegments = (m3u8Content.match(/seg_\d+\.ts/g) || []).length >= 1;
+          const isComplete = m3u8Content.includes('#EXT-X-ENDLIST');
+          if (isRunning || isComplete || hasSegments) {
+            reusableSessionId = sid;
+            break;
+          }
+        } catch (_) {}
+      }
+    }
+  }
+
+  // 2. If not found in memory, scan disk under CACHE_DIR/hls for any active/completed session of this fileId matching offset
+  if (!reusableSessionId) {
+    try {
+      const hlsBase = path.join(CACHE_DIR, 'hls');
+      if (fs.existsSync(hlsBase)) {
+        const entries = fs.readdirSync(hlsBase);
+        for (const ent of entries) {
+          if (!ent || ent.startsWith('active_') || ent.startsWith('meta_')) continue;
+          const sJsonPath = path.join(hlsBase, ent, 'session.json');
+          if (fs.existsSync(sJsonPath)) {
+            try {
+              const meta = JSON.parse(fs.readFileSync(sJsonPath, 'utf-8'));
+              if (meta && meta.fileId === fileId && typeof meta.offset === 'number' && Math.abs(meta.offset - offset) <= 5) {
+                const m3u8Path = path.join(hlsBase, ent, 'index.m3u8');
+                if (fs.existsSync(m3u8Path)) {
+                  const m3u8Content = fs.readFileSync(m3u8Path, 'utf-8');
+                  const hasSegments = (m3u8Content.match(/seg_\d+\.ts/g) || []).length >= 1;
+                  const isAlive = meta.pid && isPidAlive(meta.pid);
+                  const isComplete = m3u8Content.includes('#EXT-X-ENDLIST');
+                  if (isAlive || isComplete || hasSegments) {
+                    reusableSessionId = ent;
+                    break;
+                  }
+                }
+              }
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  if (reusableSessionId) {
+    console.log(`[Drive HLS] Reusing pre-warmed chunk session=${reusableSessionId} for fileId=${fileId} offset=${offset}s`);
+    touchHlsSession(reusableSessionId);
+    pruneSameKeySessions(sessionKey, 2, reusableSessionId);
+    const origin = getHostOrigin(req);
+    res.writeHead(302, {
+      'Location': `${origin}/api/stream/hls/${reusableSessionId}/index.m3u8`,
+      'Cache-Control': 'no-cache'
+    });
+    return res.end();
   }
 
   // Only reuse an existing session if it is actively running in memory
@@ -3091,7 +3155,8 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
             const sKey = sMeta.streamId !== undefined
               ? `torrent:${sMeta.streamId}:${sMeta.fileIndex}`
               : `drive:${sMeta.userId || effectiveUserId || 'anon'}:${sMeta.fileId}`;
-            if (sKey !== sessionKey) {
+            const isSameMedia = (sMeta.fileId && sMeta.fileId === fileId);
+            if (!isSameMedia) {
               console.log(`[Drive HLS] Preempting existing transcode session=${ent} (pid=${sMeta.pid} offset=${sMeta.offset}) for new playback at offset=${offset}`);
               cleanupHlsSession(ent);
             }
@@ -3268,9 +3333,9 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
           writeHlsMetaFile(getHlsMetaFile(fileId), meta);
           console.log(`[Drive HLS] Chunk complete session=${sessionId} segs=${stats.segmentCount} duration=${stats.durationSec.toFixed(1)}s chunkStart=${offset}s atEndOfFile=${atEndOfFile} totalDuration=${sessionTotalDurationSec === null ? 'unknown' : sessionTotalDurationSec}`);
           if (code === 0 && !atEndOfFile) {
-            const nextOffset = offset + stats.durationSec;
+            const nextOffset = Math.round(offset + stats.durationSec);
             if (!sessionTotalDurationSec || nextOffset < sessionTotalDurationSec - 5) {
-              const prewarmUrl = `${getHostOrigin()}/api/stream/drive-hls/${fileId}.m3u8?offset=${nextOffset}`;
+              const prewarmUrl = `${getHostOrigin()}/api/stream/drive-hls/${fileId}.m3u8?offset=${nextOffset}${effectiveUserId ? `&user=${effectiveUserId}` : ''}`;
               console.log(`[Drive HLS] Server auto-prewarming next chunk fileId=${fileId} nextOffset=${nextOffset}s`);
               fetch(prewarmUrl, { headers: { Authorization: `Bearer ${accessToken}` } }).catch(() => {});
             }
@@ -3690,6 +3755,69 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
     } catch (_) {}
   }
 
+  // Check in-memory and on-disk for any session of this torrent file matching offset (within 5 seconds)
+  let reusableSessionId = null;
+  for (const [sid, s] of hlsSessions) {
+    if (s && String(s.streamId) === String(streamId) && String(s.fileIndex) === String(fileIndex) && typeof s.offset === 'number' && Math.abs(s.offset - offset) <= 5) {
+      const isRunning = Boolean(s.ffmpegProcess && s.ffmpegProcess.exitCode === null);
+      const m3u8Path = path.join(s.dir || path.join(CACHE_DIR, 'hls', sid), 'index.m3u8');
+      if (fs.existsSync(m3u8Path)) {
+        try {
+          const m3u8Content = fs.readFileSync(m3u8Path, 'utf-8');
+          const hasSegments = (m3u8Content.match(/seg_\d+\.ts/g) || []).length >= 1;
+          const isComplete = m3u8Content.includes('#EXT-X-ENDLIST');
+          if (isRunning || isComplete || hasSegments) {
+            reusableSessionId = sid;
+            break;
+          }
+        } catch (_) {}
+      }
+    }
+  }
+
+  if (!reusableSessionId) {
+    try {
+      const hlsBase = path.join(CACHE_DIR, 'hls');
+      if (fs.existsSync(hlsBase)) {
+        const entries = fs.readdirSync(hlsBase);
+        for (const ent of entries) {
+          if (!ent || ent.startsWith('active_') || ent.startsWith('meta_')) continue;
+          const sJsonPath = path.join(hlsBase, ent, 'session.json');
+          if (fs.existsSync(sJsonPath)) {
+            try {
+              const meta = JSON.parse(fs.readFileSync(sJsonPath, 'utf-8'));
+              if (meta && String(meta.streamId) === String(streamId) && String(meta.fileIndex) === String(fileIndex) && typeof meta.offset === 'number' && Math.abs(meta.offset - offset) <= 5) {
+                const m3u8Path = path.join(hlsBase, ent, 'index.m3u8');
+                if (fs.existsSync(m3u8Path)) {
+                  const m3u8Content = fs.readFileSync(m3u8Path, 'utf-8');
+                  const hasSegments = (m3u8Content.match(/seg_\d+\.ts/g) || []).length >= 1;
+                  const isAlive = meta.pid && isPidAlive(meta.pid);
+                  const isComplete = m3u8Content.includes('#EXT-X-ENDLIST');
+                  if (isAlive || isComplete || hasSegments) {
+                    reusableSessionId = ent;
+                    break;
+                  }
+                }
+              }
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  if (reusableSessionId) {
+    console.log(`[Torrent HLS] Reusing pre-warmed chunk session=${reusableSessionId} for streamId=${streamId} offset=${offset}s`);
+    touchHlsSession(reusableSessionId);
+    pruneSameKeySessions(sessionKey, 2, reusableSessionId);
+    const origin = getHostOrigin(req);
+    res.writeHead(302, {
+      'Location': `${origin}/api/stream/hls/${reusableSessionId}/index.m3u8`,
+      'Cache-Control': 'no-cache'
+    });
+    return res.end();
+  }
+
   const activeSessionFile = path.join(CACHE_DIR, 'hls', `active_torrent_${streamId}_${fileIndex}.json`);
 
   let existingId = hlsActiveByKey.get(sessionKey);
@@ -3738,7 +3866,7 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
       return res.end();
     }
 
-    cleanupHlsSession(existingId);
+    // Do not cleanup existing chunk; it may still be playing while next chunk starts
     hlsActiveByKey.delete(sessionKey);
     try { fs.rmSync(activeSessionFile, { force: true }); } catch (_) {}
   }
@@ -3764,7 +3892,8 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
             const sKey = sMeta.streamId !== undefined
               ? `torrent:${sMeta.streamId}:${sMeta.fileIndex}`
               : `drive:${sMeta.userId || 'anon'}:${sMeta.fileId}`;
-            if (sKey !== sessionKey) {
+            const isSameMedia = (sMeta.streamId !== undefined && String(sMeta.streamId) === String(streamId) && String(sMeta.fileIndex) === String(fileIndex));
+            if (!isSameMedia) {
               console.log(`[Torrent HLS] Preempting existing transcode session=${ent} (pid=${sMeta.pid} offset=${sMeta.offset}) for new playback at offset=${offset}`);
               cleanupHlsSession(ent);
             }
@@ -3937,7 +4066,7 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
           writeHlsMetaFile(getTorrentHlsMetaFile(streamId, fileIndex), meta);
           console.log(`[Torrent HLS] Chunk complete session=${sessionId} segs=${stats.segmentCount} duration=${stats.durationSec.toFixed(1)}s chunkStart=${offset}s atEndOfFile=${atEndOfFile} totalDuration=${sessionTotalDurationSec === null ? 'unknown' : sessionTotalDurationSec}`);
           if (code === 0 && !atEndOfFile) {
-            const nextOffset = offset + stats.durationSec;
+            const nextOffset = Math.round(offset + stats.durationSec);
             if (!sessionTotalDurationSec || nextOffset < sessionTotalDurationSec - 5) {
               const prewarmUrl = `${getHostOrigin()}/api/stream/torrent-hls/${streamId}/${fileIndex || 0}/master.m3u8?offset=${nextOffset}`;
               console.log(`[Torrent HLS] Server auto-prewarming next chunk streamId=${streamId} nextOffset=${nextOffset}s`);
