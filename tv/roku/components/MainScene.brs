@@ -68,6 +68,7 @@ sub init()
     m.video.bufferMode = "normal"
     m.video.observeField("state", "onVideoStateChange")
     m.video.observeField("bufferingStatus", "onBufferingStatusChange")
+    m.video.observeField("position", "onVideoPositionChange")
     m.justExitedPlayer = false
 
     m.navStack = []
@@ -1613,8 +1614,18 @@ sub onProgressTimerFire()
     if vidPos = invalid or vidPos < 5 then return
     vidDur = m.video.duration
     if vidDur = invalid then vidDur = 0
-    if isChunkedHlsStream() and vidPos >= (chunkSeconds() - 120) and vidPos > 30
-        startNextChunkWarm()
+    if isChunkedHlsStream()
+        effectiveChunkEnd = chunkSeconds()
+        if vidDur > 30 and vidDur < (chunkSeconds() - 15)
+            effectiveChunkEnd = Fix(vidDur)
+        end if
+        if vidPos >= (effectiveChunkEnd - 75) and vidPos > 30
+            startNextChunkWarm(effectiveChunkEnd)
+        end if
+        if m.hasPlayedContent and vidDur > 20 and vidPos >= (effectiveChunkEnd - 1.5)
+            chainToNextHlsChunk()
+            return
+        end if
     end if
     if vidDur > 0 and vidPos > vidDur * 0.95 then return
 
@@ -3425,14 +3436,19 @@ end function
 ' Fire-and-forget: ask the server to start transcoding the NEXT chunk while this one plays.
 ' By the time this chunk finishes, the next playlist already exists, so the chain request
 ' hits the reuse path (instant 302, no buffering gap).
-sub startNextChunkWarm()
+sub startNextChunkWarm(knownDur = 0 as Integer)
     if not isChunkedHlsStream() then return
     cur = safeStr(m.currentStreamUrl)
     if cur = "" then return
 
     startOffset = 0
     if m.initialPlayOffset <> invalid then startOffset = m.initialPlayOffset
-    target = startOffset + chunkSeconds()
+    
+    chunkAdvance = chunkSeconds()
+    if knownDur > 30 and knownDur < (chunkSeconds() - 15)
+        chunkAdvance = knownDur
+    end if
+    target = startOffset + chunkAdvance
 
     if m.nextChunkWarmOffset <> -1 and m.nextChunkWarmOffset = target then return
     if m.chunkWarmTask <> invalid and m.chunkWarmTask.control = "run" then return
@@ -3450,6 +3466,32 @@ end sub
 
 sub onChunkWarmResponse()
     print "[ChunkWarm] pre-warm request finished"
+end sub
+
+sub onVideoPositionChange()
+    if m.state <> "player" or m.isLiveChannel then return
+    vidPos = m.video.position
+    if vidPos = invalid or vidPos < 5 then return
+    vidDur = m.video.duration
+    if vidDur = invalid then vidDur = 0
+
+    if not isChunkedHlsStream() then return
+
+    effectiveChunkEnd = chunkSeconds()
+    if vidDur > 30 and vidDur < (chunkSeconds() - 15)
+        effectiveChunkEnd = Fix(vidDur)
+    end if
+
+    ' Pre-warm next chunk 75 seconds before current chunk ends
+    if vidPos >= (effectiveChunkEnd - 75) and vidPos > 30
+        startNextChunkWarm(effectiveChunkEnd)
+    end if
+
+    ' Seamless chunk transition right at the end of the chunk without freezing or buffering
+    if m.hasPlayedContent and vidDur > 20 and vidPos >= (effectiveChunkEnd - 1.5)
+        print "[ChunkChain] Position reached end of chunk (pos="; vidPos; " dur="; vidDur; "). Chaining immediately."
+        chainToNextHlsChunk()
+    end if
 end sub
 
 sub onPlayDelayFired()
@@ -3505,6 +3547,16 @@ sub onBufferingWatchdogFired()
     if m.state = "player" and m.video <> invalid and m.video.state = "buffering" and m.isLiveChannel <> true then
         vidPos = m.video.position
         if vidPos = invalid then vidPos = 0
+        vidDur = m.video.duration
+        if vidDur = invalid then vidDur = 0
+
+        ' If buffering near the end of an HLS chunk, chain to the next chunk immediately!
+        if isChunkedHlsStream() and m.hasPlayedContent and vidDur > 20 and vidPos >= (vidDur - 15) then
+            print "[Watchdog] Buffering at end of chunk (pos="; vidPos; " dur="; vidDur; "). Chaining immediately."
+            m.bufferingStallCount = 0
+            if chainToNextHlsChunk() then return
+        end if
+
         startOffset = 0
         if m.initialPlayOffset <> invalid then startOffset = m.initialPlayOffset
         curOffset = startOffset + vidPos

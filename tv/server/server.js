@@ -3233,11 +3233,11 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
 
       '-preset', 'ultrafast',
 
-      '-threads', '4',
+      '-threads', '2',
       '-crf', '28',
 
-      '-maxrate', '2500k',
-      '-bufsize', '5000k',
+      '-maxrate', '2000k',
+      '-bufsize', '3000k',
       '-force_key_frames', 'expr:gte(t,n_forced*6)',
 
       '-sc_threshold', '0',
@@ -3346,7 +3346,7 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
           if (sessionTotalDurationSec) meta.durationSec = sessionTotalDurationSec;
           writeHlsMetaFile(getHlsMetaFile(fileId), meta);
           console.log(`[Drive HLS] Chunk complete session=${sessionId} segs=${stats.segmentCount} duration=${stats.durationSec.toFixed(1)}s chunkStart=${offset}s atEndOfFile=${atEndOfFile} totalDuration=${sessionTotalDurationSec === null ? 'unknown' : sessionTotalDurationSec}`);
-          if (code === 0 && !atEndOfFile && !isPrewarmReq) {
+          if (!session?.stoppedByUser && (code === 0 || code === null) && stats.segmentCount >= 3 && !atEndOfFile && !isPrewarmReq) {
             const nextOffset = Math.round(offset + stats.durationSec);
             if (!sessionTotalDurationSec || nextOffset < sessionTotalDurationSec - 5) {
               const prewarmUrl = `${getHostOrigin()}/api/stream/drive-hls/${fileId}.m3u8?offset=${nextOffset}&prewarm=1${effectiveUserId ? `&user=${effectiveUserId}` : ''}`;
@@ -3729,6 +3729,8 @@ app.all('/api/stream/drive-hls/stop', optionalAuth, (req, res) => {
     } catch (_) {}
   }
   if (sessionId) {
+    const _s = hlsSessions.get(sessionId);
+    if (_s) _s.stoppedByUser = true;
     cleanupHlsSession(sessionId);
     hlsActiveByKey.delete(key);
     try { fs.rmSync(activeSessionFile, { force: true }); } catch (_) {}
@@ -3963,11 +3965,11 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
 
       '-preset', 'ultrafast',
 
-      '-threads', '4',
+      '-threads', '2',
       '-crf', '28',
 
-      '-maxrate', '2500k',
-      '-bufsize', '5000k',
+      '-maxrate', '2000k',
+      '-bufsize', '3000k',
       '-force_key_frames', 'expr:gte(t,n_forced*6)',
 
       '-sc_threshold', '0',
@@ -4080,7 +4082,7 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
           if (sessionTotalDurationSec) meta.durationSec = sessionTotalDurationSec;
           writeHlsMetaFile(getTorrentHlsMetaFile(streamId, fileIndex), meta);
           console.log(`[Torrent HLS] Chunk complete session=${sessionId} segs=${stats.segmentCount} duration=${stats.durationSec.toFixed(1)}s chunkStart=${offset}s atEndOfFile=${atEndOfFile} totalDuration=${sessionTotalDurationSec === null ? 'unknown' : sessionTotalDurationSec}`);
-          if (code === 0 && !atEndOfFile && !isPrewarmReq) {
+          if (!session?.stoppedByUser && (code === 0 || code === null) && stats.segmentCount >= 3 && !atEndOfFile && !isPrewarmReq) {
             const nextOffset = Math.round(offset + stats.durationSec);
             if (!sessionTotalDurationSec || nextOffset < sessionTotalDurationSec - 5) {
               const prewarmUrl = `${getHostOrigin()}/api/stream/torrent-hls/${streamId}/${fileIndex || 0}/master.m3u8?offset=${nextOffset}&prewarm=1`;
@@ -4152,6 +4154,8 @@ app.all('/api/stream/torrent-hls/stop', optionalAuth, async (req, res) => {
     } catch (_) {}
   }
   if (sessionId) {
+    const _s = hlsSessions.get(sessionId);
+    if (_s) _s.stoppedByUser = true;
     cleanupHlsSession(sessionId);
     hlsActiveByKey.delete(key);
     try { fs.rmSync(activeSessionFile, { force: true }); } catch (_) {}
