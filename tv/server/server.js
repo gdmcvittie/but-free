@@ -463,6 +463,11 @@ function cleanupHlsSession(sessionId, killFfmpeg = true) {
 
 function touchHlsSession(sessionId) {
   const session = hlsSessions.get(sessionId);
+  if (session) session.lastActive = Date.now();
+  try {
+    const sDir = path.join(CACHE_DIR, 'hls', sessionId);
+    if (fs.existsSync(sDir)) fs.writeFileSync(path.join(sDir, 'lastActive.txt'), String(Date.now()));
+  } catch (_) {}
   if (!session) return;
   if (session.timer) clearTimeout(session.timer);
   session.timer = setTimeout(() => cleanupHlsSession(sessionId), HLS_IDLE_TIMEOUT_MS);
@@ -564,7 +569,7 @@ function sendTerminalPlaylist(res) {
 // finished chunks must be reaped once the player has moved past them, but never while the
 // player might still be fetching their segments. Sessions whose ffmpeg is still running are
 // always kept (their chunk is either playing or warming).
-function pruneSameKeySessions(key, keepCount = 2, keepExplicit = null) {
+function pruneSameKeySessions(key, keepCount = 5, keepExplicit = null) {
   const ids = [];
   for (const [id, s] of hlsSessions) {
     if (s && (s.key === key || (s.fileId && key.includes(s.fileId)))) ids.push(id);
@@ -580,6 +585,14 @@ function pruneSameKeySessions(key, keepCount = 2, keepExplicit = null) {
   for (const id of ids) {
     if (safe.has(id)) continue;
     const s = hlsSessions.get(id);
+    if (s && s.lastActive && (Date.now() - s.lastActive < 180000)) continue;
+    try {
+      const activeFile = path.join(CACHE_DIR, 'hls', id, 'lastActive.txt');
+      if (fs.existsSync(activeFile)) {
+        const lastT = parseInt(fs.readFileSync(activeFile, 'utf-8'), 10);
+        if (lastT && Date.now() - lastT < 180000) continue;
+      }
+    } catch (_) {}
     if (s && s.ffmpegProcess && s.ffmpegProcess.exitCode !== null) {
       cleanupHlsSession(id);
     }
@@ -2999,6 +3012,7 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
   const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
   const sessionKey = `${userId || 'anon'}:${fileId}`;
   const lockKey = `${fileId}:${offset}`;
+  const isPrewarmReq = (req.query.prewarm === '1');
 
   // In-flight deduplication: if another request is currently initializing this exact transcode,
   // wait for it rather than spawning a second redundant FFmpeg process.
@@ -3332,10 +3346,10 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
           if (sessionTotalDurationSec) meta.durationSec = sessionTotalDurationSec;
           writeHlsMetaFile(getHlsMetaFile(fileId), meta);
           console.log(`[Drive HLS] Chunk complete session=${sessionId} segs=${stats.segmentCount} duration=${stats.durationSec.toFixed(1)}s chunkStart=${offset}s atEndOfFile=${atEndOfFile} totalDuration=${sessionTotalDurationSec === null ? 'unknown' : sessionTotalDurationSec}`);
-          if (code === 0 && !atEndOfFile) {
+          if (code === 0 && !atEndOfFile && !isPrewarmReq) {
             const nextOffset = Math.round(offset + stats.durationSec);
             if (!sessionTotalDurationSec || nextOffset < sessionTotalDurationSec - 5) {
-              const prewarmUrl = `${getHostOrigin()}/api/stream/drive-hls/${fileId}.m3u8?offset=${nextOffset}${effectiveUserId ? `&user=${effectiveUserId}` : ''}`;
+              const prewarmUrl = `${getHostOrigin()}/api/stream/drive-hls/${fileId}.m3u8?offset=${nextOffset}&prewarm=1${effectiveUserId ? `&user=${effectiveUserId}` : ''}`;
               console.log(`[Drive HLS] Server auto-prewarming next chunk fileId=${fileId} nextOffset=${nextOffset}s`);
               fetch(prewarmUrl, { headers: { Authorization: `Bearer ${accessToken}` } }).catch(() => {});
             }
@@ -3738,6 +3752,7 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
   const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
   const sessionKey = `torrent:${streamId}:${fileIndex}`;
   const lockKey = `${sessionKey}:${offset}`;
+  const isPrewarmReq = (req.query.prewarm === '1');
 
   // In-flight deduplication: if another request is currently initializing this exact transcode,
   // wait for it rather than spawning a second redundant FFmpeg process.
@@ -4065,10 +4080,10 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
           if (sessionTotalDurationSec) meta.durationSec = sessionTotalDurationSec;
           writeHlsMetaFile(getTorrentHlsMetaFile(streamId, fileIndex), meta);
           console.log(`[Torrent HLS] Chunk complete session=${sessionId} segs=${stats.segmentCount} duration=${stats.durationSec.toFixed(1)}s chunkStart=${offset}s atEndOfFile=${atEndOfFile} totalDuration=${sessionTotalDurationSec === null ? 'unknown' : sessionTotalDurationSec}`);
-          if (code === 0 && !atEndOfFile) {
+          if (code === 0 && !atEndOfFile && !isPrewarmReq) {
             const nextOffset = Math.round(offset + stats.durationSec);
             if (!sessionTotalDurationSec || nextOffset < sessionTotalDurationSec - 5) {
-              const prewarmUrl = `${getHostOrigin()}/api/stream/torrent-hls/${streamId}/${fileIndex || 0}/master.m3u8?offset=${nextOffset}`;
+              const prewarmUrl = `${getHostOrigin()}/api/stream/torrent-hls/${streamId}/${fileIndex || 0}/master.m3u8?offset=${nextOffset}&prewarm=1`;
               console.log(`[Torrent HLS] Server auto-prewarming next chunk streamId=${streamId} nextOffset=${nextOffset}s`);
               fetch(prewarmUrl).catch(() => {});
             }
