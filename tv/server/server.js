@@ -737,6 +737,8 @@ function pruneSameKeySessions(key, keepCount = 5, keepExplicit = null) {
   for (const id of ids) {
     if (safe.has(id)) continue;
     const s = hlsSessions.get(id);
+    if (s && s.fileId && isMediaActive(s.fileId)) continue;
+    if (s && s.streamId && isMediaActive(`torrent:${s.streamId}:${s.fileIndex || 0}`)) continue;
     if (s && s.lastActive && (Date.now() - s.lastActive < 180000)) continue;
     try {
       const activeFile = path.join(CACHE_DIR, 'hls', id, 'lastActive.txt');
@@ -4376,6 +4378,191 @@ app.all('/api/stream/torrent-hls/stop', optionalAuth, async (req, res) => {
   res.json({ success: true, stopped: true });
 });
 
+function getChainedPlaylist(sessionId, origin) {
+  const sessionDir = path.join(CACHE_DIR, 'hls', sessionId);
+  const m3u8Path = path.join(sessionDir, 'index.m3u8');
+  if (!fs.existsSync(m3u8Path)) return '';
+
+  let fileId = null;
+  let streamId = null;
+  let fileIndex = 0;
+  let startOffset = 0;
+  let startedAt = 0;
+
+  const memSession = hlsSessions.get(sessionId);
+  if (memSession) {
+    fileId = memSession.fileId;
+    streamId = memSession.streamId;
+    fileIndex = memSession.fileIndex || 0;
+    startOffset = memSession.offset || 0;
+    startedAt = memSession.startedAt || 0;
+  } else {
+    try {
+      const sJsonPath = path.join(sessionDir, 'session.json');
+      if (fs.existsSync(sJsonPath)) {
+        const sMeta = JSON.parse(fs.readFileSync(sJsonPath, 'utf-8'));
+        fileId = sMeta.fileId;
+        streamId = sMeta.streamId;
+        fileIndex = sMeta.fileIndex || 0;
+        startOffset = sMeta.offset || 0;
+        startedAt = sMeta.startedAt || 0;
+      }
+    } catch (_) {}
+  }
+
+  // If we can't identify the media, just return this single session's playlist rewritten
+  if (!fileId && !streamId) {
+    const raw = fs.readFileSync(m3u8Path, 'utf-8');
+    return raw.replace(/^(?:.*[\\/])?(seg_\d+\.ts)\r?$/gm, (m, p1) => `${origin}/api/stream/hls/${sessionId}/${p1}`);
+  }
+
+  // Collect candidate chunks for this media
+  const candidates = [];
+  const reportedIds = new Set();
+
+  for (const [sid, s] of hlsSessions) {
+    if (!s || reportedIds.has(sid)) continue;
+    const isSame = fileId ? (s.fileId === fileId) : (s.streamId === streamId && s.fileIndex === fileIndex);
+    if (isSame && typeof s.offset === 'number') {
+      reportedIds.add(sid);
+      candidates.push({ sessionId: sid, offset: s.offset, startedAt: s.startedAt || 0 });
+    }
+  }
+
+  try {
+    const hlsBase = path.join(CACHE_DIR, 'hls');
+    if (fs.existsSync(hlsBase)) {
+      const entries = fs.readdirSync(hlsBase);
+      for (const ent of entries) {
+        if (!ent || ent.startsWith('active_') || ent.startsWith('meta_') || reportedIds.has(ent)) continue;
+        const sJsonPath = path.join(hlsBase, ent, 'session.json');
+        if (fs.existsSync(sJsonPath)) {
+          try {
+            const meta = JSON.parse(fs.readFileSync(sJsonPath, 'utf-8'));
+            const isSame = fileId ? (meta.fileId === fileId) : (meta.streamId === streamId && meta.fileIndex === fileIndex);
+            if (isSame && typeof meta.offset === 'number') {
+              reportedIds.add(ent);
+              candidates.push({ sessionId: ent, offset: meta.offset, startedAt: meta.startedAt || 0 });
+            }
+          } catch (_) {}
+        }
+      }
+    }
+  } catch (_) {}
+
+  // Sort candidates by startedAt descending so newer runs take precedence
+  candidates.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+
+  // Build the sequential chain starting from this sessionId
+  const chain = [{ sessionId, offset: startOffset, startedAt }];
+  const visited = new Set([sessionId]);
+
+  let currentId = sessionId;
+  let currentOffset = startOffset;
+  let currentStartedAt = startedAt;
+
+  while (true) {
+    const curM3u8 = path.join(CACHE_DIR, 'hls', currentId, 'index.m3u8');
+    if (!fs.existsSync(curM3u8)) break;
+    const stats = computePlaylistStats(curM3u8);
+    if (!stats.durationSec || stats.durationSec <= 0) break;
+
+    const expectedNextOffset = currentOffset + stats.durationSec;
+
+    // Find the next chunk in the chain
+    let bestNext = null;
+    let minDiff = 6; // within 5 seconds tolerance
+
+    for (const cand of candidates) {
+      if (visited.has(cand.sessionId)) continue;
+      const diff = Math.abs(cand.offset - expectedNextOffset);
+      if (diff <= 5 && diff < minDiff) {
+        if (!cand.startedAt || !currentStartedAt || cand.startedAt >= currentStartedAt - 60000) {
+          minDiff = diff;
+          bestNext = cand;
+        }
+      }
+    }
+
+    if (bestNext) {
+      visited.add(bestNext.sessionId);
+      chain.push(bestNext);
+      currentId = bestNext.sessionId;
+      currentOffset = bestNext.offset;
+      currentStartedAt = bestNext.startedAt;
+    } else {
+      break;
+    }
+  }
+
+  // Now assemble the combined HLS playlist across all chunks in the chain
+  let combined = '';
+  let targetDuration = 6;
+  let isFinalChunkComplete = false;
+
+  for (let i = 0; i < chain.length; i++) {
+    const chunk = chain[i];
+    const chunkM3u8 = path.join(CACHE_DIR, 'hls', chunk.sessionId, 'index.m3u8');
+    if (!fs.existsSync(chunkM3u8)) continue;
+
+    let content = fs.readFileSync(chunkM3u8, 'utf-8');
+    const tdMatch = content.match(/#EXT-X-TARGETDURATION:(\d+)/);
+    if (tdMatch) targetDuration = Math.max(targetDuration, parseInt(tdMatch[1], 10));
+
+    const isLastInChain = (i === chain.length - 1);
+    const chunkHasEndList = content.includes('#EXT-X-ENDLIST');
+
+    let clean = content
+      .replace(/#EXT-X-ENDLIST\r?\n?/g, '')
+      .replace(/#EXT-X-PLAYLIST-TYPE:[^\r\n]+\r?\n?/g, '');
+
+    if (i === 0) {
+      clean = clean.replace(/^(?:.*[\\/])?(seg_\d+\.ts)\r?$/gm, (m, p1) => `${origin}/api/stream/hls/${chunk.sessionId}/${p1}`);
+      combined = clean.trimEnd();
+    } else {
+      const segsOnly = clean
+        .replace(/#EXTM3U\r?\n?/g, '')
+        .replace(/#EXT-X-VERSION:\d+\r?\n?/g, '')
+        .replace(/#EXT-X-TARGETDURATION:\d+\r?\n?/g, '')
+        .replace(/#EXT-X-MEDIA-SEQUENCE:\d+\r?\n?/g, '')
+        .trim();
+
+      if (segsOnly && /seg_\d+\.ts/.test(segsOnly)) {
+        const rewrittenSegs = segsOnly.replace(/^(?:.*[\\/])?(seg_\d+\.ts)\r?$/gm, (m, p1) => `${origin}/api/stream/hls/${chunk.sessionId}/${p1}`);
+        combined += '\n#EXT-X-DISCONTINUITY\n' + rewrittenSegs.trim();
+      }
+    }
+
+    if (isLastInChain && chunkHasEndList) {
+      const meta = fileId ? readHlsMetaFile(getHlsMetaFile(fileId)) : readHlsMetaFile(getTorrentHlsMetaFile(streamId, fileIndex));
+      if (meta && meta.atEndOfFile === true) {
+        isFinalChunkComplete = true;
+      }
+    }
+  }
+
+  combined = combined.replace(/#EXT-X-TARGETDURATION:\d+/, `#EXT-X-TARGETDURATION:${targetDuration}`);
+
+  if (isFinalChunkComplete) {
+    if (combined.includes('#EXT-X-PLAYLIST-TYPE')) {
+      combined = combined.replace(/#EXT-X-PLAYLIST-TYPE:[^\r\n]+/, '#EXT-X-PLAYLIST-TYPE:VOD');
+    } else if (combined.includes('#EXT-X-VERSION:')) {
+      combined = combined.replace(/(#EXT-X-VERSION:\d+)/, '$1\n#EXT-X-PLAYLIST-TYPE:VOD');
+    } else {
+      combined = combined.replace('#EXTM3U', '#EXTM3U\n#EXT-X-PLAYLIST-TYPE:VOD');
+    }
+    if (!combined.includes('#EXT-X-ENDLIST')) {
+      combined = combined.trimEnd() + '\n#EXT-X-ENDLIST\n';
+    }
+  } else {
+    if (!combined.includes('#EXT-X-PLAYLIST-TYPE')) {
+      combined = combined.replace('#EXT-X-VERSION:3', '#EXT-X-VERSION:3\n#EXT-X-PLAYLIST-TYPE:EVENT');
+    }
+  }
+
+  return combined;
+}
+
 // Serve HLS playlist + segments produced by an on-demand transcode session
 app.get('/api/stream/hls/:sessionId/:file', (req, res) => {
   const { sessionId, file } = req.params;
@@ -4420,7 +4607,7 @@ app.get('/api/stream/hls/:sessionId/:file', (req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Access-Control-Allow-Origin', '*');
     const origin = getHostOrigin(req);
-    let rewritten = playlist.replace(/^(?:.*[\\/])?(seg_\d+\.ts)\r?$/gm, (match, p1) => `${origin}/api/stream/hls/${sessionId}/${p1}`);
+    let rewritten = getChainedPlaylist(sessionId, origin) || playlist.replace(/^(?:.*[\\/])?(seg_\d+\.ts)\r?$/gm, (match, p1) => `${origin}/api/stream/hls/${sessionId}/${p1}`);
     if (rewritten.includes('#EXT-X-ENDLIST')) {
       rewritten = rewritten.replace('#EXT-X-PLAYLIST-TYPE:EVENT', '#EXT-X-PLAYLIST-TYPE:VOD');
     }
