@@ -3353,8 +3353,8 @@ function chunkSeconds() as Integer
     if m.serverChunkSeconds <> invalid and m.serverChunkSeconds > 0
         return m.serverChunkSeconds
     end if
-    ' Default matches HLS_CHUNK_SECONDS in server.js (360 = 6 minutes).
-    return 360
+    ' Default matches HLS_CHUNK_SECONDS in server.js (7200 = ~2 hours).
+    return 7200
 end function
 
 function rebuildStreamUrlWithOffset(url as String, newOffset as Integer) as String

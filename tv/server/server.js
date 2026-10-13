@@ -305,7 +305,7 @@ const hlsStartingByKeyOffset = new Map();
 // On-demand content (Drive / torrent) is transcoded in bounded VOD chunks. Each chunk is a
 // complete ~2-hour playlist ending in #EXT-X-ENDLIST, so Roku always sees a closed VOD
 // playlist instead of an unbounded event list. The Roku app chains chunks via ?offset=.
-const HLS_CHUNK_SECONDS = parseInt(process.env.HLS_CHUNK_SECONDS, 10) || 360; // 6-minute chunks (360s) default
+const HLS_CHUNK_SECONDS = parseInt(process.env.HLS_CHUNK_SECONDS, 10) || 7200; // ~2-hour chunks (7200s) default
 // Function to resolve ffmpeg's input proxy URL.
 // When running as a standalone Node service (e.g. systemd on Debian VPS or local dev),
 // uses 127.0.0.1:PORT directly to bypass external reverse proxy (Nginx) timeouts,
