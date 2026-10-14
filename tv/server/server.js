@@ -770,7 +770,13 @@ app.use((req, res, next) => {
   res.on('close', () => { if (!res.writableEnded) finishLog(true); });
   next();
 });
-app.use(cors({ origin: true, credentials: true }));
+app.use(cors({
+  origin: true,
+  credentials: true,
+  // ETag is not a CORS-safelisted response header, and the FireTV/Roku builds
+  // fetch the library cross-origin - without this they cannot revalidate.
+  exposedHeaders: ['ETag']
+}));
 app.use((req, res, next) => {
   const url = req.path || req.url || '';
   if (url.includes('/api/stream/')) {
@@ -2473,6 +2479,26 @@ app.post('/api/drive/scan', authenticate, async (req, res) => {
 // -------------------------------------------------------------
 // On Demand Media Endpoint (Per User)
 // -------------------------------------------------------------
+
+/**
+ * Conditional GET for the on-demand catalogue.
+ *
+ * The response is the whole library.json plus computed progress, which makes it
+ * the slowest part of a cold start. Hashing it once here is cheaper than
+ * re-parsing it on the device, and an unchanged catalogue costs a bodiless 304
+ * instead of the full payload. The payload embeds the viewer, so the hash - and
+ * therefore the ETag - is already scoped to one account.
+ */
+function sendCachedJson(req, res, payload) {
+  const body = JSON.stringify(payload);
+  const etag = `"${crypto.createHash('sha1').update(body).digest('base64url')}"`;
+  res.set('ETag', etag);
+  // "no-cache" still stores the response - it just insists on revalidating.
+  res.set('Cache-Control', 'private, no-cache');
+  if (req.headers['if-none-match'] === etag) return res.status(304).end();
+  return res.type('application/json').send(body);
+}
+
 app.get('/api/ondemand', optionalAuth, (req, res) => {
   const userId = req.user?.id || 'default';
   const library = getUserFile(userId, 'library.json', {
@@ -2536,7 +2562,7 @@ app.get('/api/ondemand', optionalAuth, (req, res) => {
     ? new Date(new Date(lastScannedAt).getTime() + DRIVE_AUTO_SCAN_INTERVAL_MS).toISOString()
     : null;
 
-  res.json({
+  sendCachedJson(req, res, {
     ...library,
     moviesPosters,
     movieFolders: movieFolders || {},

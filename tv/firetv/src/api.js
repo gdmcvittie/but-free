@@ -66,6 +66,25 @@ async function httpGet(path, auth = false) {
   return res.json();
 }
 
+/**
+ * Conditional GET for the (large) drive library.
+ *
+ * Sends If-None-Match so an unchanged catalogue costs a bodiless 304 instead of
+ * the full payload, and hands back the new ETag so the caller can persist it.
+ * Requires the server to expose ETag via CORS.
+ */
+async function httpGetIfChanged(path, etag, auth = false) {
+  const opts = { cache: 'no-store', headers: {} };
+  if (etag) opts.headers['If-None-Match'] = etag;
+  if (auth && isLoggedIn()) {
+    opts.headers['Authorization'] = `Bearer ${getToken()}`;
+  }
+  const res = await fetch(SERVER_URL + path, opts);
+  if (res.status === 304) return { data: null, etag: etag || null, notModified: true };
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return { data: await res.json(), etag: res.headers.get('ETag'), notModified: false };
+}
+
 async function httpSend(path, method, body, auth = false) {
   const opts = { method, headers: {} };
   if (body !== undefined) {
@@ -101,6 +120,7 @@ export const api = {
 
   // ---- Drive library / Favorites (require auth) ----
   getOnDemand: () => httpGet('/api/ondemand', true),
+  getOnDemandIfChanged: (etag) => httpGetIfChanged('/api/ondemand', etag, true),
   getFavorites: () => httpGet('/api/favorites', true),
   toggleFavorite: (item) => httpSend('/api/favorites/toggle', 'POST', { item }, true),
   sendPlaybackProgress: (data) => httpSend('/api/playback/progress', 'POST', data, true),

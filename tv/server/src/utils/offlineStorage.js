@@ -299,13 +299,26 @@ export async function getPlaybackPosition(videoId) {
 }
 
 /**
- * Cache library metadata for offline browsing
+ * Cache library metadata for offline browsing.
+ *
+ * The server's ETag is stored alongside so the next load can revalidate with a
+ * bodiless 304 instead of pulling the whole catalogue again.
  */
-export async function saveLibraryOffline(library) {
+export async function saveLibraryOffline(library, etag) {
   try {
     const db = await getOfflineDB();
-    const tx = db.transaction('meta', 'readwrite');
-    tx.objectStore('meta').put({ key: 'library_snapshot', data: library, savedAt: Date.now() });
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('meta', 'readwrite');
+      tx.objectStore('meta').put({
+        key: 'library_snapshot',
+        data: library,
+        etag: etag || null,
+        savedAt: Date.now()
+      });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
   } catch (err) {
     console.warn('[OfflineStorage] Failed to save library snapshot:', err);
   }
@@ -315,15 +328,26 @@ export async function saveLibraryOffline(library) {
  * Load cached library snapshot
  */
 export async function getLibraryOffline() {
+  return (await getLibraryOfflineEntry()).library;
+}
+
+/**
+ * The stored snapshot plus its ETag, so callers can revalidate conditionally.
+ */
+export async function getLibraryOfflineEntry() {
   try {
     const db = await getOfflineDB();
     return new Promise((resolve) => {
       const tx = db.transaction('meta', 'readonly');
       const req = tx.objectStore('meta').get('library_snapshot');
-      req.onsuccess = () => resolve(req.result?.data || null);
-      req.onerror = () => resolve(null);
+      req.onsuccess = () => resolve({
+        library: req.result?.data || null,
+        etag: req.result?.etag || null,
+        savedAt: req.result?.savedAt || null
+      });
+      req.onerror = () => resolve({ library: null, etag: null, savedAt: null });
     });
   } catch {
-    return null;
+    return { library: null, etag: null, savedAt: null };
   }
 }

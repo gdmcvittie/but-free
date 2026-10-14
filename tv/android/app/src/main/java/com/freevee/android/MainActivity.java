@@ -26,6 +26,10 @@ import android.widget.FrameLayout;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
+import androidx.webkit.ServiceWorkerClientCompat;
+import androidx.webkit.ServiceWorkerControllerCompat;
+import androidx.webkit.WebViewFeature;
+
 import java.io.InputStream;
 
 public class MainActivity extends Activity {
@@ -64,6 +68,7 @@ public class MainActivity extends Activity {
         webViewProgress = findViewById(R.id.webview_progress);
 
         initWebView();
+        initServiceWorker();
         registerNetworkCallback();
 
         if (isNetworkAvailable()) {
@@ -225,6 +230,39 @@ public class MainActivity extends Activity {
                     launchOfflineMode();
                 }
             });
+        }
+    }
+
+    /**
+     * WebView ignores service workers until a ServiceWorkerClient is installed on
+     * the global controller. Returning null from shouldInterceptRequest adds no
+     * interception of our own; it just hands the request to the worker pipeline.
+     */
+    private void initServiceWorker() {
+        try {
+            if (!WebViewFeature.isFeatureSupported(WebViewFeature.SERVICE_WORKER_BASIC_USAGE)) {
+                Log.w(TAG, "Service workers unsupported by this WebView; page caches disabled");
+                return;
+            }
+            ServiceWorkerControllerCompat controller = ServiceWorkerControllerCompat.getInstance();
+            if (controller == null) return;
+
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.SERVICE_WORKER_CONTENT_ACCESS)) {
+                controller.getServiceWorkerWebSettings().setAllowContentAccess(true);
+            }
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.SERVICE_WORKER_FILE_ACCESS)) {
+                controller.getServiceWorkerWebSettings().setAllowFileAccess(true);
+            }
+
+            controller.setServiceWorkerClient(new ServiceWorkerClientCompat() {
+                @Override
+                public WebResourceResponse shouldInterceptRequest(WebResourceRequest request) {
+                    return null;
+                }
+            });
+            Log.i(TAG, "Service worker client installed");
+        } catch (Throwable t) {
+            Log.w(TAG, "Service worker setup failed", t);
         }
     }
 

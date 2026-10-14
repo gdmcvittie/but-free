@@ -53,3 +53,9 @@ android {
 tasks.named('preBuild').configure {
     dependsOn tasks.named('syncFreeplayAssets')
 }
+
+dependencies {
+    // ServiceWorkerControllerCompat, so the page's sw.js actually receives fetch
+    // events inside WebView instead of being ignored.
+    implementation 'androidx.webkit:webkit:1.8.0'
+}

@@ -43,6 +43,39 @@ const post = (path, body, options) => request(path, { ...options, method: 'POST'
 const patch = (path, body) => request(path, { method: 'PATCH', body: body ?? {} });
 const del = (path) => request(path, { method: 'DELETE' });
 
+/**
+ * Conditional GET, used by the library cache.
+ *
+ * Sends If-None-Match so an unchanged payload comes back as a bodiless 304.
+ * Returns { data, etag, notModified }; `force` omits the header, which is what an
+ * explicit pull-to-refresh wants.
+ */
+async function conditionalGet(path, etag, { signal, force = false } = {}) {
+  const headers = {};
+  if (etag && !force) headers['If-None-Match'] = etag;
+
+  const res = await fetch(apiUrl(path), {
+    method: 'GET',
+    credentials: 'same-origin',
+    cache: 'no-store',
+    signal,
+    headers
+  });
+
+  if (res.status === 401) {
+    window.dispatchEvent(new CustomEvent('fraudio:unauthorized'));
+  }
+
+  // The conditional hit itself: nothing new to parse, nothing new to send.
+  if (res.status === 304) return { data: null, etag: etag || null, notModified: true };
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || `Request failed: HTTP ${res.status}`);
+  }
+  return { data, etag: res.headers.get('ETag'), notModified: false };
+}
+
 export const api = {
   // ---- auth ----------------------------------------------------------
   me: () => get('/api/auth/me'),
@@ -59,6 +92,9 @@ export const api = {
   // ---- library -------------------------------------------------------
   library: (kind) => get(`/api/library?kind=${encodeURIComponent(kind)}`),
   libraryGroups: (kind) => get(`/api/library/groups?kind=${encodeURIComponent(kind)}`),
+  // Same payload as libraryGroups, but revalidated against a stored ETag.
+  libraryGroupsIfChanged: (kind, etag, options) =>
+    conditionalGet(`/api/library/groups?kind=${encodeURIComponent(kind)}`, etag, options),
   scanLibrary: (kind) => post('/api/library/scan', { kind }),
 
   // ---- items ---------------------------------------------------------

@@ -281,7 +281,17 @@ app.get('/api/games', (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
   const games = Database.getGames(req.user.id);
-  res.json({ success: true, count: games.length, games });
+  // The whole shelf serialises into one response, which makes it the slowest
+  // part of a cold start. Hashing it once here is cheaper than re-parsing it on
+  // the device, and an unchanged shelf costs a bodiless 304 instead of the full
+  // listing. The explicit ETag also stops Express hashing the body again.
+  const body = JSON.stringify({ success: true, count: games.length, games });
+  const etag = `"${crypto.createHash('sha1').update(body).digest('base64url')}"`;
+  res.set('ETag', etag);
+  // "no-cache" still stores the response - it just insists on revalidating.
+  res.set('Cache-Control', 'private, no-cache');
+  if (req.headers['if-none-match'] === etag) return res.status(304).end();
+  return res.type('application/json').send(body);
 });
 
 // Scan Google Drive Games folder

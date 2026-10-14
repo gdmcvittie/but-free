@@ -10,6 +10,11 @@ import {
   clearAuth,
   isLoggedIn
 } from './api.js';
+import {
+  clearCachedDriveLibrary,
+  readCachedDriveLibrary,
+  writeCachedDriveLibrary
+} from './libraryCache.js';
 
 export default function App() {
   // ---- Auth State ----
@@ -45,6 +50,9 @@ export default function App() {
   // ---- Drive Library (Google Drive content) ----
   const [driveLibrary, setDriveLibrary] = useState({ shows: {}, showsList: [], showsPosters: {}, movies: [], continueWatching: [] });
   const driveLibraryRef = useRef(driveLibrary);
+  // Distinguishes "nothing on screen yet" from "a revalidation is running", so
+  // the stored catalogue is only painted once instead of flickering on reload.
+  const driveLibraryPaintedRef = useRef(false);
 
   // ---- Favorites ----
   const [favorites, setFavorites] = useState([]);
@@ -283,11 +291,29 @@ export default function App() {
   // ---- Drive Library ----
   const loadDriveLibrary = useCallback(async () => {
     if (!loggedIn) return;
+
+    // The catalogue is large, so paint the stored copy straight away and
+    // revalidate it afterwards. Without this the shelf stays blank for the
+    // whole round trip on every launch.
+    if (!driveLibraryPaintedRef.current) {
+      driveLibraryPaintedRef.current = true;
+      try {
+        const cached = readCachedDriveLibrary();
+        if (cached) {
+          driveLibraryRef.current = cached.library;
+          setDriveLibrary(cached.library);
+        }
+      } catch (_) {}
+    }
+
     try {
-      const data = await api.getOnDemand();
+      const cached = readCachedDriveLibrary();
+      const { data, etag, notModified } = await api.getOnDemandIfChanged(cached?.etag);
+      if (notModified) return;
       if (data) {
         driveLibraryRef.current = data;
         setDriveLibrary(data);
+        writeCachedDriveLibrary(data, etag);
       }
     } catch (_) {
       // Drive library is non-critical
@@ -306,6 +332,9 @@ export default function App() {
   // ---- Auth ----
   const handleSignOut = useCallback(() => {
     clearAuth();
+    // The stored catalogue belongs to the account we are leaving.
+    clearCachedDriveLibrary();
+    driveLibraryPaintedRef.current = false;
     setAuthToken('');
     setAuthUserName('');
     setLoggedIn(false);

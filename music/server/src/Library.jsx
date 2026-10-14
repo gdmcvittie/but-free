@@ -25,6 +25,7 @@ import { api } from './api';
 import MediaCard from './MediaCard';
 import AddToPlaylistModal from './AddToPlaylistModal';
 import { useSwipeBack } from './swipeBack';
+import { libraryCacheKey, readCachedLibrary, revalidateLibrary } from './libraryCache';
 import { formatDuration, formatLengthShort, percentOf, pluralize } from './format';
 import {
   getOfflineIds,
@@ -206,6 +207,9 @@ export default function Library({
   const isMusic = kind === 'music';
 
   const [data, setData] = useState(null);
+  // Mirrors `data` for the async cache loaders below, which must not overwrite
+  // a payload that a faster loader already delivered.
+  const paintedRef = useRef({ key: null, data: null });
   const [favAlbums, setFavAlbums] = useState(() => new Set());
   const [favNames, setFavNames] = useState(() => new Set());
   const [loading, setLoading] = useState(true);
@@ -320,27 +324,50 @@ export default function Library({
     setLoading(true);
     setError(null);
 
+    const key = libraryCacheKey(user?.id, kind);
+    // Switching libraries must not let the previous one's payload through; the
+    // same library reloading (a scan finishing) keeps it so a 304 can be a no-op.
+    if (paintedRef.current.key !== key) paintedRef.current = { key, data: null };
+
+    // Paint from the on-disk copy straight away. A warm start should never show
+    // a spinner while the megabyte of JSON is on the wire.
+    readCachedLibrary(key).then((cached) => {
+      if (cancelled || !cached || paintedRef.current.data) return;
+      paintedRef.current.data = cached;
+      setData(cached);
+      setLoading(false);
+    });
+
     (async () => {
       try {
-        const [result, favorites, pl] = await Promise.all([
-          api.libraryGroups(kind),
+        const { data: result, changed } = await revalidateLibrary(key, (etag, options) =>
+          api.libraryGroupsIfChanged(kind, etag, options)
+        );
+        const [favorites, pl] = await Promise.all([
           api.favorites(kind),
           api.playlists(kind).catch(() => [])
         ]);
         if (cancelled) return;
-        setData(result);
+        // An unchanged library keeps the cached object, so skip the re-render.
+        if (changed || !paintedRef.current.data) {
+          paintedRef.current.data = result;
+          setData(result);
+        }
         setFavAlbums(new Set(favorites?.albums || []));
         setFavNames(new Set(favorites?.authorNames || []));
         setPlaylists(Array.isArray(pl) ? pl : []);
       } catch (err) {
-        if (!cancelled) setError(err.message || 'Could not load your library.');
+        // A cached library is still worth showing if the revalidation failed.
+        if (!cancelled && !paintedRef.current.data) {
+          setError(err.message || 'Could not load your library.');
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [kind, libraryVersion]);
+  }, [kind, user?.id, libraryVersion]);
 
   const toggleAlbumFavorite = useCallback(async (artist, album, nextValue) => {
     try {

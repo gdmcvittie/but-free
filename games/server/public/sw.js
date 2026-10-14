@@ -1,4 +1,5 @@
-const CACHE_NAME = 'freeplay-shell-v1';
+const SHELL_CACHE = 'freeplay-shell-v2';
+const THUMB_CACHE = 'freeplay-thumbs-v2';
 const PRECACHE_URLS = [
   '/manifest.webmanifest',
   '/favicon.svg',
@@ -7,8 +8,12 @@ const PRECACHE_URLS = [
   '/icon-512.png'
 ];
 
+// A shelf can scroll through hundreds of box arts; capping keeps the WebView's
+// storage bounded without evicting anything the current session is likely to need.
+const THUMB_MAX_ENTRIES = 400;
+
 async function precacheAppShell() {
-  const cache = await caches.open(CACHE_NAME);
+  const cache = await caches.open(SHELL_CACHE);
   const response = await fetch('/', { cache: 'reload' });
   if (!response.ok) throw new Error(`Could not fetch FREEPLAY shell (${response.status})`);
 
@@ -28,9 +33,30 @@ async function precacheAppShell() {
   }));
 }
 
+/**
+ * Box art sources.
+ *
+ * `/api/drive/file/:id` is a general Drive passthrough that also serves ROMs, so
+ * a response is only ever stored once it turns out to be an image - that keeps
+ * a multi-gigabyte ROM out of the thumbnail cache.
+ */
+function isThumbnail(url) {
+  return (
+    url.pathname.startsWith('/api/proxy-image') ||
+    /^\/api\/drive\/file\/[^/]+$/.test(url.pathname)
+  );
+}
+
+/** Drops the oldest entries once the cache outgrows its cap. */
+async function trimCache(cache, max) {
+  const keys = await cache.keys();
+  if (keys.length <= max) return;
+  await Promise.all(keys.slice(0, keys.length - max).map((key) => cache.delete(key)));
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
+    caches.open(SHELL_CACHE)
       .then((cache) => cache.addAll(PRECACHE_URLS))
       .then(precacheAppShell)
       .then(() => self.skipWaiting())
@@ -39,13 +65,20 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(
-        keys.filter((key) => key.startsWith('freeplay-') && key !== CACHE_NAME)
-          .map((key) => caches.delete(key))
-      ))
+    caches.keys().then((keys) => Promise.all(
+      keys
+        .filter((key) => key.startsWith('freeplay-') && key !== SHELL_CACHE && key !== THUMB_CACHE)
+        .map((key) => caches.delete(key))
+    ))
       .then(() => self.clients.claim())
   );
+});
+
+// Signing out must not leave the previous account's box art on disk.
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'purge-thumbs') {
+    event.waitUntil(caches.delete(THUMB_CACHE));
+  }
 });
 
 self.addEventListener('fetch', (event) => {
@@ -53,6 +86,38 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
+
+  // Box art: stale-while-revalidate. A cached image paints instantly and a
+  // changed one still updates, because the background revalidation costs a
+  // bodiless 304 when nothing moved.
+  if (url.origin === self.location.origin && isThumbnail(url)) {
+    event.respondWith(
+      caches.open(THUMB_CACHE).then((cache) =>
+        cache.match(request).then((cached) => {
+          const network = fetch(request)
+            .then((response) => {
+              const isImage = response
+                && response.ok
+                && (response.headers.get('Content-Type') || '').startsWith('image/');
+              if (isImage) {
+                const clone = response.clone();
+                cache.put(request, clone).then(() => trimCache(cache, THUMB_MAX_ENTRIES));
+              }
+              return response;
+            })
+            .catch(() => null);
+
+          if (cached) {
+            event.waitUntil(network);
+            return cached;
+          }
+          return network.then((response) => response || new Response('', { status: 504 }));
+        })
+      )
+    );
+    return;
+  }
+
   if (url.origin !== self.location.origin) return;
 
   // Auth, APIs, ROM streams, and downloadable packages must always go to the
@@ -69,7 +134,7 @@ self.addEventListener('fetch', (event) => {
       fetch(request).then((response) => {
         if (response.ok) {
           const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put('/', copy));
+          caches.open(SHELL_CACHE).then((cache) => cache.put('/', copy));
         }
         return response;
       }).catch(async () => {
@@ -98,7 +163,7 @@ self.addEventListener('fetch', (event) => {
         return fetch(request).then((response) => {
           if (response.ok) {
             const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+            caches.open(SHELL_CACHE).then((cache) => cache.put(request, copy));
           }
           return response;
         });

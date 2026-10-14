@@ -222,6 +222,33 @@ app.get('/api/drive/breadcrumbs/:folderId', async (req, res) => {
 // Library
 // =========================================================================
 
+/**
+ * Conditional GET for the big library payloads.
+ *
+ * The whole library serialises into one response, so on a slow connection that
+ * body is the bulk of a cold start. Express's own etag middleware would work,
+ * but it only runs once the body is built and would still hash it every time, so
+ * we serialise once, hash that string, and answer 304 without writing a byte
+ * when the client's copy is already current. The ETag is set explicitly, which
+ * also stops Express from hashing the body a second time.
+ */
+function sendCachedJson(req, res, payload) {
+  const body = JSON.stringify(payload);
+  const etag = `"${crypto.createHash('sha1').update(body).digest('base64url')}"`;
+
+  res.set('ETag', etag);
+  // "no-cache" still stores the response - it just insists on revalidating,
+  // which is what lets an unchanged library cost a 304 instead of a megabyte.
+  res.set('Cache-Control', 'private, no-cache');
+
+  if (req.headers['if-none-match'] === etag) {
+    return res.status(304).end();
+  }
+
+  res.type('application/json');
+  return res.send(body);
+}
+
 /** Full library for a kind, with progress/favourite flags attached. */
 app.get('/api/library', (req, res) => {
   const kind = req.query.kind === 'music' ? 'music' : 'audiobooks';
@@ -236,7 +263,7 @@ app.get('/api/library', (req, res) => {
     progress: progress[item.id] || null,
     favorite: favorites.has(item.id)
   }));
-  return res.json({
+  return sendCachedJson(req, res, {
     kind,
     items: decorated,
     books: kind === 'audiobooks' ? groupAudiobookItems(decorated) : undefined
@@ -396,7 +423,7 @@ app.get('/api/library/groups', (req, res) => {
       if (!entry._albums) entry._albums = new Set();
       if (!entry._albums.has(albumKey)) { entry._albums.add(albumKey); entry.albumCount += 1; }
     }
-    return res.json({
+    return sendCachedJson(req, res, {
       kind,
       items: decorated,
       albums: Array.from(albums.values()).map((a) => ({
@@ -443,7 +470,7 @@ app.get('/api/library/groups', (req, res) => {
     });
   }
 
-  return res.json({
+  return sendCachedJson(req, res, {
     kind,
     items: decorated,
     books,
@@ -723,6 +750,17 @@ app.get('/api/items/:id/cover', async (req, res) => {
     if (!built?.file || !fs.existsSync(built.file)) {
       throw new Error('Cover build produced no file.');
     }
+    // The cover lives on disk under a content-addressed name, so path + mtime +
+    // size identify it exactly. That makes revalidation a stat() instead of a
+    // re-read of the image on every grid scroll.
+    const stat = fs.statSync(built.file);
+    const etag = `"${crypto.createHash('sha1').update(`${built.file}:${stat.mtimeMs}:${stat.size}`).digest('base64url')}"`;
+    res.set('ETag', etag);
+    res.set('Cache-Control', 'private, max-age=604800');
+    if (req.headers['if-none-match'] === etag) {
+      return res.status(304).end();
+    }
+
 // buildCover falls back to an .svg placeholder, and embedded art can be
       // png/gif/webp, so derive the type from the cached file.
       const type = built.file.endsWith('.svg') ? 'image/svg+xml'
@@ -730,8 +768,7 @@ app.get('/api/items/:id/cover', async (req, res) => {
           : built.file.endsWith('.gif') ? 'image/gif'
             : built.file.endsWith('.webp') ? 'image/webp'
               : 'image/jpeg';
-    res.setHeader('Content-Type', type);
-    res.setHeader('Cache-Control', 'private, max-age=604800');
+      res.setHeader('Content-Type', type);
 
     const stream = fs.createReadStream(built.file);
     // A mid-flight read failure would otherwise leave the response hanging,

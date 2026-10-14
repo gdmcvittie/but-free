@@ -14,6 +14,7 @@ import TvPlayer from './components/TvPlayer.jsx';
 import SearchResults from './components/SearchResults.jsx';
 import InstallBanner from './components/InstallBanner.jsx';
 import { fetchCurrentUser, logoutUser } from './utils/auth.js';
+import { getLibraryOfflineEntry, saveLibraryOffline } from './utils/offlineStorage.js';
 
 function CloudAppContent() {
   const toast = useToast();
@@ -40,6 +41,9 @@ function CloudAppContent() {
   const notifiedJobsRef = useRef(new Set());
   const initialDownloadsLoadedRef = useRef(false);
   const lastLibraryUpdateRef = useRef(0);
+  // The catalogue is large, so a warm start paints the stored snapshot before
+  // the first network load and revalidates against its ETag afterwards.
+  const libraryCacheRef = useRef({ etag: null, painted: false });
 
   const requestNotificationPermission = async () => {
     if ('Notification' in window && Notification.permission === 'default') {
@@ -178,10 +182,34 @@ function CloudAppContent() {
   };
 
   const loadLibrary = async () => {
+    // First call of the session: show the stored catalogue straight away rather
+    // than an empty shelf while the network copy is in flight. Later calls are
+    // revalidations and must never replace live state with the snapshot.
+    if (!libraryCacheRef.current.painted) {
+      libraryCacheRef.current.painted = true;
+      try {
+        const entry = await getLibraryOfflineEntry();
+        if (entry.library) {
+          libraryCacheRef.current.etag = entry.etag;
+          setLibrary(entry.library);
+        }
+      } catch (_) {}
+    }
+
     try {
-      const res = await fetch('/api/ondemand');
+      const res = await fetch('/api/ondemand', {
+        cache: 'no-store',
+        headers: libraryCacheRef.current.etag
+          ? { 'If-None-Match': libraryCacheRef.current.etag }
+          : undefined
+      });
+      // The catalogue is unchanged, so the stored snapshot is still current.
+      if (res.status === 304) return;
       const data = await res.json();
-      setLibrary(data || { shows: {}, showsList: [], movies: [], continueWatching: [] });
+      if (!data) return;
+      setLibrary(data);
+      libraryCacheRef.current.etag = res.headers.get('ETag');
+      saveLibraryOffline(data, libraryCacheRef.current.etag);
     } catch (err) {
       console.error('Error loading library:', err);
     }
@@ -830,6 +858,10 @@ function CloudAppContent() {
         }}
         onScanComplete={(newLib) => {
           setLibrary(newLib);
+          // A scan changes the catalogue, so the stored ETag no longer
+          // describes it. Dropping it forces a full conditional fetch next time.
+          libraryCacheRef.current.etag = null;
+          saveLibraryOffline(newLib, null);
         }}
       />
     </div>

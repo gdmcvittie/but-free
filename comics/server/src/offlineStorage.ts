@@ -253,9 +253,12 @@ export async function isPageCachedOffline(comicId: any, pageNum: number): Promis
 }
 
 /**
- * Save library snapshot to offline store so user can browse library when offline
+ * Save library snapshot to offline store so user can browse library when offline.
+ *
+ * The server's ETag is kept alongside so the next load can revalidate with a
+ * bodiless 304 instead of pulling the whole shelf again.
  */
-export async function saveLibraryOffline(comics: any[]): Promise<void> {
+export async function saveLibraryOffline(comics: any[], etag?: string | null): Promise<void> {
   try {
     const db = await getOfflineDB();
     return new Promise((resolve, reject) => {
@@ -264,6 +267,7 @@ export async function saveLibraryOffline(comics: any[]): Promise<void> {
       const req = store.put({
         key: 'cached_library',
         comics,
+        etag: etag || null,
         savedAt: Date.now()
       });
       req.onsuccess = () => resolve();
@@ -276,6 +280,17 @@ export async function saveLibraryOffline(comics: any[]): Promise<void> {
  * Retrieve library snapshot from offline store
  */
 export async function getLibraryOffline(): Promise<any[]> {
+  return (await getLibraryOfflineEntry()).comics;
+}
+
+/**
+ * The stored snapshot plus its ETag, so callers can revalidate conditionally.
+ */
+export async function getLibraryOfflineEntry(): Promise<{
+  comics: any[];
+  etag: string | null;
+  savedAt: number | null;
+}> {
   try {
     const db = await getOfflineDB();
     return new Promise((resolve, reject) => {
@@ -284,15 +299,19 @@ export async function getLibraryOffline(): Promise<any[]> {
       const req = store.get('cached_library');
       req.onsuccess = () => {
         if (req.result && Array.isArray(req.result.comics)) {
-          resolve(req.result.comics);
+          resolve({
+            comics: req.result.comics,
+            etag: req.result.etag || null,
+            savedAt: req.result.savedAt || null
+          });
         } else {
-          resolve([]);
+          resolve({ comics: [], etag: null, savedAt: null });
         }
       };
       req.onerror = () => reject(req.error);
     });
   } catch {
-    return [];
+    return { comics: [], etag: null, savedAt: null };
   }
 }
 

@@ -12,6 +12,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
@@ -286,10 +287,34 @@ app.post('/api/settings/scan', requireLogin, async (req, res) => {
 // Comics Library & Reader Endpoints
 // =========================================================================
 
+/**
+ * Conditional GET for the library payload.
+ *
+ * The whole shelf serialises into one response, and a large collection makes
+ * that the slowest part of a cold start. Hashing the body once here is cheaper
+ * than re-parsing it on the device, and an unchanged shelf costs a bodiless 304
+ * instead of the full listing. Mirrors the pattern the page-image route uses.
+ */
+function sendCachedJson(req, res, payload) {
+  const body = JSON.stringify(payload);
+  const etag = `"${crypto.createHash('sha1').update(body).digest('base64url')}"`;
+
+  res.set('ETag', etag);
+  // "no-cache" still stores the response - it just insists on revalidating.
+  res.set('Cache-Control', 'private, no-cache');
+
+  if (req.headers['if-none-match'] === etag) {
+    return res.status(304).end();
+  }
+
+  res.type('application/json');
+  return res.send(body);
+}
+
 app.get('/api/comics', (req, res) => {
   const userId = req.user.id;
   const comics = Database.getUserComics(userId);
-  res.json(comics);
+  sendCachedJson(req, res, comics);
 });
 
 app.get('/api/library/series', (req, res) => {
@@ -424,17 +449,46 @@ function generateFallbackCoverSvg(title, series) {
   </svg>`;
 }
 
+/**
+ * Serves a cover that is already on disk.
+ *
+ * The cache path plus its mtime and size identify the image exactly, so a client
+ * that already has it can be answered with a bodiless 304 rather than a re-read
+ * of the file on every grid scroll.
+ */
+function sendCachedCoverFile(req, res, coverPath) {
+  let stat;
+  try {
+    stat = fs.statSync(coverPath);
+  } catch {
+    return res.status(404).end();
+  }
+  const etag = `"${crypto.createHash('sha1').update(`${coverPath}:${stat.mtimeMs}:${stat.size}`).digest('base64url')}"`;
+  res.setHeader('Content-Type', 'image/jpeg');
+  res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
+  res.setHeader('ETag', etag);
+  if (req.headers['if-none-match'] === etag) return res.status(304).end();
+  const stream = fs.createReadStream(coverPath);
+  stream.on('error', () => { if (!res.headersSent) res.status(404).end(); });
+  return stream.pipe(res);
+}
+
+/** Same idea for a cover we just built in memory, before it lands on disk. */
+function sendCoverBuffer(req, res, buffer, contentType = 'image/jpeg') {
+  const etag = `"${crypto.createHash('sha1').update(buffer).digest('base64url')}"`;
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
+  res.setHeader('ETag', etag);
+  if (req.headers['if-none-match'] === etag) return res.status(304).end();
+  return res.end(buffer);
+}
+
 app.get('/api/comics/:id/cover', async (req, res) => {
   const comicId = req.params.id;
   try {
     // 1. Check local disk cache directly first (<1ms response)
     if (CacheManager.hasCover(comicId)) {
-      const coverPath = CacheManager.getCoverCachePath(comicId);
-      res.setHeader('Content-Type', 'image/jpeg');
-      res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
-      const stream = fs.createReadStream(coverPath);
-      stream.on('error', () => { if (!res.headersSent) res.status(404).end(); });
-      return stream.pipe(res);
+      return sendCachedCoverFile(req, res, CacheManager.getCoverCachePath(comicId));
     }
 
     // Find comic metadata across users or current user
@@ -445,12 +499,7 @@ app.get('/api/comics/:id/cover', async (req, res) => {
 
     // 2. Check disk cover cache by googleFileId
     if (comic && comic.googleFileId && CacheManager.hasCover(comic.googleFileId)) {
-      const coverPath = CacheManager.getCoverCachePath(comic.googleFileId);
-      res.setHeader('Content-Type', 'image/jpeg');
-      res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
-      const stream = fs.createReadStream(coverPath);
-      stream.on('error', () => { if (!res.headersSent) res.status(404).end(); });
-      return stream.pipe(res);
+      return sendCachedCoverFile(req, res, CacheManager.getCoverCachePath(comic.googleFileId));
     }
 
     if (!comic) {
@@ -476,9 +525,7 @@ app.get('/api/comics/:id/cover', async (req, res) => {
           const thumbBuf = Buffer.from(await thumbRes.arrayBuffer());
           CacheManager.saveCoverBuffer(comicId, thumbBuf);
           if (comic.googleFileId) CacheManager.saveCoverBuffer(comic.googleFileId, thumbBuf);
-          res.setHeader('Content-Type', 'image/jpeg');
-          res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
-          return res.end(thumbBuf);
+          return sendCoverBuffer(req, res, thumbBuf);
         }
       } catch (e) {
         console.warn('[Cover] Error fetching thumbnail link:', e.message);
@@ -497,9 +544,7 @@ app.get('/api/comics/:id/cover', async (req, res) => {
       const cover = await GoogleDrive.getComicCover(user, comic);
       CacheManager.saveCoverBuffer(comicId, cover.data);
       if (comic.googleFileId) CacheManager.saveCoverBuffer(comic.googleFileId, cover.data);
-      res.setHeader('Content-Type', cover.mimeType);
-      res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
-      res.end(cover.data);
+      return sendCoverBuffer(req, res, cover.data, cover.mimeType);
     } finally {
       coverExtractionSemaphore.release();
     }

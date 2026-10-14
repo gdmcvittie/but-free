@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import LibraryView from './components/LibraryView';
 import DiscoverView from './components/DiscoverView';
@@ -10,7 +10,7 @@ import DrivePickerModal from './components/DrivePickerModal';
 import EmulatorModal from './components/EmulatorModal';
 import AuthModal from './components/AuthModal';
 import LoginGate from './components/LoginGate';
-import { fetchJson } from './utils/api';
+import { fetchJson, fetchJsonConditional } from './utils/api';
 import {
   cacheGameForOffline,
   isAndroidOfflineMode,
@@ -57,6 +57,9 @@ export default function App() {
   const [libraryConsole, setLibraryConsole] = useState('');
   const [games, setGames] = useState([]);
   const [loadingGames, setLoadingGames] = useState(false);
+  // Distinguishes "nothing on screen yet" from "a revalidation is running", so
+  // a cached shelf is only painted once instead of flickering on every refresh.
+  const hasGamesRef = useRef(false);
   const [isScanning, setIsScanning] = useState(false);
   const [isMobileLandscape1080, setIsMobileLandscape1080] = useState(checkMobileLandscape1080);
 
@@ -139,21 +142,37 @@ export default function App() {
 
   // Fetch games library
   const fetchGames = useCallback(async () => {
-    setLoadingGames(true);
+    const cached = loadOfflineLibrary();
+
     if (isAndroidOfflineMode()) {
-      const cached = loadOfflineLibrary();
       setGames(cached.games);
+      hasGamesRef.current = true;
       setLoadingGames(false);
       return;
     }
+
+    // Paint the previous session's shelf immediately. It is a big list and the
+    // revalidation below should never gate the first screen.
+    if (!hasGamesRef.current && cached.games.length > 0) {
+      hasGamesRef.current = true;
+      setGames(cached.games);
+      setLoadingGames(false);
+    } else {
+      setLoadingGames(true);
+    }
+
     try {
-      const data = await fetchJson('/api/games');
+      // Revalidate against the stored ETag, so an unchanged shelf costs a
+      // bodiless 304 and the list is neither re-parsed nor re-rendered.
+      const { data, etag, notModified } = await fetchJsonConditional('/api/games', cached.etag);
+      if (notModified) return;
       const nextGames = data.games || [];
+      hasGamesRef.current = true;
       setGames(nextGames);
-      saveOfflineLibrary(null, nextGames);
+      saveOfflineLibrary(null, nextGames, etag);
     } catch (err) {
       console.warn('[App] Could not load games:', err.message);
-      if (!navigator.onLine) setGames(loadOfflineLibrary().games);
+      if (!navigator.onLine || isAndroidOfflineMode()) setGames(loadOfflineLibrary().games);
     } finally {
       setLoadingGames(false);
     }

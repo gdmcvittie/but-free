@@ -5,6 +5,7 @@ import {
   getAllOfflineComics,
   saveLibraryOffline,
   getLibraryOffline,
+  getLibraryOfflineEntry,
   autoDownloadComicForOffline,
   getOfflineCoverUrl,
   getCachedOfflineCoverUrl,
@@ -502,12 +503,14 @@ export default function Library({
   // Load comics from backend with stale-while-revalidate and offline caching
   const fetchComics = useCallback(async () => {
     // If not already in memory, display cached comics from IndexedDB immediately in < 10ms
+    let cachedEtag: string | null = null;
     if (!memoryComicsCache || memoryComicsCache.length === 0) {
       try {
-        const offlineCached = await getLibraryOffline();
-        if (offlineCached && offlineCached.length > 0) {
-          memoryComicsCache = offlineCached;
-          setComics(offlineCached);
+        const entry = await getLibraryOfflineEntry();
+        cachedEtag = entry.etag;
+        if (entry.comics && entry.comics.length > 0) {
+          memoryComicsCache = entry.comics;
+          setComics(entry.comics);
           setLoading(false);
         } else {
           setLoading(true);
@@ -524,14 +527,23 @@ export default function Library({
     const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     try {
-      const res = await fetch(apiUrl('/api/comics'), { signal: controller.signal });
+      // Revalidate against the stored ETag: an unchanged shelf comes back as a
+      // bodiless 304, so we neither re-parse nor re-render the whole list.
+      const res = await fetch(apiUrl('/api/comics'), {
+        signal: controller.signal,
+        cache: 'no-store',
+        headers: cachedEtag ? { 'If-None-Match': cachedEtag } : undefined
+      });
       clearTimeout(timeoutId);
+      if (res.status === 304) {
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
           memoryComicsCache = data;
           setComics(data);
-          saveLibraryOffline(data);
+          saveLibraryOffline(data, res.headers.get('ETag'));
           return;
         }
       }

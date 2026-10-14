@@ -17,6 +17,7 @@ import Player from './Player';
 import DownloadBar from './DownloadBar';
 import CarMode from './CarMode';
 import { registerNativeCommands, pushNativeState, isCarConnected } from './nativeBridge';
+import { clearLibraryCache, purgeThumbnailCache } from './libraryCache';
 
 const AUDIOBOOK_FOLDERS = ['audiobooksFolderId', 'audiobooksFolderName'];
 
@@ -193,6 +194,10 @@ export default function App() {
       // means we should drop to the login gate.
     }
     try { localStorage.removeItem('fraudio.cachedUser'); } catch {}
+    // Cached covers are keyed by item id, so they belong to the account we are
+    // leaving. The IndexedDB library cache is already keyed per user.
+    purgeThumbnailCache();
+    clearLibraryCache();
     setUser(null);
     setIsAccountOpen(false);
     setQueue([]);

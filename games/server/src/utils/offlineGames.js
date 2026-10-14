@@ -2,6 +2,7 @@ const DB_NAME = 'Freeplay_OfflineGames_DB';
 const STORE_NAME = 'roms';
 const USER_KEY = 'freeplay.offline.user';
 const GAMES_KEY = 'freeplay.offline.games';
+const ETAG_KEY = 'freeplay.offline.games.etag';
 
 const pendingDownloads = new Map();
 
@@ -26,10 +27,15 @@ export function isAndroidOfflineMode() {
   return typeof window !== 'undefined' && window.FREEPLAY_ANDROID_OFFLINE === true;
 }
 
-export function saveOfflineLibrary(user, games) {
+export function saveOfflineLibrary(user, games, etag) {
   try {
     if (user) window.localStorage.setItem(USER_KEY, JSON.stringify(user));
     if (Array.isArray(games)) window.localStorage.setItem(GAMES_KEY, JSON.stringify(games));
+    // Only meaningful alongside a stored games list, so keep the two in step.
+    if (Array.isArray(games)) {
+      if (etag) window.localStorage.setItem(ETAG_KEY, etag);
+      else window.localStorage.removeItem(ETAG_KEY);
+    }
   } catch (err) {
     console.warn('[Offline] Could not save library metadata:', err.message);
   }
@@ -39,9 +45,13 @@ export function loadOfflineLibrary() {
   try {
     const user = JSON.parse(window.localStorage.getItem(USER_KEY) || 'null');
     const games = JSON.parse(window.localStorage.getItem(GAMES_KEY) || '[]');
-    return { user, games: Array.isArray(games) ? games : [] };
+    return {
+      user,
+      games: Array.isArray(games) ? games : [],
+      etag: window.localStorage.getItem(ETAG_KEY) || null
+    };
   } catch {
-    return { user: null, games: [] };
+    return { user: null, games: [], etag: null };
   }
 }
 
