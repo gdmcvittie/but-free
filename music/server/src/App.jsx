@@ -25,6 +25,14 @@ export default function App() {
   const [currentView, setCurrentView] = useState('whats-new');
   const [kind, setKindState] = useState(() => {
     try {
+      const savedSession = localStorage.getItem('fraudio.lastListening');
+      if (savedSession) {
+        const parsed = JSON.parse(savedSession);
+        if (parsed?.item) {
+          const isTrack = parsed.item.kind === 'track' && !parsed.item.author && !parsed.item.narrator && !parsed.item.isAudiobook;
+          return isTrack ? 'music' : 'audiobooks';
+        }
+      }
       const saved = localStorage.getItem('fraudio.activeSection') || localStorage.getItem('fraudio.activeKind');
       if (saved === 'audiobooks' || saved === 'music') return saved;
     } catch {
@@ -62,8 +70,37 @@ export default function App() {
   const runScanRef = useRef(null);
   const autoScannedRef = useRef(false);
 
-  const [queue, setQueue] = useState([]);
-  const [queueIndex, setQueueIndex] = useState(-1);
+  const [queue, setQueue] = useState(() => {
+    try {
+      const saved = localStorage.getItem('fraudio.lastListening');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed?.queue) && parsed.queue.length > 0) {
+          return parsed.queue;
+        }
+        if (parsed?.item) {
+          return [parsed.item];
+        }
+      }
+    } catch {}
+    return [];
+  });
+
+  const [queueIndex, setQueueIndex] = useState(() => {
+    try {
+      const saved = localStorage.getItem('fraudio.lastListening');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed?.queueIndex === 'number' && parsed.queueIndex >= 0) {
+          return parsed.queueIndex;
+        }
+        if (parsed?.item) {
+          return 0;
+        }
+      }
+    } catch {}
+    return -1;
+  });
   const activeItem = queueIndex >= 0 ? queue[queueIndex] || null : null;
 
   const bumpLibrary = useCallback(() => setLibraryVersion((v) => v + 1), []);
@@ -378,6 +415,9 @@ const handleFolderSelected = useCallback((folderKind, folderId, folderName) => {
     setQueue([]);
     setQueueIndex(-1);
     historyRef.current = [];
+    try {
+      localStorage.removeItem('fraudio.lastListening');
+    } catch {}
   }, []);
 
   // Route native (Android lock screen / notification / headset) transport

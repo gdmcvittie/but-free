@@ -641,8 +641,15 @@ const OmnibusManager = {
       };
       saveJobToDisk(job);
     } finally {
-      // Clean up temporary workspace directory
+      // Clean up temporary workspace directory and any downloaded temp archives
       try {
+        if (Array.isArray(cachedFilePaths)) {
+          for (const fp of cachedFilePaths) {
+            if (fp && fp.includes('comic_tmp_') && fs.existsSync(fp)) {
+              try { fs.unlinkSync(fp); } catch {}
+            }
+          }
+        }
         if (fs.existsSync(tempDir)) {
           fs.rmSync(tempDir, { recursive: true, force: true });
         }

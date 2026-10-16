@@ -27,7 +27,28 @@ function getCacheDir(sub = '') {
   return target;
 }
 
+function purgeOldComicCache() {
+  try {
+    const comicsDir = getCacheDir('comics');
+    if (fs.existsSync(comicsDir)) {
+      const files = fs.readdirSync(comicsDir);
+      for (const f of files) {
+        try {
+          fs.unlinkSync(path.join(comicsDir, f));
+        } catch (e) {}
+      }
+    }
+  } catch (err) {
+    console.warn('[Cache] Error during comic cache purge:', err.message);
+  }
+}
+
+// Purge server comic archive cache immediately on startup to reclaim disk space
+purgeOldComicCache();
+
 const CacheManager = {
+  purgeOldComicCache,
+
   getComicCachePath(googleFileId) {
     const comicsDir = getCacheDir('comics');
     const safeId = String(googleFileId || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -35,36 +56,18 @@ const CacheManager = {
   },
 
   hasComic(googleFileId) {
-    if (!googleFileId) return false;
-    const p = this.getComicCachePath(googleFileId);
-    return fs.existsSync(p) && fs.statSync(p).size > 0;
+    // Server should not cache comics to disk
+    return false;
   },
 
   saveComicStream(googleFileId, stream) {
-    const filePath = this.getComicCachePath(googleFileId);
-    const tempPath = `${filePath}.tmp`;
-    const out = fs.createWriteStream(tempPath);
-    return new Promise((resolve, reject) => {
-      stream.pipe(out);
-      out.on('finish', () => {
-        fs.renameSync(tempPath, filePath);
-        resolve(filePath);
-      });
-      out.on('error', (err) => {
-        try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (e) {}
-        reject(err);
-      });
-    });
+    // No-op: Do not download or cache comic files to server disk
+    return Promise.resolve(null);
   },
 
   saveComicBuffer(googleFileId, bufferOrPath) {
-    const filePath = this.getComicCachePath(googleFileId);
-    if (typeof bufferOrPath === 'string') {
-      fs.copyFileSync(bufferOrPath, filePath);
-    } else {
-      fs.writeFileSync(filePath, bufferOrPath);
-    }
-    return filePath;
+    // No-op: Do not download or cache comic files to server disk
+    return null;
   },
 
   getCoverCachePath(googleFileId) {

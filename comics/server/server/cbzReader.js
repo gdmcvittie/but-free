@@ -10,14 +10,12 @@ const MAX_PAGE_CACHE_ITEMS = 50;
 
 class CBZReader {
   /**
-   * Reads the End of Central Directory record from a ZIP buffer or file descriptor.
+   * Reads the End of Central Directory record from a buffer.
    */
-  static findEOCD(fd, fileSize) {
-    const maxRead = Math.min(fileSize, 65536 + 22);
-    const buf = Buffer.alloc(maxRead);
-    fs.readSync(fd, buf, 0, maxRead, fileSize - maxRead);
-
-    for (let i = maxRead - 22; i >= 0; i--) {
+  static findEOCDFromBuffer(buf) {
+    if (!buf || buf.length < 22) return null;
+    const len = buf.length;
+    for (let i = len - 22; i >= 0; i--) {
       if (buf.readUInt32LE(i) === 0x06054b50) {
         return {
           entryCount: buf.readUInt16LE(i + 10),
@@ -30,7 +28,104 @@ class CBZReader {
   }
 
   /**
-   * Parses the Central Directory of a ZIP file to extract all image file entries.
+   * Reads the End of Central Directory record from a ZIP file descriptor.
+   */
+  static findEOCD(fd, fileSize) {
+    const maxRead = Math.min(fileSize, 65536 + 22);
+    const buf = Buffer.alloc(maxRead);
+    fs.readSync(fd, buf, 0, maxRead, fileSize - maxRead);
+    return this.findEOCDFromBuffer(buf);
+  }
+
+  /**
+   * Parses Central Directory buffer into image entry records.
+   */
+  static parseCentralDirectory(cdBuf) {
+    const entries = [];
+    let offset = 0;
+    const totalLen = cdBuf.length;
+
+    while (offset < totalLen) {
+      if (offset + 46 > totalLen) break;
+      if (cdBuf.readUInt32LE(offset) !== 0x02014b50) break;
+
+      const compressionMethod = cdBuf.readUInt16LE(offset + 10);
+      const compressedSize = cdBuf.readUInt32LE(offset + 20);
+      const uncompressedSize = cdBuf.readUInt32LE(offset + 24);
+      const fileNameLength = cdBuf.readUInt16LE(offset + 28);
+      const extraFieldLength = cdBuf.readUInt16LE(offset + 30);
+      const fileCommentLength = cdBuf.readUInt16LE(offset + 32);
+      const localHeaderOffset = cdBuf.readUInt32LE(offset + 42);
+
+      const fileName = cdBuf.toString('utf8', offset + 46, offset + 46 + fileNameLength);
+      offset += 46 + fileNameLength + extraFieldLength + fileCommentLength;
+
+      // Ignore MacOS metadata and non-image files
+      if (fileName.includes('__MACOSX') || fileName.endsWith('/')) continue;
+      const ext = path.extname(fileName).toLowerCase();
+      if (!['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'].includes(ext)) continue;
+
+      entries.push({
+        fileName,
+        compressionMethod,
+        compressedSize,
+        uncompressedSize,
+        localHeaderOffset
+      });
+    }
+
+    // Sort entries naturally (page 1, 2, 10 instead of 1, 10, 2)
+    entries.sort((a, b) =>
+      a.fileName.localeCompare(b.fileName, undefined, { numeric: true, sensitivity: 'base' })
+    );
+
+    return entries;
+  }
+
+  /**
+   * Decompresses an image entry directly from a buffer starting at its local header offset.
+   */
+  static extractPageFromLocalHeader(buf, compressionMethod, compressedSize, fileName = 'page.jpg', pageIndex = 1, totalPages = 1) {
+    if (buf.length < 30 || buf.readUInt32LE(0) !== 0x04034b50) {
+      throw new Error(`Invalid local header for entry: ${fileName}`);
+    }
+
+    const fnLen = buf.readUInt16LE(26);
+    const extraLen = buf.readUInt16LE(28);
+    const dataOffset = 30 + fnLen + extraLen;
+
+    if (buf.length < dataOffset + compressedSize) {
+      throw new Error(`Truncated page data for: ${fileName}`);
+    }
+
+    const compressedBuf = buf.subarray(dataOffset, dataOffset + compressedSize);
+
+    let decompressed;
+    if (compressionMethod === 0) {
+      decompressed = compressedBuf;
+    } else if (compressionMethod === 8) {
+      decompressed = zlib.inflateRawSync(compressedBuf);
+    } else {
+      throw new Error(`Unsupported compression method: ${compressionMethod}`);
+    }
+
+    const ext = path.extname(fileName).toLowerCase();
+    let mimeType = 'image/jpeg';
+    if (ext === '.png') mimeType = 'image/png';
+    else if (ext === '.webp') mimeType = 'image/webp';
+    else if (ext === '.gif') mimeType = 'image/gif';
+
+    return {
+      data: decompressed,
+      mimeType,
+      fileName: path.basename(fileName),
+      pageIndex,
+      totalPages
+    };
+  }
+
+  /**
+   * Parses the Central Directory of a ZIP file on disk to extract all image file entries.
    */
   static getArchiveEntries(filePath) {
     if (!fs.existsSync(filePath)) {
@@ -53,42 +148,7 @@ class CBZReader {
       const cdBuf = Buffer.alloc(eocd.centralDirSize);
       fs.readSync(fd, cdBuf, 0, eocd.centralDirSize, eocd.centralDirOffset);
 
-      const entries = [];
-      let offset = 0;
-
-      while (offset < eocd.centralDirSize) {
-        if (cdBuf.readUInt32LE(offset) !== 0x02014b50) break;
-
-        const compressionMethod = cdBuf.readUInt16LE(offset + 10);
-        const compressedSize = cdBuf.readUInt32LE(offset + 20);
-        const uncompressedSize = cdBuf.readUInt32LE(offset + 24);
-        const fileNameLength = cdBuf.readUInt16LE(offset + 28);
-        const extraFieldLength = cdBuf.readUInt16LE(offset + 30);
-        const fileCommentLength = cdBuf.readUInt16LE(offset + 32);
-        const localHeaderOffset = cdBuf.readUInt32LE(offset + 42);
-
-        const fileName = cdBuf.toString('utf8', offset + 46, offset + 46 + fileNameLength);
-        offset += 46 + fileNameLength + extraFieldLength + fileCommentLength;
-
-        // Ignore MacOS metadata and non-image files
-        if (fileName.includes('__MACOSX') || fileName.endsWith('/')) continue;
-        const ext = path.extname(fileName).toLowerCase();
-        if (!['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'].includes(ext)) continue;
-
-        entries.push({
-          fileName,
-          compressionMethod,
-          compressedSize,
-          uncompressedSize,
-          localHeaderOffset
-        });
-      }
-
-      // Sort entries naturally (page 1, 2, 10 instead of 1, 10, 2)
-      entries.sort((a, b) =>
-        a.fileName.localeCompare(b.fileName, undefined, { numeric: true, sensitivity: 'base' })
-      );
-
+      const entries = this.parseCentralDirectory(cdBuf);
       archiveEntryCache.set(filePath, { entries, mtimeMs: stat.mtimeMs });
       return entries;
     } finally {

@@ -15,7 +15,15 @@ import {
 import { api } from './api';
 import { formatDuration, stripTrackNumber } from './format';
 import { pushNativeState } from './nativeBridge';
-import { getOfflineAudioUrl, getOfflineCoverUrl, saveOfflineProgress, getOfflineProgress } from './offlineStorage';
+import {
+  getOfflineAudioUrl,
+  getOfflineCoverUrl,
+  saveOfflineProgress,
+  getOfflineProgress,
+  isItemOffline,
+  downloadTrack,
+  downloadBook
+} from './offlineStorage';
 import NowPlayingView from './NowPlayingView';
 import { RATES, getSavedAudiobookRateIndex, saveAudiobookRateIndex } from './audiobookSettings';
 
@@ -118,17 +126,99 @@ export default function Player({
   // Last position we successfully told the server about.
   const savedAtRef = useRef(0);
   const itemRef = useRef(item);
+  const queueRef = useRef(queue);
+  const queueIndexRef = useRef(queueIndex);
+  const playTriggerRef = useRef(playTrigger);
+  const lastSessionPersistRef = useRef(0);
 
-  // Keep the ref pointing at the current item without reading refs during render.
+  // Keep refs pointing at current props without reading during render.
   useEffect(() => {
     itemRef.current = item;
   }, [item]);
+  useEffect(() => {
+    queueRef.current = queue;
+  }, [queue]);
+  useEffect(() => {
+    queueIndexRef.current = queueIndex;
+  }, [queueIndex]);
+  useEffect(() => {
+    playTriggerRef.current = playTrigger;
+  }, [playTrigger]);
+
+  // Save current listening item and exact progress to localStorage
+  const persistSessionState = useCallback((pos) => {
+    if (!itemRef.current?.id) return;
+    try {
+      const positionSec = typeof pos === 'number'
+        ? Math.floor(pos)
+        : (audioRef.current ? Math.floor(audioRef.current.currentTime) : 0);
+      const state = {
+        item: itemRef.current,
+        queue: queueRef.current?.length ? queueRef.current : [itemRef.current],
+        queueIndex: queueIndexRef.current >= 0 ? queueIndexRef.current : 0,
+        positionSec,
+        savedAt: Date.now()
+      };
+      localStorage.setItem('fraudio.lastListening', JSON.stringify(state));
+    } catch {}
+  }, []);
+
+  // Automatically download and cache audiobooks the user is listening to
+  useEffect(() => {
+    if (!item?.id) return;
+    const isAudiobook = item.kind !== 'track' || Boolean(item.author || item.narrator || item.isAudiobook);
+    if (!isAudiobook) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const alreadyOffline = await isItemOffline(item.id);
+        if (!alreadyOffline && !cancelled) {
+          await downloadTrack(item);
+          if (!cancelled) {
+            const offlineAudio = await getOfflineAudioUrl(item.id);
+            if (!cancelled && offlineAudio) setAudioSrc(offlineAudio);
+            const offlineCover = await getOfflineCoverUrl(item.id);
+            if (!cancelled && offlineCover) setCoverSrc(offlineCover);
+          }
+        }
+
+        // Also pre-cache companion chapters in queue if listening to a book
+        const currentQueue = queueRef.current;
+        if (Array.isArray(currentQueue) && currentQueue.length > 1) {
+          for (const companion of currentQueue) {
+            if (cancelled) break;
+            if (!companion?.id || companion.id === item.id) continue;
+            const compOffline = await isItemOffline(companion.id);
+            if (!compOffline && !cancelled) {
+              await downloadTrack(companion).catch(() => {});
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[Player] Audiobook background cache note:', err.message);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [item.id]);
 
   // Reset per-item state and look up the saved position.
   useEffect(() => {
-    resumeAtRef.current = 0;
-    savedAtRef.current = 0;
-    setPosition(0);
+    let initialSavedSec = 0;
+    try {
+      const savedSession = localStorage.getItem('fraudio.lastListening');
+      if (savedSession) {
+        const parsed = JSON.parse(savedSession);
+        if (parsed?.item?.id === item.id && parsed.positionSec > 0) {
+          initialSavedSec = parsed.positionSec;
+        }
+      }
+    } catch {}
+
+    resumeAtRef.current = initialSavedSec;
+    savedAtRef.current = initialSavedSec;
+    setPosition(initialSavedSec);
     setPlaying(false);
     setError(null);
     setScrubPosition(null);
@@ -144,16 +234,18 @@ export default function Player({
         const all = await api.progress();
         if (cancelled) return;
         const saved = all?.[item.id];
-        if (saved && saved.positionSec > 5) {
+        if (saved && saved.positionSec > 0) {
           resumeAtRef.current = saved.positionSec;
           savedAtRef.current = saved.positionSec;
+          setPosition(saved.positionSec);
         }
       } catch {
         // Resume from offline storage if offline
         const offlineProg = await getOfflineProgress(item.id);
-        if (!cancelled && offlineProg && offlineProg.positionSec > 5) {
+        if (!cancelled && offlineProg && offlineProg.positionSec > 0) {
           resumeAtRef.current = offlineProg.positionSec;
           savedAtRef.current = offlineProg.positionSec;
+          setPosition(offlineProg.positionSec);
         }
       }
     })();
@@ -178,6 +270,7 @@ export default function Player({
     const positionSec = Math.floor(audio.currentTime);
     if (positionSec < 1) return;
     savedAtRef.current = positionSec;
+    persistSessionState(positionSec);
     const body = JSON.stringify({
       itemId: itemRef.current.id,
       positionSec,
@@ -196,7 +289,7 @@ export default function Player({
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [persistSessionState]);
 
   // Media element wiring.
   useEffect(() => {
@@ -212,12 +305,23 @@ export default function Player({
       }
       if (resumeAtRef.current > 0 && resumeAtRef.current < (audio.duration || Infinity)) {
         audio.currentTime = resumeAtRef.current;
+        setPosition(resumeAtRef.current);
         resumeAtRef.current = 0;
       }
-      audio.play().catch(() => setPlaying(false));
+      // Only auto-play if play was triggered by an explicit user action
+      if (playTriggerRef.current > 0) {
+        audio.play().catch(() => setPlaying(false));
+      }
     };
 
-    const handleTimeUpdate = () => setPosition(audio.currentTime);
+    const handleTimeUpdate = () => {
+      const cur = audio.currentTime;
+      setPosition(cur);
+      if (Math.abs(cur - (lastSessionPersistRef.current || 0)) >= 3) {
+        lastSessionPersistRef.current = cur;
+        persistSessionState(cur);
+      }
+    };
     const handlePlay = () => {
       const isAudiobook = itemRef.current.kind !== 'track';
       const targetRate = isAudiobook ? RATES[getSavedAudiobookRateIndex()] : 1.0;
@@ -228,6 +332,7 @@ export default function Player({
     };
     const handlePause = () => {
       setPlaying(false);
+      persistSessionState(audio.currentTime);
       // Pausing (button, lock screen, headset, focus loss) is the last moment
       // we reliably own before playback can be abandoned - checkpoint it.
       persistKeepalive();
@@ -318,28 +423,28 @@ export default function Player({
   // switch), before timers get throttled and before the OS can kill us.
   useEffect(() => {
     const flush = () => {
-      const audio = audioRef.current;
-      if (audio && !audio.paused) persistKeepalive();
+      persistKeepalive();
     };
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') flush();
     };
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('pagehide', flush);
+    window.addEventListener('beforeunload', flush);
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', flush);
+      window.removeEventListener('beforeunload', flush);
     };
   }, [persistKeepalive]);
 
   // Checkpoint on unmount. `keepalive` lets the write finish during navigation.
   useEffect(() => {
-    const audio = audioRef.current;
-    const currentId = itemRef.current.id;
-
     return () => {
+      const audio = audioRef.current;
       if (!audio) return;
       const positionSec = Math.floor(audio.currentTime);
+      persistSessionState(positionSec);
       if (positionSec < 2) return;
       try {
         fetch(api.apiUrl('/api/progress'), {

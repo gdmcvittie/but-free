@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
 const GoogleAuth = require('./googleAuth');
@@ -12,6 +13,9 @@ const ComicCompressor = require('./comicCompressor');
 const activeDownloads = new Map();
 // In-flight cover extraction deduplication: googleFileId -> Promise<{ data, mimeType }>
 const activeCoverRequests = new Map();
+// In-memory cache for ZIP entries parsed via Range requests: googleFileId -> { entries, totalPages, fileSize }
+const driveEntriesCache = new Map();
+const MAX_DRIVE_ENTRIES_CACHE = 200;
 
 /**
  * Google Drive API v3 Integration:
@@ -548,86 +552,212 @@ const GoogleDrive = {
   },
 
   /**
-   * Downloads a comic file from Google Drive into the local cache if not already cached.
-   * Streams directly to disk to keep RAM usage under 100KB, preventing 503 errors on shared hosting.
-   * Deduplicates concurrent requests for the same comic.
+   * Fetches the file size of a Google Drive file via metadata.
+   */
+  async getDriveFileSize(user, googleFileId) {
+    const accessToken = await GoogleAuth.getValidAccessToken(user);
+    const metaRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${googleFileId}?fields=size`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    if (!metaRes.ok) {
+      throw new Error(`Failed to get Google Drive file size: HTTP ${metaRes.status}`);
+    }
+    const meta = await metaRes.json();
+    const size = parseInt(meta.size, 10);
+    if (!size || isNaN(size)) {
+      throw new Error('Could not determine remote file size');
+    }
+    return size;
+  },
+
+  /**
+   * Performs an HTTP Range request against a Google Drive file.
+   */
+  async fetchDriveRange(user, googleFileId, start, end) {
+    const accessToken = await GoogleAuth.getValidAccessToken(user);
+    const downloadUrl = `https://www.googleapis.com/drive/v3/files/${googleFileId}?alt=media`;
+    const res = await fetch(downloadUrl, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Range: `bytes=${start}-${end}`
+      }
+    });
+    if (!res.ok && res.status !== 206) {
+      throw new Error(`Range request [${start}-${end}] returned HTTP ${res.status}`);
+    }
+    const arrayBuf = await res.arrayBuffer();
+    return Buffer.from(arrayBuf);
+  },
+
+  /**
+   * Reads ZIP archive entries from Google Drive using Range requests.
+   * Completely avoids downloading the full archive to server disk.
+   */
+  async readDriveZipEntries(user, googleFileId) {
+    const cached = driveEntriesCache.get(googleFileId);
+    if (cached) return cached;
+
+    const fileSize = await this.getDriveFileSize(user, googleFileId);
+
+    // Fetch last 65558 bytes to locate EOCD record
+    const tailReadLen = Math.min(fileSize, 65536 + 22);
+    const tailStart = fileSize - tailReadLen;
+    const tailBuf = await this.fetchDriveRange(user, googleFileId, tailStart, fileSize - 1);
+
+    const eocd = CBZReader.findEOCDFromBuffer(tailBuf);
+    if (!eocd) {
+      throw new Error('Not a valid ZIP/CBZ archive (EOCD signature not found)');
+    }
+
+    // Fetch Central Directory
+    const cdBuf = await this.fetchDriveRange(
+      user,
+      googleFileId,
+      eocd.centralDirOffset,
+      eocd.centralDirOffset + eocd.centralDirSize - 1
+    );
+
+    const entries = CBZReader.parseCentralDirectory(cdBuf);
+    if (!entries.length) {
+      throw new Error('No readable comic pages found in archive');
+    }
+
+    const result = {
+      fileSize,
+      totalPages: entries.length,
+      entries
+    };
+
+    if (driveEntriesCache.size >= MAX_DRIVE_ENTRIES_CACHE) {
+      const firstKey = driveEntriesCache.keys().next().value;
+      if (firstKey) driveEntriesCache.delete(firstKey);
+    }
+    driveEntriesCache.set(googleFileId, result);
+
+    return result;
+  },
+
+  /**
+   * Extracts a single page image from Google Drive via Range request.
+   * Does NOT write anything to the server disk.
+   */
+  async readDriveZipPage(user, googleFileId, pageNum) {
+    const archiveInfo = await this.readDriveZipEntries(user, googleFileId);
+    const { entries, totalPages, fileSize } = archiveInfo;
+
+    if (pageNum < 1 || pageNum > entries.length) {
+      throw new Error(`Page index ${pageNum} out of bounds (1 - ${entries.length})`);
+    }
+
+    const entry = entries[pageNum - 1];
+
+    // Read the local file header + compressed data in a single targeted Range request
+    const headerLeadBytes = 1024;
+    const rangeStart = entry.localHeaderOffset;
+    const rangeEnd = Math.min(
+      fileSize - 1,
+      entry.localHeaderOffset + 30 + headerLeadBytes + entry.compressedSize
+    );
+
+    let pageRangeBuf = await this.fetchDriveRange(user, googleFileId, rangeStart, rangeEnd);
+
+    if (pageRangeBuf.length < 30) {
+      throw new Error(`Truncated local header for page ${pageNum}`);
+    }
+
+    const fnLen = pageRangeBuf.readUInt16LE(26);
+    const extraLen = pageRangeBuf.readUInt16LE(28);
+    const dataOffset = 30 + fnLen + extraLen;
+
+    if (pageRangeBuf.length < dataOffset + entry.compressedSize) {
+      pageRangeBuf = await this.fetchDriveRange(
+        user,
+        googleFileId,
+        entry.localHeaderOffset,
+        entry.localHeaderOffset + dataOffset + entry.compressedSize - 1
+      );
+    }
+
+    return CBZReader.extractPageFromLocalHeader(
+      pageRangeBuf,
+      entry.compressionMethod,
+      entry.compressedSize,
+      entry.fileName,
+      pageNum,
+      totalPages
+    );
+  },
+
+  /**
+   * Legacy helper: downloads temporary comic archive only when strictly necessary (e.g. omnibus repacking),
+   * storing in OS temp folder rather than server cache.
    */
   async ensureComicCached(user, googleFileId) {
     if (!googleFileId) {
       throw new Error('Missing Google Drive file ID');
     }
 
-    if (CacheManager.hasComic(googleFileId)) {
-      return CacheManager.getComicCachePath(googleFileId);
+    const tempPath = path.join(os.tmpdir(), `comic_tmp_${googleFileId.replace(/[^a-zA-Z0-9_-]/g, '_')}.cbz`);
+    if (fs.existsSync(tempPath) && fs.statSync(tempPath).size > 0) {
+      return tempPath;
     }
 
-    if (activeDownloads.has(googleFileId)) {
-      return activeDownloads.get(googleFileId);
+    const accessToken = await GoogleAuth.getValidAccessToken(user);
+    const downloadUrl = `https://www.googleapis.com/drive/v3/files/${googleFileId}?alt=media`;
+
+    const res = await fetch(downloadUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+
+    if (!res.ok) {
+      throw new Error(`Google Drive download failed: HTTP ${res.status}`);
     }
 
-    const downloadPromise = (async () => {
-      let tempPath = null;
-      let fileStream = null;
-      try {
-        const accessToken = await GoogleAuth.getValidAccessToken(user);
-        const downloadUrl = `https://www.googleapis.com/drive/v3/files/${googleFileId}?alt=media`;
+    const fileStream = fs.createWriteStream(tempPath);
+    if (res.body.pipe) {
+      await pipeline(res.body, fileStream);
+    } else if (Readable.fromWeb) {
+      await pipeline(Readable.fromWeb(res.body), fileStream);
+    } else {
+      const arrayBuf = await res.arrayBuffer();
+      fs.writeFileSync(tempPath, Buffer.from(arrayBuf));
+    }
 
-        const res = await fetch(downloadUrl, {
-          headers: { Authorization: `Bearer ${accessToken}` }
-        });
-
-        if (!res.ok) {
-          throw new Error(`Google Drive download failed: HTTP ${res.status}`);
-        }
-
-        const finalPath = CacheManager.getComicCachePath(googleFileId);
-        tempPath = `${finalPath}.part_${Date.now()}`;
-
-        // Stream directly to disk using minimal memory (<100KB)
-        fileStream = fs.createWriteStream(tempPath);
-        if (res.body.pipe) {
-          await pipeline(res.body, fileStream);
-        } else if (Readable.fromWeb) {
-          await pipeline(Readable.fromWeb(res.body), fileStream);
-        } else {
-          const arrayBuf = await res.arrayBuffer();
-          fs.writeFileSync(tempPath, Buffer.from(arrayBuf));
-        }
-
-        fs.renameSync(tempPath, finalPath);
-        return finalPath;
-      } catch (err) {
-        if (fileStream) {
-          try { fileStream.destroy(); } catch (e) {}
-        }
-        if (tempPath && fs.existsSync(tempPath)) {
-          try { fs.unlinkSync(tempPath); } catch (e) {}
-        }
-        console.error(`[GoogleDrive] Error downloading comic ${googleFileId}:`, err.message);
-        throw err;
-      } finally {
-        activeDownloads.delete(googleFileId);
-      }
-    })();
-
-    activeDownloads.set(googleFileId, downloadPromise);
-    return downloadPromise;
+    return tempPath;
   },
 
   /**
-   * Returns comic page list from Google Drive file.
+   * Returns comic page list from Google Drive file or local archive without caching to server disk.
    */
   async getComicPages(user, comic) {
-    const cachedPath = await this.ensureComicCached(user, comic.googleFileId);
-    return CBZReader.getPageList(cachedPath);
+    if (comic.filepath && fs.existsSync(comic.filepath)) {
+      return CBZReader.getPageList(comic.filepath);
+    }
+    if (!comic.googleFileId) {
+      throw new Error('Comic has no valid file source');
+    }
+    const archiveInfo = await this.readDriveZipEntries(user, comic.googleFileId);
+    return {
+      totalPages: archiveInfo.totalPages,
+      pages: archiveInfo.entries.map((e, idx) => ({
+        index: idx + 1,
+        fileName: path.basename(e.fileName)
+      }))
+    };
   },
 
   /**
-   * Extracts a specific page image from the comic file.
+   * Extracts a specific page image from the comic file without caching to server disk.
    */
   async getComicPage(user, comic, pageNum) {
-    const cachedPath = await this.ensureComicCached(user, comic.googleFileId);
-    return CBZReader.extractPage(cachedPath, pageNum);
+    if (comic.filepath && fs.existsSync(comic.filepath)) {
+      return CBZReader.extractPage(comic.filepath, pageNum);
+    }
+    if (!comic.googleFileId) {
+      throw new Error('Comic has no valid file source');
+    }
+    return this.readDriveZipPage(user, comic.googleFileId, pageNum);
   },
 
   /**
@@ -668,7 +798,7 @@ const GoogleDrive = {
 
   /**
    * Retrieves or generates the cover image for a comic.
-   * Prioritizes fast 2MB range extraction to prevent 503 timeouts on shared hosting.
+   * Prioritizes fast range extraction to prevent timeouts and avoid caching archives on server disk.
    */
   async getComicCover(user, comic) {
     const fileId = comic.googleFileId || comic.id;
@@ -687,15 +817,13 @@ const GoogleDrive = {
 
     const coverPromise = (async () => {
       try {
-        // 2. If the full comic archive is already cached locally, extract page 1 from it (<5ms)
-        if (comic.googleFileId && CacheManager.hasComic(comic.googleFileId)) {
-          const cachedPath = CacheManager.getComicCachePath(comic.googleFileId);
-          const page1 = CBZReader.extractPage(cachedPath, 1);
+        if (comic.filepath && fs.existsSync(comic.filepath)) {
+          const page1 = CBZReader.extractPage(comic.filepath, 1);
           CacheManager.saveCoverBuffer(fileId, page1.data);
           return { data: page1.data, mimeType: page1.mimeType };
         }
 
-        // 3. Fast Range extraction: Download only the first ~2MB to extract the cover in ~200ms
+        // 2. Fast Range extraction: Download only the first ~2MB to extract the cover in ~200ms
         if (comic.googleFileId) {
           try {
             const rangeCover = await this.extractCoverViaRange(user, comic.googleFileId);
@@ -708,10 +836,9 @@ const GoogleDrive = {
           }
         }
 
-        // 4. Fallback: Full comic download if range extraction wasn't possible
+        // 3. Fallback: Range-based page 1 extraction without downloading full archive
         if (comic.googleFileId) {
-          const cachedPath = await this.ensureComicCached(user, comic.googleFileId);
-          const page1 = CBZReader.extractPage(cachedPath, 1);
+          const page1 = await this.readDriveZipPage(user, comic.googleFileId, 1);
           CacheManager.saveCoverBuffer(fileId, page1.data);
           return { data: page1.data, mimeType: page1.mimeType };
         }
@@ -949,20 +1076,18 @@ const GoogleDrive = {
       }
     }
 
-    // Cache the uploaded comic locally immediately for fast reading
-    CacheManager.saveComicBuffer(uploadData.id, fileBuffer);
-
-    // Obtain the 512px cover thumbnail
+    // Obtain total pages and cover thumbnail without saving the archive to persistent server cache
     let coverJpeg = providedCoverJpeg;
     let page1Data = null;
     let totalPages = 0;
+    const tempInspectPath = path.join(os.tmpdir(), `inspect_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.cbz`);
 
     try {
-      const cachedPath = CacheManager.getComicCachePath(uploadData.id);
-      const pageList = CBZReader.getPageList(cachedPath);
+      fs.writeFileSync(tempInspectPath, fileBuffer);
+      const pageList = CBZReader.getPageList(tempInspectPath);
       totalPages = pageList.totalPages || 0;
       if (!coverJpeg) {
-        const page1 = CBZReader.extractPage(cachedPath, 1);
+        const page1 = CBZReader.extractPage(tempInspectPath, 1);
         if (page1 && page1.data) {
           page1Data = page1.data;
           coverJpeg = await ComicCompressor.makeCoverJpeg(page1.data, { maxHeight: 512, quality: 85 });
@@ -970,6 +1095,10 @@ const GoogleDrive = {
       }
     } catch (e) {
       console.warn('[Upload] Page inspection note:', e.message);
+    } finally {
+      try {
+        if (fs.existsSync(tempInspectPath)) fs.unlinkSync(tempInspectPath);
+      } catch {}
     }
 
     if (!coverJpeg) {

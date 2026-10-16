@@ -90,13 +90,12 @@ export default function WhatsNew({ user, libraryVersion, onOpenDrivePicker, onNa
     }
     try {
       await api.startDownload(item.url, releaseDetail || null);
-      notify('Download started', item.title);
+      notify('Added to download queue', item.title);
       closeDetail();
-      onNavigate('downloads');
     } catch (err) {
       notify('Could not start download', err.message, true);
     }
-  }, [hasAudiobooksFolder, notify, onNavigate, onOpenDrivePicker, closeDetail]);
+  }, [hasAudiobooksFolder, notify, onOpenDrivePicker, closeDetail]);
 
   const markSeen = useCallback(async (ids) => {
     try {

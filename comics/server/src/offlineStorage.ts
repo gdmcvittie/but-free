@@ -245,6 +245,55 @@ export async function getOfflinePageUrl(comicId: any, pageNum: number): Promise<
 }
 
 /**
+ * Loads all cached page object URLs for a comic in a single pass.
+ */
+export async function getCachedComicPageUrls(comicId: any): Promise<Record<number, string>> {
+  try {
+    const db = await getOfflineDB();
+    if (!db.objectStoreNames.contains('pages')) return {};
+    const idVariants = [comicId];
+    if (typeof comicId === 'string' && !isNaN(Number(comicId))) {
+      idVariants.push(Number(comicId));
+    } else if (typeof comicId === 'number') {
+      idVariants.push(String(comicId));
+    }
+
+    const result: Record<number, string> = {};
+    for (const idVar of idVariants) {
+      await new Promise<void>((resolve) => {
+        try {
+          const tx = db.transaction('pages', 'readonly');
+          const store = tx.objectStore('pages');
+          const index = store.index('comicId');
+          const req = index.getAll(IDBKeyRange.only(idVar));
+          req.onsuccess = () => {
+            const pages = req.result || [];
+            for (const p of pages) {
+              if (p && p.blob && p.pageNum) {
+                const key = `${comicId}_${p.pageNum}`;
+                let url = pageObjectUrls.get(key);
+                if (!url) {
+                  url = URL.createObjectURL(p.blob);
+                  pageObjectUrls.set(key, url);
+                }
+                result[p.pageNum] = url;
+              }
+            }
+            resolve();
+          };
+          req.onerror = () => resolve();
+        } catch {
+          resolve();
+        }
+      });
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Check if a specific page is cached offline
  */
 export async function isPageCachedOffline(comicId: any, pageNum: number): Promise<boolean> {

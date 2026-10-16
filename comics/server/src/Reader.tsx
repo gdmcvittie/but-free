@@ -4,6 +4,7 @@ import { apiUrl } from './api';
 import {
   autoDownloadComicForOffline,
   getOfflinePageUrl,
+  getCachedComicPageUrls,
   getOfflineComic,
   getCachedOfflinePageUrl,
   deleteOfflineComic
@@ -643,10 +644,19 @@ export default function Reader({ comic, currentProfile: propProfile, user, onClo
     }
   }, [comic?.id, currentPage, persistProgress]);
 
-  // Automatically download comic pages for offline reading when opened (unless already completed)
+  // Immediately load any cached offline page URLs from IndexedDB for instant display
+  useEffect(() => {
+    if (!comic?.id) return;
+    getCachedComicPageUrls(comic.id).then((cachedMap) => {
+      if (cachedMap && Object.keys(cachedMap).length > 0) {
+        setOfflinePageUrls((prev) => ({ ...prev, ...cachedMap }));
+      }
+    }).catch(() => {});
+  }, [comic?.id]);
+
+  // Automatically download and cache comic on device when opened for reading
   useEffect(() => {
     if (!comic?.id || totalPages <= 0) return;
-    if (currentPage >= totalPages) return;
     const cancelDownload = autoDownloadComicForOffline(comic, totalPages, (downloaded, total, isComplete) => {
       setOfflineStatus({ downloaded, total, isComplete });
     });
@@ -656,24 +666,6 @@ export default function Reader({ comic, currentProfile: propProfile, user, onClo
       cancelDownloadRef.current = null;
     };
   }, [comic?.id, totalPages]);
-
-  // When a comic downloaded for offline reading is completed, automatically delete it from offline storage
-  useEffect(() => {
-    if (!comic?.id || totalPages <= 0) return;
-    const isCompleted = currentPage >= totalPages && (!splitSpreads || !widePages[currentPage]?.isWide || subPage === 1);
-    if (isCompleted && !hasDeletedOfflineRef.current) {
-      hasDeletedOfflineRef.current = true;
-      if (cancelDownloadRef.current) {
-        try { cancelDownloadRef.current(); } catch {}
-      }
-      const activeKey = `${comic.id}_${currentPage}`;
-      deleteOfflineComic(comic.id, activeKey).then(() => {
-        setOfflineStatus(null);
-        setCompletedOfflineNotice(true);
-        setTimeout(() => setCompletedOfflineNotice(false), 4000);
-      }).catch(() => {});
-    }
-  }, [comic?.id, currentPage, totalPages, splitSpreads, widePages, subPage]);
 
   // Persist reading progress whenever page changes
   useEffect(() => {
