@@ -72,30 +72,6 @@ const pendingScan = new Set();
 const warnedNoFolder = new Set();
 
 /**
- * Items from a legacy mixed playlist that this document could not resolve. The
- * sibling library's document is processed next, so the leftovers are stashed here
- * and folded into a playlist belonging to that library instead of being dropped.
- */
-const deferredPlaylistItems = new Map(); // userId -> [{ name, createdAt, keys }]
-
-function stashDeferredPlaylist(userId, playlist, keys) {
-  const list = deferredPlaylistItems.get(userId) || [];
-  const sameName = list.find((p) => p.name === playlist.name);
-  if (sameName) {
-    sameName.keys = Array.from(new Set([...sameName.keys, ...keys]));
-  } else {
-    list.push({ name: playlist.name, createdAt: playlist.createdAt || null, keys: [...keys] });
-  }
-  deferredPlaylistItems.set(userId, list);
-}
-
-function takeDeferredPlaylists(userId) {
-  const list = deferredPlaylistItems.get(userId) || [];
-  deferredPlaylistItems.delete(userId);
-  return list;
-}
-
-/**
  * Does the document carry state that can only be restored once the local library
  * has been scanned? Progress, favourites and playlists are all keyed by Drive file
  * id, so they resolve to nothing while the library is empty. Author favourites are
@@ -108,44 +84,6 @@ function docNeedsLibrary(doc) {
     (Array.isArray(doc.favorites) && doc.favorites.length > 0) ||
     (doc.playlists && Object.keys(doc.playlists).length > 0)
   );
-}
-
-/**
- * Distributes playlists that a legacy (mixed-library) document split across the two
- * libraries. Runs once, after both documents have been loaded, so a leftover stashed
- * by one library's pass is adopted by whichever library actually owns the items.
- */
-function adoptDeferredPlaylists(userId) {
-  const deferred = takeDeferredPlaylists(userId);
-  if (!deferred.length) return 0;
-
-  const byId = new Map(db.getUserItems(userId).map((i) => [i.id, i]));
-  let restored = 0;
-
-  for (const entry of deferred) {
-    const byKind = { audiobooks: [], music: [] };
-    for (const id of entry.keys) {
-      const item = byId.get(id);
-      if (item) byKind[item.kind === 'track' ? 'music' : 'audiobooks'].push(id);
-    }
-
-    for (const kind of ['audiobooks', 'music']) {
-      const itemIds = byKind[kind];
-      if (!itemIds.length) continue;
-      // The owning library may already have the playlist under this name.
-      if (db.getPlaylists(userId, kind).some((p) => p.name === entry.name)) continue;
-      const created = db.createPlaylist(userId, entry.name, {
-        kind,
-        createdAt: entry.createdAt || undefined
-      });
-      if (created?.id) {
-        db.setPlaylistItems(userId, created.id, itemIds);
-        restored += 1;
-      }
-    }
-  }
-
-  return restored;
 }
 
 function folderFor(user, kind) {
@@ -249,18 +187,6 @@ function hydrate(userId, kind, doc) {
     return items.some((i) => i.id === key && i.kind === wantedKind) ? key : null;
   };
 
-  // Everything in `items` that belongs to *another* library, so a legacy mixed
-  // playlist can be split instead of silently losing half its entries.
-  const foreignItems = items.filter((i) => i.kind !== wantedKind);
-  const foreignByDriveId = new Map(
-    foreignItems.filter((i) => i.googleFileId).map((i) => [i.googleFileId, i.id])
-  );
-  const resolveForeign = (key) => {
-    if (!key) return null;
-    if (foreignByDriveId.has(key)) return foreignByDriveId.get(key);
-    return foreignItems.some((i) => i.id === key) ? key : null;
-  };
-
   const favoriteIds = new Set(db.getFavorites(userId));
   const names = new Set(db.getAuthorFavorites(userId));
 
@@ -315,6 +241,8 @@ function hydrate(userId, kind, doc) {
     // Only this library's items are accepted, so a document can never pull a
     // playlist across the audiobook/music boundary.
     const itemIds = (playlist.items || []).map(resolve).filter(Boolean);
+    if (!itemIds.length) continue;
+
     const existing = db.getPlaylist(userId, playlist.id);
 
     if (existing) {
@@ -334,20 +262,10 @@ function hydrate(userId, kind, doc) {
       continue;
     }
 
-    // Legacy documents predate the split, so a playlist may still hold items from
-    // both libraries - or, if it was misfiled into this document, only from the
-    // other one. Keep this library's items, and stash the rest for the sibling
-    // library to adopt after both documents have loaded.
-    const foreignIds = (playlist.items || [])
-      .filter((key) => !resolve(key))
-      .map(resolveForeign)
-      .filter(Boolean);
-
-    if (!itemIds.length) {
-      if (foreignIds.length) stashDeferredPlaylist(userId, playlist, foreignIds);
-      continue;
-    }
-
+    // Legacy documents predate the split, but a playlist belongs to exactly one
+    // library: anything that is not one of *this* library's items is discarded
+    // rather than adopted by the sibling library. A document must never create a
+    // playlist on the other side of the audiobook/music boundary.
     db.createPlaylist(userId, playlist.name, {
       id: playlist.id,
       kind,
@@ -355,10 +273,6 @@ function hydrate(userId, kind, doc) {
     });
     db.setPlaylistItems(userId, playlist.id, itemIds);
     restored.playlists += 1;
-
-    if (foreignIds.length) {
-      stashDeferredPlaylist(userId, playlist, foreignIds);
-    }
   }
 
   if (kind === 'audiobooks') {
@@ -485,17 +399,15 @@ const metaStore = {
   getUserMetaFilename,
   dehydrate,
   hydrate,
-  adoptDeferredPlaylists,
   loadKind,
   persistKind,
 
   /**
    * Loads every configured document. Call after login / folder selection.
    *
-   * Audiobooks is always loaded first so any legacy playlist that still spans both
-   * libraries is split during that pass. The music pass then collects its own
-   * leftovers, and once both documents have been read the deferred halves are
-   * handed to whichever library actually owns their items.
+   * Each document is self-contained: a playlist it carries is restored only if it
+   * holds items from that document's own library. Neither document can create a
+   * playlist in the other library.
    */
   async loadAll(user) {
     if (!user) return;
@@ -506,12 +418,6 @@ const metaStore = {
       } catch (err) {
         console.warn(`[META] loadAll(${kind}) failed: ${err.message}`);
       }
-    }
-    try {
-      const adopted = adoptDeferredPlaylists(user.id);
-      if (adopted) console.log(`[META] adopted ${adopted} playlist(s) split across libraries`);
-    } catch (err) {
-      console.warn(`[META] deferred playlist adoption failed: ${err.message}`);
     }
   },
 

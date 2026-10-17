@@ -409,12 +409,35 @@ function playlistKind(playlist, sectionKind) {
 }
 
 /**
- * The section a playlist is stored in is the source of truth for its library. Older
- * rows may carry no `kind`, and a past bug (or a hand-edited file) can leave a
- * playlist filed under the wrong section - which is exactly how a music playlist
- * ends up listed as an audiobook. This moves any misfiled row to the matching
- * section and backfills a missing `kind`, so listings and the Drive documents stay
- * partitioned by library.
+ * The library a playlist's contents actually belong to, inferred from the items it
+ * holds. Returns null when the playlist is empty or genuinely mixed - i.e. when the
+ * contents cannot settle the question on their own.
+ */
+function playlistContentKind(playlist, store) {
+  const ids = playlist?.itemIds || [];
+  if (!ids.length) return null;
+  let music = 0;
+  let audiobooks = 0;
+  for (const id of ids) {
+    const item = store.music.items[id] || store.audiobooks.items[id];
+    const isTrack = item ? item.kind === 'track' : String(id).startsWith('trk_');
+    if (isTrack) music += 1;
+    else audiobooks += 1;
+  }
+  if (music && !audiobooks) return 'music';
+  if (audiobooks && !music) return 'audiobooks';
+  return null;
+}
+
+/**
+ * A playlist's library is decided by what it actually contains: all tracks means
+ * music, all audiobooks means audiobooks. A past bug - and the pre-split migration,
+ * which filed untyped playlists under audiobooks - is exactly how a music playlist
+ * ends up listed as an audiobook even while its stored `kind` claims otherwise.
+ * Only an empty or genuinely mixed playlist falls back to its explicit `kind`, then
+ * to the section it lives in. Members that belong to the other library are dropped,
+ * misfiled rows are moved to the matching section, and `kind` is backfilled, so
+ * listings and the Drive documents stay partitioned by library.
  */
 function normalizePlaylistSections(userId) {
   if (!userId) return false;
@@ -423,8 +446,20 @@ function normalizePlaylistSections(userId) {
 
   for (const section of ['audiobooks', 'music']) {
     const playlists = s[section].playlists || {};
+    const other = section === 'music' ? 'audiobooks' : 'music';
     for (const [id, pl] of Object.entries(playlists)) {
-      const kind = playlistKind(pl, section);
+      const kind = playlistContentKind(pl, s) || playlistKind(pl, section);
+
+      // Only drop members we can positively place in the other library, so an item
+      // from a library that has not been scanned yet is never lost.
+      if (Array.isArray(pl.itemIds)) {
+        const kept = pl.itemIds.filter((itemId) => !s[other].items[itemId]);
+        if (kept.length !== pl.itemIds.length) {
+          pl.itemIds = kept;
+          changed = true;
+        }
+      }
+
       if (kind === section) {
         if (pl.kind !== kind) {
           pl.kind = kind;

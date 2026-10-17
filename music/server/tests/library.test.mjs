@@ -176,6 +176,28 @@ fs.writeFileSync(path.join(onDiskDir, 'user.json'), JSON.stringify({
 eq(db.getPlaylists(ON_DISK, 'audiobooks'), [], 'mis-filed music playlist is not listed as an audiobook');
 eq(db.getPlaylists(ON_DISK, 'music').map((p) => p.id), ['pl_disk'], 'mis-filed playlist is listed with music');
 
+// ---- a music playlist carrying a wrong kind is healed by its contents ---
+// The pre-split migration filed every untyped playlist under audiobooks and
+// stamped it kind:'audiobooks', which is exactly how a music playlist ended up
+// listed as an audiobook. The stored kind must not override the contents.
+const MISLABEL = 'user-mislabel';
+const mislabelDir = path.join(DATA_DIR, 'users', MISLABEL);
+fs.mkdirSync(mislabelDir, { recursive: true });
+fs.writeFileSync(path.join(mislabelDir, 'audiobooks.json'), JSON.stringify({
+  items: {}, progress: {}, favorites: [], authorFavorites: [], playlists: {}, abbSeen: [], pullList: null
+}));
+fs.writeFileSync(path.join(mislabelDir, 'music.json'), JSON.stringify({
+  items: { trk_a: { id: 'trk_a', kind: 'track', title: 'A' } },
+  progress: {}, favorites: [], authorFavorites: [], albumFavorites: [], smartPlaylists: {}, musicQueue: {},
+  playlists: { pl_bad: { id: 'pl_bad', name: 'All Tracks', kind: 'audiobooks', itemIds: ['trk_a'], createdAt: 'x', updatedAt: 'x' } }
+}));
+fs.writeFileSync(path.join(mislabelDir, 'user.json'), JSON.stringify({
+  user: { id: MISLABEL }, settings: {}, offline: [], authorFavoriteKinds: {}
+}));
+eq(db.getPlaylists(MISLABEL, 'audiobooks'), [], 'a track playlist labelled audiobooks is not listed as an audiobook');
+eq(db.getPlaylists(MISLABEL, 'music').map((p) => p.id), ['pl_bad'], 'its contents decide it belongs to music');
+eq(db.getPlaylist(MISLABEL, 'pl_bad').kind, 'music', 'the wrong stored kind is healed to music');
+
 // ---- hydrating before the library is scanned, then again after ----------
 // At login the Drive document is read before the first scan, so every
 // googleFileId key resolves to nothing. The playlist must not vanish with it.
@@ -193,11 +215,14 @@ const secondPass = metaStore.hydrate(LATE, 'music', lateDoc);
 eq(secondPass.playlists, 1, 'playlist restored once the item exists');
 eq(db.getPlaylists(LATE, 'music').map((p) => p.name), ['Late Mix'], 'restored playlist is visible to music');
 
-// ---- a legacy mixed playlist is split across both libraries -------------
+// ---- a playlist is scoped to the document's own library -----------------
+// A document may only restore items from its own library. It can never create a
+// playlist in the sibling library, which is how a music playlist used to surface
+// as an audiobook.
 const MIX = 'user-mixed';
 db.upsertUser({ id: MIX, email: 'mix@local' }, {});
 const mixBook = db.upsertItem(MIX, { kind: 'audiobook', title: 'Mix Book', googleFileId: 'gf-mix-book' });
-const mixTrack = db.upsertItem(MIX, { kind: 'track', title: 'Mix Track', albumArtist: 'Mix Artist', googleFileId: 'gf-mix-track' });
+db.upsertItem(MIX, { kind: 'track', title: 'Mix Track', albumArtist: 'Mix Artist', googleFileId: 'gf-mix-track' });
 const mixedDoc = {
   schema: 1, kind: 'audiobooks', progress: {}, favorites: [], authorFavorites: [],
   playlists: { pl_mix: { id: 'pl_mix', name: 'Road Trip', items: ['gf-mix-book', 'gf-mix-track'], createdAt: 'x' } }
@@ -205,12 +230,9 @@ const mixedDoc = {
 metaStore.hydrate(MIX, 'audiobooks', mixedDoc);
 eq(db.getPlaylists(MIX, 'audiobooks').map((p) => p.name), ['Road Trip'], 'audiobooks keeps its own half');
 eq(db.getPlaylist(MIX, 'pl_mix').itemIds, [mixBook.id], 'the track half is not kept as an audiobook');
-eq(metaStore.adoptDeferredPlaylists(MIX), 1, 'track half adopted after both documents load');
-const mixMusic = db.getPlaylists(MIX, 'music').find((p) => p.name === 'Road Trip');
-ok(mixMusic, 'music half of the mixed playlist exists');
-eq(db.getPlaylist(MIX, mixMusic.id).itemIds, [mixTrack.id], 'music half holds only the track');
+eq(db.getPlaylists(MIX, 'music'), [], 'a document never creates a playlist in the other library');
 
-// ---- a whole playlist misfiled into the wrong document is recovered -----
+// ---- a whole playlist carrying only the other library's items is ignored -
 const MF = 'user-misfiled';
 db.upsertUser({ id: MF, email: 'mf@local' }, {});
 db.upsertItem(MF, { kind: 'track', title: 'MF Track', albumArtist: 'MF Artist', googleFileId: 'gf-mf-track' });
@@ -219,10 +241,9 @@ metaStore.hydrate(MF, 'audiobooks', {
   playlists: { pl_mf: { id: 'pl_mf', name: 'Only Tracks', items: ['gf-mf-track'], createdAt: 'x' } }
 });
 eq(db.getPlaylists(MF, 'audiobooks'), [], 'a track playlist is not filed as an audiobook');
-eq(metaStore.adoptDeferredPlaylists(MF), 1, 'recovered into the owning library');
-eq(db.getPlaylists(MF, 'music').map((p) => p.name), ['Only Tracks'], 'recovered playlist lands in music');
+eq(db.getPlaylists(MF, 'music'), [], 'and is not adopted by music from the audiobooks document');
 
-// Reverse direction: an audiobook playlist that was misfiled into music.
+// Reverse direction: an audiobook playlist misfiled into the music document.
 const RV = 'user-reverse';
 db.upsertUser({ id: RV, email: 'rv@local' }, {});
 db.upsertItem(RV, { kind: 'audiobook', title: 'RV Book', googleFileId: 'gf-rv-book' });
@@ -231,8 +252,7 @@ metaStore.hydrate(RV, 'music', {
   playlists: { pl_rv: { id: 'pl_rv', name: 'Only Books', items: ['gf-rv-book'], createdAt: 'x' } }
 });
 eq(db.getPlaylists(RV, 'music'), [], 'a book playlist is not filed as music');
-eq(metaStore.adoptDeferredPlaylists(RV), 1, 'recovered into audiobooks');
-eq(db.getPlaylists(RV, 'audiobooks').map((p) => p.name), ['Only Books'], 'recovered playlist lands in audiobooks');
+eq(db.getPlaylists(RV, 'audiobooks'), [], 'and is not adopted by audiobooks from the music document');
 
 // ---- music file-name parsing ------------------------------------------
 eq(parseMusicName('08 FRENCH TIPS.mp3').title, 'FRENCH TIPS');
