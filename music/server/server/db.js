@@ -118,6 +118,26 @@ export function hash(value) {
 // ------------------------------------------------------------------
 // Legacy Migration: split data/library.json into data/users/<userId>/
 // ------------------------------------------------------------------
+
+/**
+ * A legacy playlist row may predate the audiobook/music split and carry no `kind`,
+ * in which case it used to be filed under audiobooks - silently turning music
+ * playlists into audiobook ones. Infer the library from the items it holds instead.
+ */
+export function inferLegacyPlaylistKind(playlist, itemsById) {
+  if (playlist?.kind === 'music' || playlist?.kind === 'audiobooks') return playlist.kind;
+  const ids = playlist?.itemIds || [];
+  let music = 0;
+  let audiobooks = 0;
+  for (const id of ids) {
+    const item = itemsById?.[id];
+    const isTrack = item ? item.kind === 'track' : String(id).startsWith('trk_');
+    if (isTrack) music += 1;
+    else audiobooks += 1;
+  }
+  return music > audiobooks ? 'music' : 'audiobooks';
+}
+
 function migrateLegacyLibrary() {
   if (!fs.existsSync(DB_FILE)) return;
 
@@ -177,7 +197,7 @@ function migrateLegacyLibrary() {
       });
 
       for (const [plId, pl] of Object.entries(legacy.playlists?.[userId] || {})) {
-        if (pl.kind !== 'music') {
+        if (inferLegacyPlaylistKind(pl, legacy.items) === 'audiobooks') {
           audiobooks.playlists[plId] = { ...pl, kind: 'audiobooks' };
         }
       }
@@ -211,7 +231,7 @@ function migrateLegacyLibrary() {
       });
       music.albumFavorites = Array.isArray(legacy.albumFavorites?.[userId]) ? legacy.albumFavorites[userId] : [];
       for (const [plId, pl] of Object.entries(legacy.playlists?.[userId] || {})) {
-        if (pl.kind === 'music') {
+        if (inferLegacyPlaylistKind(pl, legacy.items) === 'music') {
           music.playlists[plId] = { ...pl, kind: 'music' };
         }
       }
@@ -379,6 +399,62 @@ function save(userId = null, section = null) {
   }
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => writeNow(), 300);
+}
+
+/** Effective library of a playlist: its explicit kind, else the section it lives in. */
+function playlistKind(playlist, sectionKind) {
+  return playlist?.kind === 'music' || playlist?.kind === 'audiobooks'
+    ? playlist.kind
+    : sectionKind;
+}
+
+/**
+ * The section a playlist is stored in is the source of truth for its library. Older
+ * rows may carry no `kind`, and a past bug (or a hand-edited file) can leave a
+ * playlist filed under the wrong section - which is exactly how a music playlist
+ * ends up listed as an audiobook. This moves any misfiled row to the matching
+ * section and backfills a missing `kind`, so listings and the Drive documents stay
+ * partitioned by library.
+ */
+function normalizePlaylistSections(userId) {
+  if (!userId) return false;
+  const s = getUserStore(userId);
+  let changed = false;
+
+  for (const section of ['audiobooks', 'music']) {
+    const playlists = s[section].playlists || {};
+    for (const [id, pl] of Object.entries(playlists)) {
+      const kind = playlistKind(pl, section);
+      if (kind === section) {
+        if (pl.kind !== kind) {
+          pl.kind = kind;
+          changed = true;
+        }
+        continue;
+      }
+      const target = s[kind]?.playlists;
+      // A copy already sitting in the right section wins over the misfiled one.
+      if (target && !target[id]) target[id] = { ...pl, kind };
+      delete playlists[id];
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    save(userId, 'audiobooks');
+    save(userId, 'music');
+    touchMeta(userId);
+  }
+  return changed;
+}
+
+function decoratePlaylists(playlists, sectionKind) {
+  return Object.values(playlists || {}).map((p) => ({
+    ...p,
+    kind: playlistKind(p, sectionKind),
+    count: (p.itemIds || []).length,
+    coverUrl: p.coverUrl || ((p.itemIds && p.itemIds[0]) ? `/api/items/${p.itemIds[0]}/cover` : null)
+  }));
 }
 
 function listUserIds() {
@@ -1181,32 +1257,30 @@ const db = {
   },
 
   getPlaylists(userId, kind = null) {
+    normalizePlaylistSections(userId);
     const s = getUserStore(userId);
     const wantedItemKind = this.libraryKind(kind);
     let list = [];
     if (wantedItemKind === 'track') {
       checkUserReload(userId, 'music');
-      list = Object.values(s.music.playlists);
+      list = decoratePlaylists(s.music.playlists, 'music');
     } else if (wantedItemKind === 'audiobook') {
       checkUserReload(userId, 'audiobooks');
-      list = Object.values(s.audiobooks.playlists);
+      list = decoratePlaylists(s.audiobooks.playlists, 'audiobooks');
     } else {
       checkUserReload(userId, 'audiobooks');
       checkUserReload(userId, 'music');
-      list = [...Object.values(s.audiobooks.playlists), ...Object.values(s.music.playlists)];
+      list = [
+        ...decoratePlaylists(s.audiobooks.playlists, 'audiobooks'),
+        ...decoratePlaylists(s.music.playlists, 'music')
+      ];
     }
-    return list
-      .map((p) => ({
-        ...p,
-        kind: p.kind || 'audiobooks',
-        count: (p.itemIds || []).length,
-        coverUrl: p.coverUrl || ((p.itemIds && p.itemIds[0]) ? `/api/items/${p.itemIds[0]}/cover` : null)
-      }))
-      .sort((a, b) => (a.name > b.name ? 1 : -1));
+    return list.sort((a, b) => (a.name > b.name ? 1 : -1));
   },
 
   getPlaylist(userId, playlistId) {
     if (!playlistId) return null;
+    normalizePlaylistSections(userId);
     const s = getUserStore(userId);
     checkUserReload(userId, 'audiobooks');
     checkUserReload(userId, 'music');

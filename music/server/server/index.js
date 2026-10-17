@@ -313,6 +313,13 @@ const result = await googleDrive.syncLibrary(req.user, kind, {
       broadcast('library_scan', { userId: req.user.id, kind, done: true, phase: 'done' });
       resolveScan?.({ count: result.count, smart });
       res.json({ success: true, kind, count: result.count, smart });
+
+      // The scan has now populated the library, so the Drive document can finally
+      // resolve: progress, favourites and playlists that were skipped at login
+      // (before the first scan) are restored, then the merged state is written back.
+      metaStore.loadAll(req.user)
+        .then(() => metaStore.flush(req.user.id))
+        .catch((err) => console.warn('[META] post-scan restore failed:', err.message));
   } catch (err) {
     console.error('[Library] Scan failed:', err.message);
     broadcast('library_scan', { userId: req.user.id, kind, done: true, error: err.message });
@@ -1210,6 +1217,7 @@ const q = String(req.query.q || '').trim();
     let online = [];
     let artists = [];
     let albums = [];
+    let onlineError = null;
 
     if (kind === 'music') {
       try {
@@ -1220,6 +1228,7 @@ const q = String(req.query.q || '').trim();
         online = found.songs;
       } catch (err) {
         console.warn('[Search] YouTube Music search failed:', err.message);
+        onlineError = err.message;
       }
     } else {
       try {
@@ -1228,6 +1237,7 @@ const q = String(req.query.q || '').trim();
         online = results.map((item) => ({ ...item, inLibrary: owned.has(item.title.toLowerCase()) }));
       } catch (err) {
         console.warn('[Search] AudioBookBay search failed:', err.message);
+        onlineError = err.message;
       }
     }
 
@@ -1238,7 +1248,8 @@ const q = String(req.query.q || '').trim();
       online,
       artists,
       albums,
-      total: local.length + online.length + artists.length + albums.length
+      total: local.length + online.length + artists.length + albums.length,
+      ...(onlineError ? { onlineError } : {})
     });
 });
 

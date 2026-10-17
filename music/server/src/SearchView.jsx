@@ -21,6 +21,7 @@ export default function SearchView({ kind = 'audiobooks', user, onOpenDrivePicke
   const [albums, setAlbums] = useState([]);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState(null);
+  const [onlineError, setOnlineError] = useState(null);
   const [playlistTarget, setPlaylistTarget] = useState(null);
   const abortRef = useRef(null);
 
@@ -33,6 +34,7 @@ export default function SearchView({ kind = 'audiobooks', user, onOpenDrivePicke
       setOnline([]);
       setArtists([]);
       setAlbums([]);
+      setOnlineError(null);
       setSearching(false);
       return;
     }
@@ -50,6 +52,7 @@ export default function SearchView({ kind = 'audiobooks', user, onOpenDrivePicke
       setOnline(Array.isArray(data.online) ? data.online : []);
       setArtists(Array.isArray(data.artists) ? data.artists : []);
       setAlbums(Array.isArray(data.albums) ? data.albums : []);
+      setOnlineError(data.onlineError || null);
     } catch (err) {
       if (err.name === 'AbortError' || controller.signal.aborted) return;
       setError(err.message || 'Search failed.');
@@ -75,8 +78,9 @@ export default function SearchView({ kind = 'audiobooks', user, onOpenDrivePicke
     }
     try {
       await api.startDownload(item.url);
-      notify('Download started', item.title || 'Audiobook');
-      onNavigate('downloads');
+      // Stay put like the What's New page: the global download bar tracks progress,
+      // so a toast is enough feedback here.
+      notify('Added to download queue', item.title);
     } catch (err) {
       notify('Could not start download', err.message, true);
     }
@@ -117,6 +121,12 @@ export default function SearchView({ kind = 'audiobooks', user, onOpenDrivePicke
       </div>
 
       {error && <div className="error-banner">{error}</div>}
+
+      {onlineError && !searching && (
+        <div className="error-banner" style={{ marginBottom: '1rem' }}>
+          {sourceName} search is unavailable right now — {onlineError}
+        </div>
+      )}
 
       {query.trim().length < 2 ? (
         <div className="empty-state">

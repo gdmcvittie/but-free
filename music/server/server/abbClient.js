@@ -91,6 +91,34 @@ function postIdFromUrl(url) {
   return match ? match[1] : new URL(url).pathname.replace(/^\/|\/$/g, '') || null;
 }
 
+/**
+ * Did the catalogue actually run the search, or did it answer with a generic feed?
+ *
+ * WordPress echoes the query back in the feed's `atom:self` link, so a response
+ * whose self link has no `s=` parameter means the query never reached the backend
+ * (a caching proxy that drops query strings, a stale edge cache, a login wall…).
+ * Without this check those responses would be indistinguishable from the latest
+ * releases, which is exactly how a search can silently return "What's New".
+ */
+function feedHonouredQuery(xml) {
+  const self = String(xml).match(/<atom:link[^>]+href=["']([^"']+)["']/i)?.[1] || '';
+  return /[?&]s=/.test(self);
+}
+
+/**
+ * The HTML search page titles itself after the query ("Dune Audiobooks Free
+ * Download"), whereas the home page does not. Used to reject a cached/bloked page
+ * that would otherwise masquerade as search results.
+ */
+function htmlReflectsQuery(html, query) {
+  const needle = String(query).toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!needle) return true;
+  const source = String(html);
+  const title = (source.match(/<title>([\s\S]*?)<\/title>/i)?.[1] || '').toLowerCase();
+  const h1 = (source.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || '').replace(/<[^>]+>/g, '').toLowerCase();
+  return title.includes(needle) || h1.includes(needle);
+}
+
 async function request(url, { method = 'GET', body = null, headers = {}, timeout = 20000, redirect = 'follow' } = {}) {
   const cookie = jar.header();
   const res = await fetch(url, {
@@ -386,9 +414,36 @@ export const abbClient = {
   },
 
   async search(query) {
-    if (!query || !query.trim()) return [];
+    const q = String(query || '').trim();
+    if (!q) return [];
     await this.ensureLoggedIn();
-    const html = await fetchHtml(`${config.abb.baseUrl}/?s=${encodeURIComponent(query.trim())}`);
+    const encoded = encodeURIComponent(q);
+
+    // Preferred: the RSS feed's own search. It is the very channel the What's New
+    // view already relies on, it carries richer records (author / narrator /
+    // format / length) and it keeps answering when the dynamic HTML search page is
+    // blocked or served a generic listing instead of results.
+    try {
+      const xml = await fetchHtml(`${config.abb.baseUrl}/feed/?s=${encoded}`, {
+        headers: { Accept: 'application/rss+xml,application/xml,text/xml;q=0.9,*/*;q=0.8' }
+      });
+      if (feedHonouredQuery(xml)) {
+        const items = this.parseFeed(xml);
+        if (items.length) return items;
+      } else {
+        console.warn('[ABB] Search feed ignored the query - treating as no results.');
+      }
+    } catch (err) {
+      console.warn('[ABB] RSS search failed, falling back to HTML:', err.message);
+    }
+
+    // Fallback: the HTML results page. Only trust it when it actually reflects the
+    // query - a blocked or cached response otherwise answers with the home page,
+    // whose posts would masquerade as matches.
+    const html = await fetchHtml(`${config.abb.baseUrl}/?s=${encoded}`);
+    if (!htmlReflectsQuery(html, q)) {
+      throw new Error(`AudioBookBay did not return search results for "${q}".`);
+    }
     return this.parseListingHtml(html);
   },
 

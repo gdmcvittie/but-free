@@ -61,6 +61,14 @@ const fileIdCache = new Map();   // `${userId}:${kind}` -> Drive file id
 const persistTimers = new Map(); // `${userId}:${kind}` -> timeout
 const inFlight = new Map();      // `${userId}:${kind}` -> Promise
 
+/**
+ * `${userId}:${kind}` pairs whose Drive document carries item-keyed state that this
+ * install could not resolve because its library had not been scanned yet. Writing
+ * the document back in that state would replace the synced progress/favourites/
+ * playlists with empty ones, so persistence is held until a scan clears the flag.
+ */
+const pendingScan = new Set();
+
 const warnedNoFolder = new Set();
 
 /**
@@ -85,6 +93,59 @@ function takeDeferredPlaylists(userId) {
   const list = deferredPlaylistItems.get(userId) || [];
   deferredPlaylistItems.delete(userId);
   return list;
+}
+
+/**
+ * Does the document carry state that can only be restored once the local library
+ * has been scanned? Progress, favourites and playlists are all keyed by Drive file
+ * id, so they resolve to nothing while the library is empty. Author favourites are
+ * name-based and always restore, so they are deliberately excluded here.
+ */
+function docNeedsLibrary(doc) {
+  if (!doc) return false;
+  return Boolean(
+    (doc.progress && Object.keys(doc.progress).length > 0) ||
+    (Array.isArray(doc.favorites) && doc.favorites.length > 0) ||
+    (doc.playlists && Object.keys(doc.playlists).length > 0)
+  );
+}
+
+/**
+ * Distributes playlists that a legacy (mixed-library) document split across the two
+ * libraries. Runs once, after both documents have been loaded, so a leftover stashed
+ * by one library's pass is adopted by whichever library actually owns the items.
+ */
+function adoptDeferredPlaylists(userId) {
+  const deferred = takeDeferredPlaylists(userId);
+  if (!deferred.length) return 0;
+
+  const byId = new Map(db.getUserItems(userId).map((i) => [i.id, i]));
+  let restored = 0;
+
+  for (const entry of deferred) {
+    const byKind = { audiobooks: [], music: [] };
+    for (const id of entry.keys) {
+      const item = byId.get(id);
+      if (item) byKind[item.kind === 'track' ? 'music' : 'audiobooks'].push(id);
+    }
+
+    for (const kind of ['audiobooks', 'music']) {
+      const itemIds = byKind[kind];
+      if (!itemIds.length) continue;
+      // The owning library may already have the playlist under this name.
+      if (db.getPlaylists(userId, kind).some((p) => p.name === entry.name)) continue;
+      const created = db.createPlaylist(userId, entry.name, {
+        kind,
+        createdAt: entry.createdAt || undefined
+      });
+      if (created?.id) {
+        db.setPlaylistItems(userId, created.id, itemIds);
+        restored += 1;
+      }
+    }
+  }
+
+  return restored;
 }
 
 function folderFor(user, kind) {
@@ -274,15 +335,18 @@ function hydrate(userId, kind, doc) {
     }
 
     // Legacy documents predate the split, so a playlist may still hold items from
-    // both libraries. Split it: this document keeps its own items, and the
-    // remaining ones are recovered when the other library's document loads.
-    if (!itemIds.length) continue;
-
-    const ownedIds = new Set(items.map((i) => i.id));
+    // both libraries - or, if it was misfiled into this document, only from the
+    // other one. Keep this library's items, and stash the rest for the sibling
+    // library to adopt after both documents have loaded.
     const foreignIds = (playlist.items || [])
-      .filter((key) => !ownedIds.has(key) && !resolve(key))
+      .filter((key) => !resolve(key))
       .map(resolveForeign)
       .filter(Boolean);
+
+    if (!itemIds.length) {
+      if (foreignIds.length) stashDeferredPlaylist(userId, playlist, foreignIds);
+      continue;
+    }
 
     db.createPlaylist(userId, playlist.name, {
       id: playlist.id,
@@ -294,21 +358,6 @@ function hydrate(userId, kind, doc) {
 
     if (foreignIds.length) {
       stashDeferredPlaylist(userId, playlist, foreignIds);
-    }
-  }
-
-  // A playlist split above leaves its other half here; this library adopts it.
-  for (const deferred of takeDeferredPlaylists(userId)) {
-    const leftover = deferred.keys.map(resolve).filter(Boolean);
-    if (!leftover.length) continue;
-    if (db.getPlaylists(userId, kind).some((p) => p.name === deferred.name)) continue;
-    const created = db.createPlaylist(userId, deferred.name, {
-      kind,
-      createdAt: deferred.createdAt || undefined
-    });
-    if (created?.id) {
-      db.setPlaylistItems(userId, created.id, leftover);
-      restored.playlists += 1;
     }
   }
 
@@ -362,6 +411,20 @@ async function loadKind(user, kind) {
     const doc = JSON.parse(buffer.toString('utf8'));
     if (!doc || typeof doc !== 'object') throw new Error('not an object');
 
+    // If the document carries item-keyed state but this install has not scanned the
+    // library yet, hydrating it is necessarily incomplete: every key resolves to
+    // nothing, so nothing is restored and writing the document back would wipe the
+    // synced progress / favourites / playlists. Hold writes until a scan runs.
+    const key = cacheKey(user.id, kind);
+    const localCount = db.getUserItems(user.id)
+      .filter((i) => i.kind === ITEM_KIND[kind]).length;
+    if (docNeedsLibrary(doc) && localCount === 0) {
+      pendingScan.add(key);
+      console.log(`[META] ${kind}: document has synced items but this device has not scanned yet - writes deferred`);
+    } else {
+      pendingScan.delete(key);
+    }
+
     const restored = hydrate(user.id, kind, doc);
     console.log(
       `[META] ${kind}: loaded ${loadedFilename} ` +
@@ -379,9 +442,10 @@ async function loadKind(user, kind) {
 async function persistKind(user, kind) {
   const folderId = folderFor(user, kind);
   const targetFilename = getUserMetaFilename(user, kind);
+  const key = cacheKey(user.id, kind);
   if (!folderId) {
-    if (!warnedNoFolder.has(cacheKey(user.id, kind))) {
-      warnedNoFolder.add(cacheKey(user.id, kind));
+    if (!warnedNoFolder.has(key)) {
+      warnedNoFolder.add(key);
       console.warn(
         `[META] No ${kind} Drive folder selected - ${targetFilename} not written. ` +
         'Pick a folder in Settings to enable Drive-backed sync.'
@@ -390,8 +454,14 @@ async function persistKind(user, kind) {
     return null;
   }
 
+  // Never write a document over one we could not fully hydrate: the local state is
+  // missing by construction, so the write would erase the synced copy.
+  if (pendingScan.has(key)) {
+    console.log(`[META] ${kind}: write skipped until the first library scan completes`);
+    return null;
+  }
+
   const doc = dehydrate(user.id, kind);
-  const key = cacheKey(user.id, kind);
   let fileId = fileIdCache.get(key) || '';
 
   if (!fileId) {
@@ -415,6 +485,7 @@ const metaStore = {
   getUserMetaFilename,
   dehydrate,
   hydrate,
+  adoptDeferredPlaylists,
   loadKind,
   persistKind,
 
@@ -422,7 +493,9 @@ const metaStore = {
    * Loads every configured document. Call after login / folder selection.
    *
    * Audiobooks is always loaded first so any legacy playlist that still spans both
-   * libraries is split during that pass, leaving the music half for the music pass.
+   * libraries is split during that pass. The music pass then collects its own
+   * leftovers, and once both documents have been read the deferred halves are
+   * handed to whichever library actually owns their items.
    */
   async loadAll(user) {
     if (!user) return;
@@ -433,6 +506,12 @@ const metaStore = {
       } catch (err) {
         console.warn(`[META] loadAll(${kind}) failed: ${err.message}`);
       }
+    }
+    try {
+      const adopted = adoptDeferredPlaylists(user.id);
+      if (adopted) console.log(`[META] adopted ${adopted} playlist(s) split across libraries`);
+    } catch (err) {
+      console.warn(`[META] deferred playlist adoption failed: ${err.message}`);
     }
   },
 
@@ -492,10 +571,14 @@ const metaStore = {
   reset(userId) {
     if (!userId) {
       fileIdCache.clear();
+      pendingScan.clear();
       return;
     }
     for (const key of Array.from(fileIdCache.keys())) {
       if (key.startsWith(`${userId}:`)) fileIdCache.delete(key);
+    }
+    for (const key of Array.from(pendingScan.keys())) {
+      if (key.startsWith(`${userId}:`)) pendingScan.delete(key);
     }
     warnedNoFolder.clear();
   }

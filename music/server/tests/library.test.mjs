@@ -6,6 +6,7 @@ const DATA_DIR = fs.mkdtempSync(path.join(process.env.TEMP || '.', 'fraudio-test
 process.env.DATA_DIR = DATA_DIR;
 
 const db = (await import('../server/db.js')).default;
+const { inferLegacyPlaylistKind } = await import('../server/db.js');
 const metaStore = (await import('../server/metaStore.js')).default;
 const { parseMusicName } = await import('../server/libraryParser.js');
 
@@ -147,6 +148,92 @@ metaStore.hydrate(RT, 'audiobooks', docA);
 metaStore.hydrate(RT, 'music', docM);
 eq(db.getPlaylists(RT).length, plCount, 'hydrate is idempotent');
 
+// ---- legacy playlists without a kind are inferred from their items ------
+// Before the audiobook/music split every playlist landed in the audiobooks
+// library, which is how music playlists used to turn into audiobook ones.
+const legacyItems = { b1: { kind: 'audiobook' }, b2: { kind: 'audiobook' }, t1: { kind: 'track' } };
+eq(inferLegacyPlaylistKind({ itemIds: ['t1'] }, legacyItems), 'music', 'a track-only legacy playlist is music');
+eq(inferLegacyPlaylistKind({ itemIds: ['b1', 'b2'] }, legacyItems), 'audiobooks', 'a book-only legacy playlist stays audiobooks');
+eq(inferLegacyPlaylistKind({ itemIds: ['b1', 't1'] }, legacyItems), 'audiobooks', 'a tie keeps the historical audiobooks default');
+eq(inferLegacyPlaylistKind({ itemIds: ['trk_x'] }, {}), 'music', 'id prefix infers music without item metadata');
+eq(inferLegacyPlaylistKind({ itemIds: ['b1'], kind: 'music' }, legacyItems), 'music', 'an explicit kind always wins');
+
+// ---- a playlist physically filed in the wrong section heals on read -----
+const ON_DISK = 'user-ondisk';
+const onDiskDir = path.join(DATA_DIR, 'users', ON_DISK);
+fs.mkdirSync(onDiskDir, { recursive: true });
+fs.writeFileSync(path.join(onDiskDir, 'audiobooks.json'), JSON.stringify({
+  items: {}, progress: {}, favorites: [], authorFavorites: [],
+  playlists: { pl_disk: { id: 'pl_disk', name: 'Disk Mix', kind: 'music', itemIds: [], createdAt: 'x', updatedAt: 'x' } },
+  abbSeen: [], pullList: null
+}));
+fs.writeFileSync(path.join(onDiskDir, 'music.json'), JSON.stringify({
+  items: {}, progress: {}, favorites: [], authorFavorites: [], albumFavorites: [], playlists: {}, smartPlaylists: {}, musicQueue: {}
+}));
+fs.writeFileSync(path.join(onDiskDir, 'user.json'), JSON.stringify({
+  user: { id: ON_DISK }, settings: {}, offline: [], authorFavoriteKinds: {}
+}));
+eq(db.getPlaylists(ON_DISK, 'audiobooks'), [], 'mis-filed music playlist is not listed as an audiobook');
+eq(db.getPlaylists(ON_DISK, 'music').map((p) => p.id), ['pl_disk'], 'mis-filed playlist is listed with music');
+
+// ---- hydrating before the library is scanned, then again after ----------
+// At login the Drive document is read before the first scan, so every
+// googleFileId key resolves to nothing. The playlist must not vanish with it.
+const LATE = 'user-late';
+db.upsertUser({ id: LATE, email: 'late@local' }, {});
+const lateDoc = {
+  schema: 1, kind: 'music', progress: {}, favorites: [],
+  playlists: { pl_late: { id: 'pl_late', name: 'Late Mix', items: ['gf-late-a'], createdAt: 'x' } }
+};
+const firstPass = metaStore.hydrate(LATE, 'music', lateDoc);
+eq(firstPass.playlists, 0, 'playlist cannot resolve before the library is scanned');
+eq(db.getPlaylists(LATE, 'music'), [], 'no phantom playlist before the scan');
+db.upsertItem(LATE, { kind: 'track', title: 'Late A', albumArtist: 'Late Artist', googleFileId: 'gf-late-a' });
+const secondPass = metaStore.hydrate(LATE, 'music', lateDoc);
+eq(secondPass.playlists, 1, 'playlist restored once the item exists');
+eq(db.getPlaylists(LATE, 'music').map((p) => p.name), ['Late Mix'], 'restored playlist is visible to music');
+
+// ---- a legacy mixed playlist is split across both libraries -------------
+const MIX = 'user-mixed';
+db.upsertUser({ id: MIX, email: 'mix@local' }, {});
+const mixBook = db.upsertItem(MIX, { kind: 'audiobook', title: 'Mix Book', googleFileId: 'gf-mix-book' });
+const mixTrack = db.upsertItem(MIX, { kind: 'track', title: 'Mix Track', albumArtist: 'Mix Artist', googleFileId: 'gf-mix-track' });
+const mixedDoc = {
+  schema: 1, kind: 'audiobooks', progress: {}, favorites: [], authorFavorites: [],
+  playlists: { pl_mix: { id: 'pl_mix', name: 'Road Trip', items: ['gf-mix-book', 'gf-mix-track'], createdAt: 'x' } }
+};
+metaStore.hydrate(MIX, 'audiobooks', mixedDoc);
+eq(db.getPlaylists(MIX, 'audiobooks').map((p) => p.name), ['Road Trip'], 'audiobooks keeps its own half');
+eq(db.getPlaylist(MIX, 'pl_mix').itemIds, [mixBook.id], 'the track half is not kept as an audiobook');
+eq(metaStore.adoptDeferredPlaylists(MIX), 1, 'track half adopted after both documents load');
+const mixMusic = db.getPlaylists(MIX, 'music').find((p) => p.name === 'Road Trip');
+ok(mixMusic, 'music half of the mixed playlist exists');
+eq(db.getPlaylist(MIX, mixMusic.id).itemIds, [mixTrack.id], 'music half holds only the track');
+
+// ---- a whole playlist misfiled into the wrong document is recovered -----
+const MF = 'user-misfiled';
+db.upsertUser({ id: MF, email: 'mf@local' }, {});
+db.upsertItem(MF, { kind: 'track', title: 'MF Track', albumArtist: 'MF Artist', googleFileId: 'gf-mf-track' });
+metaStore.hydrate(MF, 'audiobooks', {
+  schema: 1, kind: 'audiobooks', progress: {}, favorites: [],
+  playlists: { pl_mf: { id: 'pl_mf', name: 'Only Tracks', items: ['gf-mf-track'], createdAt: 'x' } }
+});
+eq(db.getPlaylists(MF, 'audiobooks'), [], 'a track playlist is not filed as an audiobook');
+eq(metaStore.adoptDeferredPlaylists(MF), 1, 'recovered into the owning library');
+eq(db.getPlaylists(MF, 'music').map((p) => p.name), ['Only Tracks'], 'recovered playlist lands in music');
+
+// Reverse direction: an audiobook playlist that was misfiled into music.
+const RV = 'user-reverse';
+db.upsertUser({ id: RV, email: 'rv@local' }, {});
+db.upsertItem(RV, { kind: 'audiobook', title: 'RV Book', googleFileId: 'gf-rv-book' });
+metaStore.hydrate(RV, 'music', {
+  schema: 1, kind: 'music', progress: {}, favorites: [],
+  playlists: { pl_rv: { id: 'pl_rv', name: 'Only Books', items: ['gf-rv-book'], createdAt: 'x' } }
+});
+eq(db.getPlaylists(RV, 'music'), [], 'a book playlist is not filed as music');
+eq(metaStore.adoptDeferredPlaylists(RV), 1, 'recovered into audiobooks');
+eq(db.getPlaylists(RV, 'audiobooks').map((p) => p.name), ['Only Books'], 'recovered playlist lands in audiobooks');
+
 // ---- music file-name parsing ------------------------------------------
 eq(parseMusicName('08 FRENCH TIPS.mp3').title, 'FRENCH TIPS');
 eq(parseMusicName('08 FRENCH TIPS.mp3').trackNumber, 8);
@@ -178,5 +265,8 @@ eq(singleBook.title, 'The Hobbit');
 eq(singleBook.author, 'J.R.R. Tolkien');
 eq(singleBook.partsCount, 1);
 
+// Flush the debounced write so no timer fires after the temp dir is removed
+// (otherwise the write recreates it and leaks a directory per test run).
+db.flush();
 fs.rmSync(DATA_DIR, { recursive: true, force: true });
 console.log(`PASS ${passed} library/favourites/playlist/audiobook assertions`);
