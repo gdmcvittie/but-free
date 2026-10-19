@@ -23,6 +23,7 @@ import binManager from './binManager.js';
 import { attachClient, broadcast, clientCount, recentEvents } from './events.js';
 import { formatDuration, inferGenreFromText } from './libraryParser.js';
 import { groupAudiobookItems } from './bookGrouper.js';
+import audiobookStitcher from './audiobookStitcher.js';
 
 function isAdminUser(user) {
   const adminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
@@ -41,7 +42,7 @@ const app = express();
 app.set('trust proxy', 1);
 
 app.use(cors());
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '50mb' }));
 app.use(cookieParser());
 app.use(googleAuth.middleware);
 
@@ -1181,6 +1182,52 @@ app.post('/api/downloads/token-refresh', async (req, res) => {
     return res.json({ accessToken });
   } catch (err) {
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// =========================================================================
+// Audiobook Stitcher (Multi-Chapter MP3 Joiner)
+// =========================================================================
+
+app.post('/api/audiobooks/stitch', async (req, res) => {
+  try {
+    const job = audiobookStitcher.start(req.user, req.body || {});
+    return res.json({ success: true, jobId: job.id, job });
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/audiobooks/stitch/status/:jobId', (req, res) => {
+  const job = audiobookStitcher.getStatus(req.params.jobId);
+  if (!job || job.userId !== req.user.id) {
+    return res.status(404).json({ error: 'Stitching job not found.' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  return res.json(job);
+});
+
+app.post('/api/audiobooks/stitch/cancel/:jobId', (req, res) => {
+  const cancelled = audiobookStitcher.cancel(req.params.jobId);
+  return res.json({ success: cancelled });
+});
+
+app.post('/api/audiobooks/stitch/delete-sources', async (req, res) => {
+  try {
+    const { fileIds } = req.body || {};
+    const result = await audiobookStitcher.deleteSourceChapters(req.user, fileIds);
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/audiobooks/metadata', async (req, res) => {
+  try {
+    const result = await audiobookStitcher.updateMetadata(req.user, req.body || {});
+    return res.json(result);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
   }
 });
 

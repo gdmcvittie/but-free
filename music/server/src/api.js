@@ -195,6 +195,13 @@ export const api = {
   saveSettings: (patchBody) => post('/api/settings', patchBody),
   health: () => get('/api/health'),
 
+  // ---- audiobook stitcher --------------------------------------------
+  startStitch: (payload) => post('/api/audiobooks/stitch', payload),
+  stitchStatus: (jobId) => get(`/api/audiobooks/stitch/status/${encodeURIComponent(jobId)}`),
+  cancelStitch: (jobId) => post(`/api/audiobooks/stitch/cancel/${encodeURIComponent(jobId)}`),
+  deleteStitchSources: (fileIds) => post('/api/audiobooks/stitch/delete-sources', { fileIds }),
+  updateAudiobookMetadata: (payload) => post('/api/audiobooks/metadata', payload),
+
   // ---- admin ---------------------------------------------------------
   restartStreamer: () => post('/api/admin/restart-streamer'),
   restartAppServer: () => post('/api/admin/restart-app'),

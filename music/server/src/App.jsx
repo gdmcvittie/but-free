@@ -16,6 +16,7 @@ import Settings from './Settings';
 import Player from './Player';
 import DownloadBar from './DownloadBar';
 import CarMode from './CarMode';
+import AudiobookStitcherView from './AudiobookStitcherView';
 import { registerNativeCommands, pushNativeState, isCarConnected } from './nativeBridge';
 import { clearLibraryCache, purgeThumbnailCache } from './libraryCache';
 
@@ -51,6 +52,7 @@ export default function App() {
   }, []);
 
   const [whatsNewSeed, setWhatsNewSeed] = useState('');
+  const [stitcherInitialBook, setStitcherInitialBook] = useState(null);
 
   const [authChecking, setAuthChecking] = useState(true);
   const [authError, setAuthError] = useState(null);
@@ -128,9 +130,15 @@ export default function App() {
       setIsCarMode(true);
       return;
     }
+    if (view === 'stitcher') {
+      setKind('audiobooks');
+      if (opts?.book) setStitcherInitialBook(opts.book);
+    } else {
+      setStitcherInitialBook(null);
+    }
     setCurrentView(view === 'music-whats-new' ? 'whats-new' : view);
     if (opts?.searchQuery) setWhatsNewSeed(opts.searchQuery);
-  }, []);
+  }, [setKind]);
 
   const recentToastsRef = useRef(new Map());
   const notify = useCallback((title, body = '', isError = false) => {
@@ -543,6 +551,7 @@ const handleFolderSelected = useCallback((folderKind, folderId, folderName) => {
             onPlay={play}
             onToggleFavorite={toggleFavorite}
             onRefresh={bumpLibrary}
+            onNavigate={navigate}
             notify={notify}
           />
         )}
@@ -599,6 +608,17 @@ const handleFolderSelected = useCallback((folderKind, folderId, folderName) => {
             libraryVersion={libraryVersion}
             onOpenDrivePicker={setDrivePickerKind}
             onNavigate={navigate}
+            notify={notify}
+          />
+        )}
+
+        {currentView === 'stitcher' && (
+          <AudiobookStitcherView
+            user={user}
+            initialBook={stitcherInitialBook}
+            onNavigate={navigate}
+            onPlay={play}
+            onRefresh={bumpLibrary}
             notify={notify}
           />
         )}

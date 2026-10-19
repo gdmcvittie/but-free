@@ -347,7 +347,7 @@ export const googleDrive = {
           title,
           driveFolderId: folderId,
           drivePath: [...file.folderSegments, file.name].join('/'),
-          coverImage: file.coverImage || file.thumbnailLink || existing.coverImage,
+          coverImage: existing.coverImage || file.coverImage || file.thumbnailLink || null,
           sizeBytes: fileSizeBytes || existing.sizeBytes || 0,
           modifiedTime: file.modifiedTime || existing.modifiedTime
         };
@@ -386,7 +386,7 @@ export const googleDrive = {
             driveFolderId: folderId,
             sizeBytes: Number(file.size) || 0,
             modifiedTime: file.modifiedTime,
-            coverImage: file.coverImage || file.thumbnailLink || null,
+            coverImage: existing?.coverImage || file.coverImage || file.thumbnailLink || null,
             fileName: file.name
           };
 
@@ -399,6 +399,10 @@ export const googleDrive = {
             record.narrator = existing.narrator || record.narrator;
             record.abridged = existing.abridged;
             if (!record.series) record.series = existing.series;
+            if (existing.genre && (!record.genre || record.genre === 'Audiobook')) record.genre = existing.genre;
+            if (existing.author && (!record.author || record.author === 'Unknown Author')) record.author = existing.author;
+            if (existing.subtitle && !record.subtitle) record.subtitle = existing.subtitle;
+            if (existing.coverImage) record.coverImage = existing.coverImage;
           }
 
           incoming.push(record);

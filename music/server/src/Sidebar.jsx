@@ -8,7 +8,8 @@ import {
   Download,
   Settings as SettingsIcon,
   Car,
-  Smartphone
+  Smartphone,
+  Layers
 } from 'lucide-react';
 import { hasNativeBridge } from './nativeBridge';
 
@@ -56,7 +57,13 @@ export default function Sidebar({
   // music has item/artist/album favourites.
   // Music has no books to continue - its history is "Recently played".
   const labelFor = (item) => (kind === 'music' && item.musicLabel ? item.musicLabel : item.label);
-  const items = NAV_ITEMS;
+  const items = kind === 'audiobooks'
+    ? [
+        ...NAV_ITEMS.slice(0, 7), // through search
+        { id: 'stitcher', label: 'Audiobook Stitcher', icon: Layers },
+        ...NAV_ITEMS.slice(7)
+      ]
+    : NAV_ITEMS;
   const mobileItems = NAV_ITEMS.filter((item) => MOBILE_NAV_IDS.includes(item.id));
 
   return (

@@ -19,7 +19,8 @@ import {
   Check,
   Tag,
   X,
-  ListMusic
+  ListMusic,
+  Layers
 } from 'lucide-react';
 import { api } from './api';
 import MediaCard from './MediaCard';
@@ -201,6 +202,7 @@ export default function Library({
   onPlay,
   onToggleFavorite,
   onRefresh,
+  onNavigate,
   favoritesOnly = false,
   notify
 }) {
@@ -1314,6 +1316,17 @@ export default function Library({
                         </button>
                       );
                     })()}
+                    {drill.book && (drill.book.isMultiPart || (drill.book.parts?.length > 1)) && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => onNavigate?.('stitcher', { book: drill.book })}
+                        title="Join chapter files into a single stitched audiobook"
+                      >
+                        <Layers size={14} />
+                        <span>Stitch Audiobook</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
