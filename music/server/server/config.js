@@ -14,10 +14,30 @@ dotenv.config();
 
 /** Project root = parent of /server */
 export const ROOT_DIR = path.join(__dirname, '..');
+export const MONOREPO_ROOT = path.resolve(__dirname, '../../..');
 
 function resolveDir(envValue, fallback) {
   const raw = envValue && envValue.trim() ? envValue.trim() : fallback;
-  return path.isAbsolute(raw) ? raw : path.join(ROOT_DIR, raw);
+  if (!raw) return path.join(ROOT_DIR, fallback);
+  if (path.isAbsolute(raw)) return raw;
+
+  // Handle paths defined relative to monorepo root (e.g. './music/server/bin' or 'music/server/data')
+  if (/^\.?\/?music\/server(\/|$)/.test(raw)) {
+    const fromMonorepo = path.resolve(MONOREPO_ROOT, raw);
+    if (fs.existsSync(fromMonorepo)) return fromMonorepo;
+    // Strip redundant 'music/server' prefix if resolving relative to ROOT_DIR
+    const stripped = raw.replace(/^\.?\/?music\/server\/?/, '');
+    return path.resolve(ROOT_DIR, stripped || '.');
+  }
+
+  // Check if relative path exists inside ROOT_DIR first, then MONOREPO_ROOT
+  const rootCandidate = path.resolve(ROOT_DIR, raw);
+  if (fs.existsSync(rootCandidate)) return rootCandidate;
+
+  const monorepoCandidate = path.resolve(MONOREPO_ROOT, raw);
+  if (fs.existsSync(monorepoCandidate)) return monorepoCandidate;
+
+  return rootCandidate;
 }
 
 function num(value, fallback) {
@@ -99,6 +119,13 @@ export function ensureDirs() {
       console.error(`[Config] Could not create directory ${dir}:`, err.message);
     }
   }
+  // Clean up accidental empty nested directory created by previous path resolution bug
+  try {
+    const accidental = path.join(ROOT_DIR, 'music');
+    if (fs.existsSync(accidental)) {
+      fs.rmSync(accidental, { recursive: true, force: true });
+    }
+  } catch (_) {}
 }
 
 export default config;

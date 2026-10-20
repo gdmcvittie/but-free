@@ -7,7 +7,7 @@ import { DATA_DIR, COVERS_DIR } from './config.js';
 import db, { newId } from './db.js';
 import googleAuth from './googleAuth.js';
 import googleDrive from './googleDrive.js';
-import binManager from './binManager.js';
+import binManager, { resolveFfmpeg } from './binManager.js';
 import offlineCache, { localFileFor } from './offlineCache.js';
 import { broadcast } from './events.js';
 
@@ -133,6 +133,13 @@ export const audiobookStitcher = {
     }
     if (!Array.isArray(fileIds) || fileIds.length < 2) {
       throw new Error('Please select at least 2 chapter audio files to stitch.');
+    }
+
+    const ffmpegCandidate = (binManager && typeof binManager.resolveFfmpeg === 'function')
+      ? binManager.resolveFfmpeg()
+      : resolveFfmpeg();
+    if (!ffmpegCandidate) {
+      throw new Error('FFmpeg binary could not be found. Please ensure FFmpeg is installed or run tools setup.');
     }
 
     const id = newJobId();
@@ -432,10 +439,13 @@ export const audiobookStitcher = {
       job.totalDuration = formatDuration(totalDurationSec);
 
       // 3. Resolve FFmpeg
-      const ffmpegPath = binManager.resolveFfmpeg();
-      if (!ffmpegPath) {
-        throw new Error('FFmpeg binary could not be resolved. Please run tools setup or install FFmpeg.');
+      const ffmpegPath = (binManager && typeof binManager.resolveFfmpeg === 'function')
+        ? binManager.resolveFfmpeg()
+        : resolveFfmpeg();
+      if (!ffmpegPath || !fs.existsSync(ffmpegPath)) {
+        throw new Error('FFmpeg binary could not be found. Please ensure FFmpeg is installed or run tools setup.');
       }
+      console.log(`[AudiobookStitcher] Stitching job ${job.id} using FFmpeg: ${ffmpegPath}`);
 
       // 4. Create FFmpeg concat list
       const concatListFile = path.join(tempDir, 'concat_list.txt');

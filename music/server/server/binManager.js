@@ -2,16 +2,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { BIN_DIR } from './config.js';
+import { BIN_DIR, ROOT_DIR } from './config.js';
 
 /**
  * yt-dlp + ffmpeg resolution for the music pipeline.
  *
  * Both tools are resolved in this order:
- *   1. an explicit user-configured path in settings
- *   2. the bundled @ffmpeg-installer binary (ffmpeg only)
- *   3. ./bin (populated by scripts/setup-tools.js)
- *   4. whatever is on the system PATH
+ *   1. an explicit user-configured path in settings / env (FFMPEG_PATH, FFMPEG_BIN)
+ *   2. ./bin (populated by scripts/setup-tools.mjs) or ROOT_DIR/bin
+ *   3. the bundled @ffmpeg-installer binary (ffmpeg only) or ffmpeg-static
+ *   4. whatever is on the system PATH or common system directories
  *
  * yt-dlp is fetched on demand from its GitHub releases - same approach the my-tv
  * app uses - so nothing large is committed to the repo.
@@ -60,14 +60,37 @@ function which(command) {
 }
 
 function fromInstaller() {
-  if (isWindows) {
+  try {
+    const require = createRequire(import.meta.url);
+    const mod = require('@ffmpeg-installer/ffmpeg');
+    if (mod?.path) {
+      const unpacked = String(mod.path).replace('app.asar', 'app.asar.unpacked');
+      if (fs.existsSync(unpacked)) return unpacked;
+      if (fs.existsSync(mod.path)) return mod.path;
+    }
+  } catch { /* not installed */ }
+
+  try {
+    const require = createRequire(import.meta.url);
+    const mod = require('ffmpeg-static');
+    const binPath = typeof mod === 'string' ? mod : mod?.path;
+    if (binPath && fs.existsSync(binPath)) return binPath;
+  } catch { /* not installed */ }
+
+  const platform = `${process.platform}-${process.arch}`;
+  const binName = isWindows ? 'ffmpeg.exe' : 'ffmpeg';
+  const nodeModuleCandidates = [
+    path.join(ROOT_DIR, 'node_modules', '@ffmpeg-installer', platform, binName),
+    path.resolve(ROOT_DIR, '..', '..', 'node_modules', '@ffmpeg-installer', platform, binName),
+    path.join(ROOT_DIR, 'node_modules', 'ffmpeg-static', binName),
+    path.resolve(ROOT_DIR, '..', '..', 'node_modules', 'ffmpeg-static', binName)
+  ];
+  for (const cand of nodeModuleCandidates) {
     try {
-      // Optional dependency - only present on Windows builds.
-      const require = createRequire(import.meta.url);
-      const mod = require('@ffmpeg-installer/ffmpeg');
-      return mod?.path && fs.existsSync(mod.path) ? mod.path : null;
-    } catch { /* not installed */ }
+      if (fs.existsSync(cand) && fs.statSync(cand).size > 0) return cand;
+    } catch {}
   }
+
   return null;
 }
 
@@ -81,6 +104,11 @@ function fromInstaller() {
 export function resolveFfmpegDir() {
   const dirs = [
     BIN_DIR,
+    path.join(ROOT_DIR, 'bin'),
+    path.resolve(ROOT_DIR, '..', '..', 'music', 'server', 'bin'),
+    path.resolve(ROOT_DIR, '..', '..', 'bin'),
+    process.env.FFMPEG_PATH ? path.dirname(process.env.FFMPEG_PATH) : null,
+    process.env.FFMPEG_BIN ? path.dirname(process.env.FFMPEG_BIN) : null,
     which('ffmpeg') ? path.dirname(which('ffmpeg')) : null
   ].filter(Boolean);
 
@@ -92,22 +120,45 @@ export function resolveFfmpegDir() {
       }
     } catch { /* pair incomplete in this dir */ }
   }
+
+  // If resolveFfmpeg found a binary, check if ffprobe is next to it
+  const resolved = resolveFfmpeg();
+  if (resolved) {
+    const parent = path.dirname(resolved);
+    try {
+      if (fs.statSync(path.join(parent, `ffprobe${isWindows ? '.exe' : ''}`)).size > 0) {
+        return parent;
+      }
+    } catch {}
+  }
+
   return null;
 }
 
-/** Looks in ./bin, then the npm-installed binary, then PATH. */
+/** Looks in ./bin, config candidates, npm-installed binary, then PATH. */
 export function resolveFfmpeg() {
   const now = Date.now();
   if (ffmpegPath && now - ffmpegCheckedAt < 60000) return ffmpegPath;
 
   const candidates = [
+    process.env.FFMPEG_PATH,
+    process.env.FFMPEG_BIN,
     path.join(BIN_DIR, ffmpegName),
+    path.join(ROOT_DIR, 'bin', ffmpegName),
+    path.resolve(ROOT_DIR, '..', '..', 'music', 'server', 'bin', ffmpegName),
+    path.resolve(ROOT_DIR, '..', '..', 'bin', ffmpegName),
     fromInstaller(),
-    which('ffmpeg')
+    which('ffmpeg'),
+    isWindows ? 'C:\\ffmpeg\\bin\\ffmpeg.exe' : null,
+    isWindows ? 'C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe' : null,
+    isWindows ? 'C:\\ProgramData\\chocolatey\\bin\\ffmpeg.exe' : null,
+    '/usr/bin/ffmpeg',
+    '/usr/local/bin/ffmpeg',
+    '/opt/homebrew/bin/ffmpeg'
   ].filter(Boolean);
 
   ffmpegPath = candidates.find((candidate) => {
-    try { return fs.statSync(candidate).size > 0; } catch { return false; }
+    try { return fs.existsSync(candidate) && fs.statSync(candidate).size > 0; } catch { return false; }
   }) || null;
   ffmpegCheckedAt = now;
   return ffmpegPath;
@@ -115,7 +166,15 @@ export function resolveFfmpeg() {
 
 /** Downloads yt-dlp from GitHub releases the first time it is needed. */
 export async function ensureYtDlp() {
-  const local = path.join(BIN_DIR, ytDlpName);
+  const localCandidates = [
+    path.join(BIN_DIR, ytDlpName),
+    path.join(ROOT_DIR, 'bin', ytDlpName),
+    path.resolve(ROOT_DIR, '..', '..', 'music', 'server', 'bin', ytDlpName)
+  ];
+  const local = localCandidates.find((c) => {
+    try { return fs.existsSync(c) && fs.statSync(c).size > 0; } catch { return false; }
+  }) || path.join(BIN_DIR, ytDlpName);
+
   if (ytDlpPath) {
     // Re-resolve once our managed copy passes the refresh age, so a long-lived
     // server self-heals after a YouTube change instead of failing forever.

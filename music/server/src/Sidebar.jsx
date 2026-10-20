@@ -22,12 +22,13 @@ const NAV_ITEMS = [
   { id: 'favorites', label: 'Favourites', icon: Heart },
   { id: 'playlists', label: 'Playlists', icon: ListMusic },
   { id: 'search', label: 'Search', icon: Search },
+  { id: 'stitcher', label: 'Audiobook Stitcher', icon: Layers },
   { id: 'downloads', label: 'Downloads', icon: Download },
   { id: 'car', label: 'Car Mode', icon: Car },
   { id: 'settings', label: 'Settings', icon: SettingsIcon }
 ];
 
-const MOBILE_NAV_IDS = ['whats-new', 'library', 'continue', 'favorites', 'search', 'downloads'];
+const MOBILE_NAV_IDS = ['whats-new', 'library', 'continue', 'favorites', 'search', 'stitcher', 'downloads'];
 
 function GoogleIcon({ size = 16 }) {
   return (
@@ -58,12 +59,8 @@ export default function Sidebar({
   // Music has no books to continue - its history is "Recently played".
   const labelFor = (item) => (kind === 'music' && item.musicLabel ? item.musicLabel : item.label);
   const items = kind === 'audiobooks'
-    ? [
-        ...NAV_ITEMS.slice(0, 7), // through search
-        { id: 'stitcher', label: 'Audiobook Stitcher', icon: Layers },
-        ...NAV_ITEMS.slice(7)
-      ]
-    : NAV_ITEMS;
+    ? NAV_ITEMS
+    : NAV_ITEMS.filter((item) => item.id !== 'stitcher');
   const mobileItems = NAV_ITEMS.filter((item) => MOBILE_NAV_IDS.includes(item.id));
 
   return (
@@ -205,7 +202,12 @@ export default function Sidebar({
               key={item.id}
               type="button"
               className={`mobile-nav-btn ${currentView === item.id ? 'active' : ''}`}
-              onClick={() => setCurrentView(item.id)}
+              onClick={() => {
+                if (item.id === 'stitcher' && kind !== 'audiobooks') {
+                  onKindChange?.('audiobooks');
+                }
+                setCurrentView(item.id);
+              }}
               title={labelFor(item)}
               aria-label={labelFor(item)}
               aria-current={currentView === item.id ? 'page' : undefined}

@@ -135,6 +135,7 @@ export default function AudiobookStitcherView({
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [deleteSinglesState, setDeleteSinglesState] = useState('idle');
   const [deleteMessage, setDeleteMessage] = useState('');
+  const [ffmpegAvailable, setFfmpegAvailable] = useState(true);
 
   const pollingTimerRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -150,6 +151,11 @@ export default function AudiobookStitcherView({
           items: res.items || []
         });
       }
+      api.health().then((h) => {
+        if (h?.tools?.ffmpeg) {
+          setFfmpegAvailable(Boolean(h.tools.ffmpeg.available));
+        }
+      }).catch(() => {});
     } catch (err) {
       console.warn('[AudiobookStitcher] Failed to load library:', err);
     } finally {
@@ -303,6 +309,7 @@ export default function AudiobookStitcherView({
           } else if (data.status === 'error') {
             setIsStitching(false);
             if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
+            notify?.('Stitching failed', data.error || 'Audiobook stitching failed.', true);
           }
         }
       } catch (err) {
@@ -478,7 +485,12 @@ export default function AudiobookStitcherView({
             <Layers size={24} className="stitcher-title-icon" />
             <span>Audiobook Stitcher</span>
           </h1>
-          <span className="badge badge-accent">FFmpeg Pro</span>
+          <span
+            className={`badge ${ffmpegAvailable ? 'badge-accent' : 'badge-danger'}`}
+            title={ffmpegAvailable ? 'FFmpeg is installed and ready' : 'FFmpeg binary was not found. Run: npm run tools:setup'}
+          >
+            {ffmpegAvailable ? 'FFmpeg Ready' : 'FFmpeg Missing'}
+          </span>
         </div>
 
         <div className="stitcher-header-actions">
@@ -931,8 +943,9 @@ export default function AudiobookStitcherView({
                 <button
                   type="button"
                   className="btn btn-primary btn-large btn-stitch-run"
-                  disabled={tracks.length < 2 || !metaTitle.trim() || isStitching || isUpdatingMetadata}
+                  disabled={tracks.length < 2 || !metaTitle.trim() || isStitching || isUpdatingMetadata || !ffmpegAvailable}
                   onClick={handleStartStitch}
+                  title={!ffmpegAvailable ? 'FFmpeg is not available. Please run: npm run tools:setup' : undefined}
                 >
                   <Sparkles size={18} />
                   <span>Stitch & Save to Google Drive</span>
