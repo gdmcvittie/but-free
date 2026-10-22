@@ -66,6 +66,8 @@ export default function App() {
   const [toasts, setToasts] = useState([]);
   const [scanState, setScanState] = useState(null);
   const [queueBarActive, setQueueBarActive] = useState(false);
+  const [stitcherBarActive, setStitcherBarActive] = useState(false);
+  const [stitcherMounted, setStitcherMounted] = useState(false);
 
   // Stable handle so effects that run before runScan is defined (folder
   // connect) can still kick off a scan.
@@ -132,6 +134,7 @@ export default function App() {
     }
     if (view === 'stitcher') {
       setKind('audiobooks');
+      setStitcherMounted(true);
       if (opts?.book) setStitcherInitialBook(opts.book);
     } else {
       setStitcherInitialBook(null);
@@ -496,7 +499,7 @@ const handleFolderSelected = useCallback((folderKind, folderId, folderName) => {
         onOpenDrivePicker={setDrivePickerKind}
       />
 
-      <main className={`main-content ${activeItem ? 'has-player' : ''} ${queueBarActive ? 'has-download-bar' : ''}`}>
+      <main className={`main-content ${activeItem ? 'has-player' : ''} ${queueBarActive ? 'has-download-bar' : ''} ${stitcherBarActive ? 'has-stitcher-bar' : ''}`}>
         {!isOnline && (
           <div
             style={{
@@ -612,10 +615,14 @@ const handleFolderSelected = useCallback((folderKind, folderId, folderName) => {
           />
         )}
 
-        {currentView === 'stitcher' && (
+        {(currentView === 'stitcher' || stitcherBarActive || stitcherMounted) && (
           <AudiobookStitcherView
             user={user}
             initialBook={stitcherInitialBook}
+            isActive={currentView === 'stitcher'}
+            hasPlayer={Boolean(activeItem)}
+            hasDownloadBar={queueBarActive}
+            onJobActiveChange={setStitcherBarActive}
             onNavigate={navigate}
             onPlay={play}
             onRefresh={bumpLibrary}

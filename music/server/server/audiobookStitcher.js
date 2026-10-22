@@ -284,27 +284,30 @@ export const audiobookStitcher = {
   },
 
   /**
-   * Cancels a running stitching job and cleans up child processes.
+   * Cancels a running stitching or conversion job and cleans up child processes.
    */
   cancel(jobId) {
+    const job = this.getStatus(jobId);
+    if (job && job.status === 'running') {
+      job.status = 'cancelled';
+      job.phase = 'Cancelled by user';
+      job.error = 'Operation was cancelled by user.';
+      job.updatedAt = Date.now();
+      saveJobToDisk(job);
+      const eventName = job.type === 'convert' ? 'convert_progress' : 'stitch_progress';
+      broadcast(eventName, { jobId, ...job });
+    }
     const proc = activeProcesses.get(jobId);
     if (proc) {
       try {
-        proc.kill('SIGKILL');
+        proc.kill('SIGTERM');
+        setTimeout(() => {
+          try { proc.kill('SIGKILL'); } catch (_) {}
+        }, 1500);
       } catch (e) {}
       activeProcesses.delete(jobId);
     }
-    const job = this.getStatus(jobId);
-    if (job && job.status === 'running') {
-      job.status = 'error';
-      job.phase = 'Cancelled by user';
-      job.error = 'Operation was cancelled.';
-      job.updatedAt = Date.now();
-      saveJobToDisk(job);
-      broadcast('stitch_progress', { jobId, ...job });
-      return true;
-    }
-    return false;
+    return Boolean(job);
   },
 
   /**
@@ -593,14 +596,16 @@ export const audiobookStitcher = {
       // Build FFmpeg concat arguments
       const args = [
         '-y',
+        '-threads', '2',
         '-f', 'concat',
         '-safe', '0',
-        '-i', concatListFile
+        '-i', concatListFile,
+        '-vn' // discard any inconsistent chapter cover art/video streams during audio concat
       ];
 
       if (mode === 'copy') {
         // Direct stream copy - ultra fast
-        args.push('-c', 'copy');
+        args.push('-c:a', 'copy');
       } else {
         // Re-encoding with selected quality / compression
         args.push('-c:a', 'libmp3lame');
@@ -643,6 +648,7 @@ export const audiobookStitcher = {
       await new Promise((resolve, reject) => {
         let lastProgressTime = 0;
         let proc = null;
+        const stderrLines = [];
         try {
           proc = spawn(ffmpegPath, args, { windowsHide: true });
           activeProcesses.set(job.id, proc);
@@ -651,15 +657,22 @@ export const audiobookStitcher = {
         }
 
         proc.stderr.on('data', (data) => {
-          const line = data.toString();
+          const chunk = data.toString();
+          for (const rawLine of chunk.split(/\r?\n/)) {
+            const trimmed = rawLine.trim();
+            if (trimmed) {
+              stderrLines.push(trimmed);
+              if (stderrLines.length > 30) stderrLines.shift();
+            }
+          }
 
           if (totalDurationSec === 0) {
-            const durMatch = line.match(/Duration:\s*(\d+:\d+:\d+\.\d+)/);
+            const durMatch = chunk.match(/Duration:\s*(\d+:\d+:\d+\.\d+)/);
             if (durMatch) totalDurationSec = parseTimeToSeconds(durMatch[1]);
           }
 
-          const timeMatch = line.match(/time=(\d+:\d+:\d+\.\d+)/);
-          const speedMatch = line.match(/speed=\s*([\d\.]+x)/);
+          const timeMatch = chunk.match(/time=(\d+:\d+:\d+\.\d+)/);
+          const speedMatch = chunk.match(/speed=\s*([\d\.]+x)/);
 
           if (timeMatch) {
             const currentSec = parseTimeToSeconds(timeMatch[1]);
@@ -685,13 +698,21 @@ export const audiobookStitcher = {
 
         proc.on('error', (err) => {
           activeProcesses.delete(job.id);
-          reject(new Error(`FFmpeg failed: ${err.message}`));
+          reject(new Error(`FFmpeg failed to execute: ${err.message}`));
         });
 
-        proc.on('close', (code) => {
+        proc.on('close', (code, signal) => {
           activeProcesses.delete(job.id);
-          if (code === 0) resolve();
-          else reject(new Error(`FFmpeg exited with error code ${code}`));
+          if (job.status === 'cancelled' || job.phase === 'Cancelled by user') {
+            return reject(new Error('Operation was cancelled by user.'));
+          }
+          if (code === 0 && fs.existsSync(intermediateOutput) && fs.statSync(intermediateOutput).size > 0) {
+            resolve();
+          } else {
+            const stderrTail = stderrLines.slice(-8).join(' | ');
+            const exitDesc = code !== null ? `exit code ${code}` : `signal ${signal || 'SIGKILL'}`;
+            reject(new Error(`FFmpeg stitching failed (${exitDesc})${stderrTail ? `: ${stderrTail}` : ''}`));
+          }
         });
       });
 
@@ -749,39 +770,47 @@ export const audiobookStitcher = {
       const finalFileName = `${sanitizeFileBase(job.title) || 'Audiobook'}.mp3`;
       const finalStitchedPath = path.join(tempDir, finalFileName);
 
+      const hasCover = Boolean(coverPath && fs.existsSync(coverPath));
       const tagArgs = [
         '-y',
+        '-threads', '2',
         '-i', intermediateOutput
       ];
 
-      if (coverPath && fs.existsSync(coverPath)) {
-        tagArgs.push('-i', coverPath, '-map', '0:a', '-map', '1:0');
-      }
-
-      tagArgs.push(
-        '-c', 'copy',
-        '-id3v2_version', '3',
-        '-metadata', `title=${job.title}`,
-        '-metadata', `artist=${job.author || ''}`,
-        '-metadata', `album_artist=${job.author || ''}`,
-        '-metadata', `album=${job.series || job.title}`,
-        '-metadata', `composer=${job.narrator || ''}`,
-        '-metadata', `date=${job.year || ''}`,
-        '-metadata', `genre=${job.genre || 'Audiobook'}`,
-        '-metadata', `comment=${job.comment || ''}`
-      );
-
-      if (coverPath && fs.existsSync(coverPath)) {
+      if (hasCover) {
         tagArgs.push(
+          '-i', coverPath,
+          '-map', '0:a',
+          '-map', '1:v',
+          '-c:a', 'copy',
+          '-c:v', 'mjpeg',
+          '-disposition:v:0', 'attached_pic',
           '-metadata:s:v', 'title=Album cover',
           '-metadata:s:v', 'comment=Cover (front)'
         );
+      } else {
+        tagArgs.push(
+          '-map', '0:a',
+          '-c:a', 'copy'
+        );
       }
 
-      tagArgs.push(finalStitchedPath);
+      tagArgs.push(
+        '-id3v2_version', '3',
+        '-metadata', `title=${job.title || ''}`,
+        '-metadata', `artist=${job.author || ''}`,
+        '-metadata', `album_artist=${job.author || ''}`,
+        '-metadata', `album=${job.series || job.title || ''}`,
+        '-metadata', `composer=${job.narrator || ''}`,
+        '-metadata', `date=${job.year || ''}`,
+        '-metadata', `genre=${job.genre || 'Audiobook'}`,
+        '-metadata', `comment=${job.comment || ''}`,
+        finalStitchedPath
+      );
 
       await new Promise((resolve, reject) => {
         let tagProc = null;
+        const tagStderrLines = [];
         try {
           tagProc = spawn(ffmpegPath, tagArgs, { windowsHide: true });
           activeProcesses.set(job.id, tagProc);
@@ -789,21 +818,50 @@ export const audiobookStitcher = {
           return reject(err);
         }
 
+        if (tagProc.stderr) {
+          tagProc.stderr.on('data', (d) => {
+            const chunk = d.toString();
+            for (const l of chunk.split(/\r?\n/)) {
+              const trimmed = l.trim();
+              if (trimmed) {
+                tagStderrLines.push(trimmed);
+                if (tagStderrLines.length > 25) tagStderrLines.shift();
+              }
+            }
+          });
+        }
+
         tagProc.on('error', (err) => {
           activeProcesses.delete(job.id);
           reject(err);
         });
 
-        tagProc.on('close', (code) => {
+        tagProc.on('close', (code, signal) => {
           activeProcesses.delete(job.id);
-          if (code === 0 && fs.existsSync(finalStitchedPath)) resolve();
-          else {
-            // Fallback: copy intermediate directly if tagging failed
+          if (job.status === 'cancelled' || job.phase === 'Cancelled by user') {
+            return reject(new Error('Operation was cancelled by user.'));
+          }
+          if (code === 0 && fs.existsSync(finalStitchedPath) && fs.statSync(finalStitchedPath).size > 0) {
+            resolve();
+          } else {
+            const stderrTail = tagStderrLines.slice(-6).join(' | ');
+            console.warn(`[AudiobookStitcher] Tagging with cover art failed (${code !== null ? `code ${code}` : `signal ${signal}`}): ${stderrTail}. Falling back to clean copy...`);
+
+            // Clean up partial finalStitchedPath if it was created
             try {
+              if (fs.existsSync(finalStitchedPath)) fs.unlinkSync(finalStitchedPath);
+            } catch (_) {}
+
+            // Fallback: copy intermediate audio directly so the stitched audiobook is never lost
+            try {
+              if (!fs.existsSync(intermediateOutput) || fs.statSync(intermediateOutput).size === 0) {
+                throw new Error('Intermediate stitched audio file is missing or 0 bytes.');
+              }
               fs.copyFileSync(intermediateOutput, finalStitchedPath);
               resolve();
-            } catch (e) {
-              reject(new Error(`Tagging failed with exit code ${code}`));
+            } catch (copyErr) {
+              const exitDesc = code !== null ? `exit code ${code}` : `signal ${signal || 'SIGKILL'}`;
+              reject(new Error(`Tagging failed (${exitDesc})${stderrTail ? `: ${stderrTail}` : ''} and fallback copy failed: ${copyErr.message}`));
             }
           }
         });
@@ -937,6 +995,7 @@ export const audiobookStitcher = {
         normalize: Boolean(options.normalize),
         smartBitrate: options.smartBitrate !== false,
         destMode: options.destMode || 'subfolder', // 'in-place' | 'subfolder' | 'custom-folder'
+        sourceFolderId: options.sourceFolderId || null,
         customFolderId: options.customFolderId || null,
         deleteSource: Boolean(options.deleteSource)
       },
@@ -1025,7 +1084,7 @@ export const audiobookStitcher = {
       const convertedResults = [];
 
       for (let i = 0; i < job.fileIds.length; i++) {
-        if (job.status === 'cancelled') break;
+        if (job.status === 'cancelled' || job.phase === 'Cancelled by user') break;
 
         const fileId = job.fileIds[i];
         let item = db.getItem(user.id, fileId);
@@ -1061,240 +1120,291 @@ export const audiobookStitcher = {
           overallPercent: Math.round((i / job.fileIds.length) * 100)
         });
 
-        // 1. Download file to temp
         const rawLocalPath = path.join(tempDir, `src_${i}_${fileName}`);
-        const cached = localFileFor(item.id);
+        const convertedTempPath = path.join(tempDir, `out_${i}_${baseName}.mp3`);
         let srcPath = rawLocalPath;
 
-        if (cached && fs.existsSync(cached) && fs.statSync(cached).size > 0) {
-          srcPath = cached;
-        } else {
-          if (!item.googleFileId) {
-            failedCount++;
-            continue;
-          }
-          const accessToken = await googleAuth.getValidAccessToken(user);
-          const res = await fetch(`https://www.googleapis.com/drive/v3/files/${item.googleFileId}?alt=media`, {
-            headers: { Authorization: `Bearer ${accessToken}` }
-          });
-          if (!res.ok) {
-            failedCount++;
-            continue;
-          }
-          const writeStream = fs.createWriteStream(rawLocalPath);
-          await pipeline(Readable.fromWeb(res.body), writeStream);
-          srcPath = rawLocalPath;
-        }
-
-        // 2. Detect source bitrate
-        let detectedKbps = null;
-        if (isSmartBitrate) {
-          detectedKbps = await detectAudioBitrate([item], [srcPath]);
-        }
-
-        // Determine effective bitrate and whether to compress or copy
-        let effectiveBitrate = desiredBitrateRaw;
-        let convMode = 'compress';
-        let smartInfo = null;
-        const sameExt = originalExt === '.mp3';
-        const canDirectCopy = sameExt && !job.options.normalize;
-
-        if (isSmartBitrate && detectedKbps && detectedKbps > 0) {
-          const shouldCompress = detectedKbps > desiredBitrateKbps;
-          if (shouldCompress) {
-            effectiveBitrate = `${desiredBitrateKbps}k`;
-            smartInfo = {
-              enabled: true,
-              detectedBitrate: detectedKbps,
-              desiredBitrate: desiredBitrateKbps,
-              shouldCompress: true,
-              action: 'compress',
-              effectiveBitrate: effectiveBitrate,
-              reason: `Source (${detectedKbps}k) > Target (${desiredBitrateKbps}k) → Compressing`
-            };
+        try {
+          // 1. Download file to temp
+          const cached = localFileFor(item.id);
+          if (cached && fs.existsSync(cached) && fs.statSync(cached).size > 0) {
+            srcPath = cached;
           } else {
-            // Source is already <= target -> Do not compress!
-            if (canDirectCopy) {
-              convMode = 'copy';
+            if (!item.googleFileId) {
+              throw new Error(`File "${fileName}" has no Google Drive file ID.`);
+            }
+            const accessToken = await googleAuth.getValidAccessToken(user);
+            const res = await fetch(`https://www.googleapis.com/drive/v3/files/${item.googleFileId}?alt=media`, {
+              headers: { Authorization: `Bearer ${accessToken}` }
+            });
+            if (!res.ok) {
+              throw new Error(`Failed to download from Google Drive (HTTP ${res.status}).`);
+            }
+            const writeStream = fs.createWriteStream(rawLocalPath);
+            await pipeline(Readable.fromWeb(res.body), writeStream);
+            srcPath = rawLocalPath;
+          }
+
+          // 2. Detect source bitrate
+          let detectedKbps = null;
+          if (isSmartBitrate) {
+            detectedKbps = await detectAudioBitrate([item], [srcPath]);
+          }
+
+          // Determine effective bitrate and whether to compress or copy
+          let effectiveBitrate = desiredBitrateRaw;
+          let convMode = 'compress';
+          let smartInfo = null;
+          const sameExt = originalExt === '.mp3';
+          const canDirectCopy = sameExt && !job.options.normalize;
+
+          if (isSmartBitrate && detectedKbps && detectedKbps > 0) {
+            const shouldCompress = detectedKbps > desiredBitrateKbps;
+            if (shouldCompress) {
+              effectiveBitrate = `${desiredBitrateKbps}k`;
               smartInfo = {
                 enabled: true,
                 detectedBitrate: detectedKbps,
                 desiredBitrate: desiredBitrateKbps,
-                shouldCompress: false,
-                action: 'copy',
-                effectiveBitrate: `${detectedKbps}k`,
-                reason: `Source (${detectedKbps}k) ≤ Target (${desiredBitrateKbps}k) → Lossless stream copy`
+                shouldCompress: true,
+                action: 'compress',
+                effectiveBitrate: effectiveBitrate,
+                reason: `Source (${detectedKbps}k) > Target (${desiredBitrateKbps}k) → Compressing`
               };
             } else {
-              effectiveBitrate = `${detectedKbps}k`;
-              smartInfo = {
-                enabled: true,
-                detectedBitrate: detectedKbps,
-                desiredBitrate: desiredBitrateKbps,
-                shouldCompress: false,
-                action: 'preserve',
-                effectiveBitrate: effectiveBitrate,
-                reason: `Source (${detectedKbps}k) ≤ Target (${desiredBitrateKbps}k) → Preserving ${detectedKbps}k`
-              };
+              // Source is already <= target -> Do not compress!
+              if (canDirectCopy) {
+                convMode = 'copy';
+                smartInfo = {
+                  enabled: true,
+                  detectedBitrate: detectedKbps,
+                  desiredBitrate: desiredBitrateKbps,
+                  shouldCompress: false,
+                  action: 'copy',
+                  effectiveBitrate: `${detectedKbps}k`,
+                  reason: `Source (${detectedKbps}k) ≤ Target (${desiredBitrateKbps}k) → Lossless stream copy`
+                };
+              } else {
+                effectiveBitrate = `${detectedKbps}k`;
+                smartInfo = {
+                  enabled: true,
+                  detectedBitrate: detectedKbps,
+                  desiredBitrate: desiredBitrateKbps,
+                  shouldCompress: false,
+                  action: 'preserve',
+                  effectiveBitrate: effectiveBitrate,
+                  reason: `Source (${detectedKbps}k) ≤ Target (${desiredBitrateKbps}k) → Preserving ${detectedKbps}k`
+                };
+              }
+              smartPreservedCount++;
             }
-            smartPreservedCount++;
-          }
-        }
-
-        // 3. Output file path (temp converted file)
-        const convertedTempPath = path.join(tempDir, `out_${i}_${baseName}.mp3`);
-
-        const ffmpegArgs = ['-y', '-i', srcPath];
-        if (convMode === 'copy') {
-          ffmpegArgs.push('-c', 'copy');
-          ffmpegArgs.push('-map', '0:a');
-          ffmpegArgs.push('-map', '0:v?');
-          ffmpegArgs.push('-map_metadata', '0');
-        } else {
-          ffmpegArgs.push('-c:a', 'libmp3lame', '-b:a', effectiveBitrate);
-          if (job.options.channels === '1' || job.options.channels === 1) ffmpegArgs.push('-ac', '1');
-          else if (job.options.channels === '2' || job.options.channels === 2) ffmpegArgs.push('-ac', '2');
-          if (job.options.sampleRate && job.options.sampleRate !== 'original') {
-            ffmpegArgs.push('-ar', String(job.options.sampleRate));
-          }
-          if (job.options.normalize) {
-            ffmpegArgs.push('-af', 'loudnorm=I=-16:TP=-1.5:LRA=11');
-          }
-          ffmpegArgs.push('-map', '0:a', '-map', '0:v?', '-c:v', 'copy', '-id3v2_version', '3', '-map_metadata', '0');
-        }
-        ffmpegArgs.push(convertedTempPath);
-
-        let fileDurationSec = item.durationSec || 0;
-        let lastThrottle = 0;
-
-        await new Promise((resolveConv, rejectConv) => {
-          let proc = null;
-          try {
-            proc = spawn(ffmpegPath, ffmpegArgs, { windowsHide: true });
-            activeProcesses.set(job.id, proc);
-          } catch (e) {
-            return rejectConv(e);
           }
 
-          proc.stderr.on('data', (chunk) => {
-            const line = chunk.toString();
-            if (fileDurationSec === 0) {
-              const durMatch = line.match(/Duration:\s*(\d+:\d+:\d+\.\d+)/);
-              if (durMatch) fileDurationSec = parseTimeToSeconds(durMatch[1]);
+          // 3. Build FFmpeg conversion command
+          const ffmpegArgs = ['-y', '-threads', '2', '-i', srcPath];
+          if (convMode === 'copy') {
+            ffmpegArgs.push(
+              '-c:a', 'copy',
+              '-map', '0:a',
+              '-map', '0:v?',
+              '-c:v', 'copy',
+              '-disposition:v?', 'attached_pic',
+              '-map_metadata', '0'
+            );
+          } else {
+            ffmpegArgs.push('-c:a', 'libmp3lame', '-b:a', effectiveBitrate);
+            if (job.options.channels === '1' || job.options.channels === 1) ffmpegArgs.push('-ac', '1');
+            else if (job.options.channels === '2' || job.options.channels === 2) ffmpegArgs.push('-ac', '2');
+            if (job.options.sampleRate && job.options.sampleRate !== 'original') {
+              ffmpegArgs.push('-ar', String(job.options.sampleRate));
             }
-            const timeMatch = line.match(/time=(\d+:\d+:\d+\.\d+)/);
-            const speedMatch = line.match(/speed=\s*([\d\.]+x)/);
-            if (timeMatch) {
-              const currentSec = parseTimeToSeconds(timeMatch[1]);
-              const percent = fileDurationSec > 0 ? Math.min(99, Math.round((currentSec / fileDurationSec) * 100)) : 0;
-              const nowMs = Date.now();
-              if (nowMs - lastThrottle > 250) {
-                lastThrottle = nowMs;
-                updateJob(`Converting ${fileName}: ${percent}%`, {
-                  currentPercent: percent,
-                  currentTime: timeMatch[1].split('.')[0],
-                  totalDuration: formatDuration(fileDurationSec),
-                  speed: speedMatch ? speedMatch[1] : '',
-                  smartBitrate: smartInfo
-                });
+            if (job.options.normalize) {
+              ffmpegArgs.push('-af', 'loudnorm=I=-16:TP=-1.5:LRA=11');
+            }
+            ffmpegArgs.push(
+              '-map', '0:a',
+              '-map', '0:v?',
+              '-c:v', 'mjpeg',
+              '-disposition:v?', 'attached_pic',
+              '-id3v2_version', '3',
+              '-map_metadata', '0'
+            );
+          }
+          ffmpegArgs.push(convertedTempPath);
+
+          let fileDurationSec = item.durationSec || 0;
+          let lastThrottle = 0;
+
+          await new Promise((resolveConv, rejectConv) => {
+            let proc = null;
+            const convStderrLines = [];
+            try {
+              proc = spawn(ffmpegPath, ffmpegArgs, { windowsHide: true });
+              activeProcesses.set(job.id, proc);
+            } catch (e) {
+              return rejectConv(e);
+            }
+
+            proc.stderr.on('data', (chunk) => {
+              const line = chunk.toString();
+              for (const l of line.split(/\r?\n/)) {
+                const tr = l.trim();
+                if (tr) {
+                  convStderrLines.push(tr);
+                  if (convStderrLines.length > 25) convStderrLines.shift();
+                }
+              }
+
+              if (fileDurationSec === 0) {
+                const durMatch = line.match(/Duration:\s*(\d+:\d+:\d+\.\d+)/);
+                if (durMatch) fileDurationSec = parseTimeToSeconds(durMatch[1]);
+              }
+              const timeMatch = line.match(/time=(\d+:\d+:\d+\.\d+)/);
+              const speedMatch = line.match(/speed=\s*([\d\.]+x)/);
+              if (timeMatch) {
+                const currentSec = parseTimeToSeconds(timeMatch[1]);
+                const percent = fileDurationSec > 0 ? Math.min(99, Math.round((currentSec / fileDurationSec) * 100)) : 0;
+                const nowMs = Date.now();
+                if (nowMs - lastThrottle > 250) {
+                  lastThrottle = nowMs;
+                  updateJob(`Converting ${fileName}: ${percent}%`, {
+                    currentPercent: percent,
+                    currentTime: timeMatch[1].split('.')[0],
+                    totalDuration: formatDuration(fileDurationSec),
+                    speed: speedMatch ? speedMatch[1] : '',
+                    smartBitrate: smartInfo
+                  });
+                }
+              }
+            });
+
+            proc.on('error', (err) => {
+              activeProcesses.delete(job.id);
+              rejectConv(err);
+            });
+
+            proc.on('close', (code, signal) => {
+              activeProcesses.delete(job.id);
+              if (job.status === 'cancelled' || job.phase === 'Cancelled by user') {
+                return rejectConv(new Error('Operation cancelled by user.'));
+              }
+              if (code === 0 && fs.existsSync(convertedTempPath) && fs.statSync(convertedTempPath).size > 0) {
+                resolveConv();
+              } else {
+                const stderrTail = convStderrLines.slice(-6).join(' | ');
+                const exitDesc = code !== null ? `exit code ${code}` : `signal ${signal || 'SIGKILL'}`;
+                rejectConv(new Error(`FFmpeg exited with ${exitDesc}${stderrTail ? `: ${stderrTail}` : ''}`));
+              }
+            });
+          });
+
+          totalDurationSec += fileDurationSec;
+          const convertedStat = fs.statSync(convertedTempPath);
+          const originalSize = item.sizeBytes || (fs.existsSync(srcPath) ? fs.statSync(srcPath).size : 0);
+
+          // 4. Destination Handling (Google Drive)
+          let finalDriveFileId = item.googleFileId;
+          const destMode = job.options.destMode || 'subfolder';
+
+          if (destMode === 'in-place') {
+            // In-place: replace file content in Drive directly
+            updateJob(`Updating "${fileName}" in Google Drive...`);
+            const updatedResult = await googleDrive.updateFileContent(user, item.googleFileId, convertedTempPath);
+            finalDriveFileId = updatedResult.driveFileId || item.googleFileId;
+
+            if (originalSize > convertedStat.size) {
+              totalFreedBytes += (originalSize - convertedStat.size);
+            }
+
+            db.updateItem(user.id, item.id, {
+              sizeBytes: convertedStat.size,
+              format: 'mp3',
+              bitrateKbps: smartInfo?.effectiveBitrate ? parseBitrateToKbps(smartInfo.effectiveBitrate) : desiredBitrateKbps
+            });
+          } else {
+            // Subfolder ('converted') or Custom folder
+            let targetFolderId = user.audiobooksFolderId;
+            if (destMode === 'custom-folder' && job.options.customFolderId) {
+              targetFolderId = job.options.customFolderId;
+            } else {
+              // Ensure 'converted' folder is created inside the exact source folder
+              let parentFolderId = job.options.sourceFolderId || item.driveFolderId || null;
+
+              if (!parentFolderId && item.googleFileId) {
+                try {
+                  const meta = await googleDrive.getFileMetadata(user, item.googleFileId, 'id,parents');
+                  if (meta?.parents?.[0]) {
+                    parentFolderId = meta.parents[0];
+                  }
+                } catch (_) {}
+              }
+
+              if (!parentFolderId) {
+                parentFolderId = user.audiobooksFolderId;
+              }
+
+              const subfolder = await googleDrive.getOrCreateSubfolder(user, 'converted', parentFolderId);
+              targetFolderId = subfolder.id;
+            }
+
+            updateJob(`Uploading converted "${baseName}.mp3" to Google Drive...`);
+            const uploadRes = await googleDrive.uploadFile(user, convertedTempPath, {
+              name: `${baseName}.mp3`,
+              folderId: targetFolderId
+            });
+            finalDriveFileId = uploadRes.id || uploadRes.driveFileId;
+
+            db.upsertItem(user.id, {
+              ...item,
+              id: newId('abk'),
+              fileName: `${baseName}.mp3`,
+              format: 'mp3',
+              googleFileId: finalDriveFileId,
+              driveFolderId: targetFolderId,
+              sizeBytes: convertedStat.size,
+              bitrateKbps: smartInfo?.effectiveBitrate ? parseBitrateToKbps(smartInfo.effectiveBitrate) : desiredBitrateKbps,
+              addedAt: new Date().toISOString()
+            });
+
+            // Delete source file if requested
+            if (job.options.deleteSource && item.googleFileId && item.googleFileId !== finalDriveFileId) {
+              try {
+                await googleDrive.deleteFile(user, item.googleFileId);
+                totalFreedBytes += originalSize;
+                db.removeItem(user.id, item.id, { silent: true });
+              } catch (delErr) {
+                console.warn('[AudiobookConverter] Delete source note:', delErr.message);
               }
             }
-          });
-
-          proc.on('error', (err) => {
-            activeProcesses.delete(job.id);
-            rejectConv(err);
-          });
-
-          proc.on('close', (code) => {
-            activeProcesses.delete(job.id);
-            if (code === 0 && fs.existsSync(convertedTempPath)) resolveConv();
-            else rejectConv(new Error(`FFmpeg exited with code ${code}`));
-          });
-        });
-
-        totalDurationSec += fileDurationSec;
-        const convertedStat = fs.statSync(convertedTempPath);
-        const originalSize = item.sizeBytes || (fs.existsSync(srcPath) ? fs.statSync(srcPath).size : 0);
-
-        // 4. Destination Handling (Google Drive)
-        let finalDriveFileId = item.googleFileId;
-        const destMode = job.options.destMode || 'subfolder';
-
-        if (destMode === 'in-place') {
-          // In-place: replace file content in Drive directly
-          updateJob(`Updating "${fileName}" in Google Drive...`);
-          const updatedResult = await googleDrive.updateFileContent(user, item.googleFileId, convertedTempPath);
-          finalDriveFileId = updatedResult.driveFileId || item.googleFileId;
-
-          // Calculate freed bytes if file became smaller
-          if (originalSize > convertedStat.size) {
-            totalFreedBytes += (originalSize - convertedStat.size);
           }
 
-          db.updateItem(user.id, item.id, {
-            sizeBytes: convertedStat.size,
-            format: 'mp3',
-            bitrateKbps: smartInfo?.effectiveBitrate ? parseBitrateToKbps(smartInfo.effectiveBitrate) : desiredBitrateKbps
+          completedCount++;
+          convertedResults.push({
+            fileId: item.id,
+            fileName,
+            originalSize,
+            convertedSize: convertedStat.size,
+            driveFileId: finalDriveFileId,
+            smartBitrate: smartInfo
           });
-        } else {
-          // Subfolder ('converted') or Custom folder
-          let targetFolderId = user.audiobooksFolderId;
-          if (destMode === 'custom-folder' && job.options.customFolderId) {
-            targetFolderId = job.options.customFolderId;
-          } else {
-            // 'converted' subfolder inside the source folder
-            const parentFolderId = item.driveFolderId || user.audiobooksFolderId;
-            const subfolder = await googleDrive.getOrCreateSubfolder(user, 'converted', parentFolderId);
-            targetFolderId = subfolder.id;
+        } catch (fileErr) {
+          failedCount++;
+          console.error(`[AudiobookConverter] Error converting file #${i + 1} (${fileName}):`, fileErr.message);
+          updateJob(`Skipped "${fileName}": ${fileErr.message}`, {
+            failedCount,
+            completedCount
+          });
+          if (job.status === 'cancelled' || job.phase === 'Cancelled by user') {
+            break;
           }
-
-          updateJob(`Uploading converted "${baseName}.mp3" to Google Drive...`);
-          const uploadRes = await googleDrive.uploadFile(user, convertedTempPath, {
-            name: `${baseName}.mp3`,
-            folderId: targetFolderId
-          });
-          finalDriveFileId = uploadRes.id || uploadRes.driveFileId;
-
-          // Register new converted item
-          db.upsertItem(user.id, {
-            ...item,
-            id: newId('abk'),
-            fileName: `${baseName}.mp3`,
-            format: 'mp3',
-            googleFileId: finalDriveFileId,
-            driveFolderId: targetFolderId,
-            sizeBytes: convertedStat.size,
-            bitrateKbps: smartInfo?.effectiveBitrate ? parseBitrateToKbps(smartInfo.effectiveBitrate) : desiredBitrateKbps,
-            addedAt: new Date().toISOString()
-          });
-
-          // Delete source file if requested
-          if (job.options.deleteSource && item.googleFileId && item.googleFileId !== finalDriveFileId) {
-            try {
-              await googleDrive.deleteFile(user, item.googleFileId);
-              totalFreedBytes += originalSize;
-              db.removeItem(user.id, item.id, { silent: true });
-            } catch (delErr) {
-              console.warn('[AudiobookConverter] Delete source note:', delErr.message);
-            }
-          }
-        }
-
-        completedCount++;
-        convertedResults.push({
-          fileId: item.id,
-          fileName,
-          originalSize,
-          convertedSize: convertedStat.size,
-          driveFileId: finalDriveFileId,
-          smartBitrate: smartInfo
-        });
-
-        // Clean up individual temp file
-        try { fs.unlinkSync(convertedTempPath); } catch (_) {}
-        if (srcPath === rawLocalPath) {
-          try { fs.unlinkSync(rawLocalPath); } catch (_) {}
+        } finally {
+          // Clean up individual temp files safely
+          try {
+            if (fs.existsSync(convertedTempPath)) fs.unlinkSync(convertedTempPath);
+          } catch (_) {}
+          try {
+            if (srcPath === rawLocalPath && fs.existsSync(rawLocalPath)) fs.unlinkSync(rawLocalPath);
+          } catch (_) {}
         }
       }
 

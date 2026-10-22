@@ -1270,6 +1270,7 @@ app.get('/api/audiobooks/folder-audio-files', async (req, res) => {
         files: matchingItems.map((item) => ({
           id: item.id,
           googleFileId: item.googleFileId,
+          driveFolderId: item.driveFolderId || folderId,
           name: item.fileName || item.title,
           title: item.title,
           author: item.author,
@@ -1289,6 +1290,7 @@ app.get('/api/audiobooks/folder-audio-files', async (req, res) => {
       files: audioFiles.map((f) => ({
         id: f.id,
         googleFileId: f.id,
+        driveFolderId: folderId,
         name: f.name,
         title: stripExtension(f.name),
         sizeBytes: Number(f.size) || 0,

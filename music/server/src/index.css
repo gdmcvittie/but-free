@@ -4799,3 +4799,158 @@ img {
   letter-spacing: 0.04em;
 }
 
+/* ========================================================================= */
+/* Non-blocking Stitcher & Batch Converter Status Footer                     */
+/* ========================================================================= */
+
+.stitcher-status-footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 310;
+  background: rgba(14, 18, 28, 0.98);
+  backdrop-filter: blur(14px);
+  border-top: 1px solid rgba(61, 220, 151, 0.35);
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.55);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  transition: bottom 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.stitcher-status-footer.has-player {
+  bottom: var(--player-height, 80px);
+}
+
+.stitcher-status-footer.has-download-bar:not(.has-player) {
+  bottom: 34px;
+}
+
+.stitcher-status-footer.has-player.has-download-bar {
+  bottom: calc(var(--player-height, 80px) + 34px);
+}
+
+.stitcher-status-bar-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  padding: 0.55rem 1.25rem;
+  min-height: 52px;
+}
+
+.stitcher-status-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  flex: 1 1 35%;
+}
+
+.stitcher-status-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 0.1rem;
+}
+
+.stitcher-status-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.stitcher-status-title:hover {
+  color: #3ddc97;
+}
+
+.stitcher-status-sub {
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stitcher-status-center {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1 1 40%;
+  min-width: 180px;
+  max-width: 480px;
+}
+
+.stitcher-status-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.stitcher-status-progress-bg {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.stitcher-status-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3ddc97, #5ce8ad);
+  border-radius: 4px;
+  transition: width 0.25s ease;
+}
+
+.stitcher-status-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* Expanded details panel */
+.stitcher-status-details-panel {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(10, 13, 20, 0.98);
+  padding: 0.9rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: 260px;
+  overflow-y: auto;
+  animation: slideUp 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.main-content.has-stitcher-bar {
+  padding-bottom: 60px;
+}
+
+.main-content.has-player.has-stitcher-bar {
+  padding-bottom: calc(var(--player-height, 80px) + 60px);
+}
+
+.main-content.has-player.has-download-bar.has-stitcher-bar {
+  padding-bottom: calc(var(--player-height, 80px) + 94px);
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+

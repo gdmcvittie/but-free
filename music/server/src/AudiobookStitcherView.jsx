@@ -24,8 +24,11 @@ import {
   X,
   Search,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   RefreshCw,
-  FileAudio
+  FileAudio,
+  Loader2
 } from 'lucide-react';
 import { api } from './api';
 import { formatLengthShort } from './format';
@@ -146,6 +149,10 @@ function formatBytes(bytes) {
 export default function AudiobookStitcherView({
   user,
   initialBook = null,
+  isActive = true,
+  hasPlayer = false,
+  hasDownloadBar = false,
+  onJobActiveChange,
   onNavigate,
   onPlay,
   onRefresh,
@@ -153,6 +160,7 @@ export default function AudiobookStitcherView({
 }) {
   // Mode selection: 'stitch' | 'convert'
   const [viewMode, setViewMode] = useState('stitch');
+  const [statusFooterExpanded, setStatusFooterExpanded] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [libraryData, setLibraryData] = useState({ books: [], items: [] });
@@ -224,6 +232,10 @@ export default function AudiobookStitcherView({
   const [convertJobStatus, setConvertJobStatus] = useState(null);
   const [showConvertSummaryModal, setShowConvertSummaryModal] = useState(false);
   const [convertSummary, setConvertSummary] = useState(null);
+
+  useEffect(() => {
+    onJobActiveChange?.(isStitching || isConverting);
+  }, [isStitching, isConverting, onJobActiveChange]);
 
   const convertPollingTimerRef = useRef(null);
 
@@ -629,6 +641,7 @@ export default function AudiobookStitcherView({
       id: p.id || p.googleFileId || `cf-${idx}`,
       name: p.fileName || p.title || `Audio ${idx + 1}`,
       title: p.title || p.fileName,
+      driveFolderId: p.driveFolderId || book.driveFolderId || null,
       durationSec: p.durationSec || 0,
       durationFormatted: formatLengthShort(p.durationSec || 0),
       sizeBytes: p.sizeBytes || 0,
@@ -769,6 +782,7 @@ export default function AudiobookStitcherView({
           smartBitrate: convertSmartBitrate,
           normalize: convertNormalize,
           destMode: convertDestMode,
+          sourceFolderId: convertFolderId || selectedFiles.find((f) => f.driveFolderId)?.driveFolderId || null,
           customFolderId: convertCustomFolderId,
           deleteSource: convertDestMode === 'in-place' ? false : convertDeleteSource
         }
@@ -867,6 +881,7 @@ export default function AudiobookStitcherView({
             id: f.id || `df-${idx}`,
             name: f.name || f.title,
             title: f.title || f.name,
+            driveFolderId: f.driveFolderId || folder.id,
             durationSec: f.durationSec || 0,
             durationFormatted: formatLengthShort(f.durationSec || 0),
             sizeBytes: f.sizeBytes || 0,
@@ -887,9 +902,12 @@ export default function AudiobookStitcherView({
     }
   };
 
+  if (!isActive && !isStitching && !isConverting) return null;
+
   return (
-    <div className="stitcher-container">
-      {/* Top Header & Mode Switcher */}
+    <>
+      <div className="stitcher-container" style={{ display: isActive ? undefined : 'none' }}>
+        {/* Top Header & Mode Switcher */}
       <div className="stitcher-header">
         <div className="stitcher-header-left">
           {onNavigate && (
@@ -949,7 +967,6 @@ export default function AudiobookStitcherView({
                 className="stitcher-book-dropdown"
                 value={selectedBookKey}
                 onChange={handleSelectBookDropdown}
-                disabled={isStitching}
               >
                 <option value="">-- Choose an Audiobook from Library --</option>
                 {multiPartBooks.map((book) => {
@@ -974,7 +991,6 @@ export default function AudiobookStitcherView({
                 className="stitcher-book-dropdown"
                 value={selectedConvertBookKey}
                 onChange={handleSelectConvertBookDropdown}
-                disabled={isConverting}
               >
                 <option value="">-- Choose from Library --</option>
                 {multiPartBooks.map((book) => {
@@ -991,7 +1007,6 @@ export default function AudiobookStitcherView({
                 className="btn btn-secondary btn-sm"
                 onClick={() => openDriveFolderPicker('source')}
                 title="Browse and select any folder from Google Drive"
-                disabled={isConverting}
               >
                 <FolderOpen size={14} />
                 <span>Browse Drive Folder...</span>
@@ -1025,7 +1040,7 @@ export default function AudiobookStitcherView({
                   className="btn-tool"
                   onClick={sortAZ}
                   title="Sort natural chapter sequence"
-                  disabled={tracks.length < 2 || isStitching}
+                  disabled={tracks.length < 2}
                 >
                   Sort A-Z
                 </button>
@@ -1034,7 +1049,7 @@ export default function AudiobookStitcherView({
                   className="btn-tool"
                   onClick={reverseList}
                   title="Reverse sequence order"
-                  disabled={tracks.length < 2 || isStitching}
+                  disabled={tracks.length < 2}
                 >
                   Reverse
                 </button>
@@ -1043,7 +1058,7 @@ export default function AudiobookStitcherView({
                   className="btn-tool"
                   onClick={() => setTracks([])}
                   title="Clear current track list"
-                  disabled={tracks.length === 0 || isStitching}
+                  disabled={tracks.length === 0}
                 >
                   Clear
                 </button>
@@ -1066,7 +1081,7 @@ export default function AudiobookStitcherView({
                       <li
                         key={track.id || index}
                         className={`chapter-item ${draggedIndex === index ? 'dragging' : ''}`}
-                        draggable={!isStitching}
+                        draggable
                         onDragStart={() => setDraggedIndex(index)}
                         onDragOver={(e) => {
                           e.preventDefault();
@@ -1095,7 +1110,7 @@ export default function AudiobookStitcherView({
                             type="button"
                             className="btn-icon"
                             onClick={() => moveTrack(index, index - 1)}
-                            disabled={index === 0 || isStitching}
+                            disabled={index === 0}
                             title="Move chapter up"
                           >
                             <ArrowUp size={14} />
@@ -1104,7 +1119,7 @@ export default function AudiobookStitcherView({
                             type="button"
                             className="btn-icon"
                             onClick={() => moveTrack(index, index + 1)}
-                            disabled={index === tracks.length - 1 || isStitching}
+                            disabled={index === tracks.length - 1}
                             title="Move chapter down"
                           >
                             <ArrowDown size={14} />
@@ -1113,7 +1128,6 @@ export default function AudiobookStitcherView({
                             type="button"
                             className="btn-icon btn-icon-danger"
                             onClick={() => removeTrack(index)}
-                            disabled={isStitching}
                             title="Remove chapter"
                           >
                             <Trash2 size={14} />
@@ -1175,7 +1189,6 @@ export default function AudiobookStitcherView({
                       type="button"
                       className="btn btn-secondary btn-xs"
                       onClick={() => fileInputRef.current?.click()}
-                      disabled={isStitching}
                     >
                       <Upload size={12} />
                       <span>{coverPreview ? 'Change Art' : 'Upload Art'}</span>
@@ -1185,7 +1198,6 @@ export default function AudiobookStitcherView({
                         type="button"
                         className="btn btn-ghost btn-xs"
                         onClick={handleRemoveCover}
-                        disabled={isStitching}
                         title="Remove cover image"
                       >
                         Remove
@@ -1205,7 +1217,6 @@ export default function AudiobookStitcherView({
                       placeholder="e.g. Project Hail Mary"
                       value={metaTitle}
                       onChange={(e) => setMetaTitle(e.target.value)}
-                      disabled={isStitching}
                     />
                   </div>
 
@@ -1218,7 +1229,6 @@ export default function AudiobookStitcherView({
                       placeholder="e.g. Andy Weir"
                       value={metaAuthor}
                       onChange={(e) => setMetaAuthor(e.target.value)}
-                      disabled={isStitching}
                     />
                   </div>
                 </div>
@@ -1235,7 +1245,6 @@ export default function AudiobookStitcherView({
                     placeholder="e.g. The Expanse"
                     value={metaSeries}
                     onChange={(e) => setMetaSeries(e.target.value)}
-                    disabled={isStitching}
                   />
                 </div>
 
@@ -1248,7 +1257,6 @@ export default function AudiobookStitcherView({
                     placeholder="e.g. Ray Porter"
                     value={metaNarrator}
                     onChange={(e) => setMetaNarrator(e.target.value)}
-                    disabled={isStitching}
                   />
                 </div>
               </div>
@@ -1263,7 +1271,6 @@ export default function AudiobookStitcherView({
                     placeholder="e.g. Audiobook / Sci-Fi"
                     value={metaGenre}
                     onChange={(e) => setMetaGenre(e.target.value)}
-                    disabled={isStitching}
                   />
                 </div>
 
@@ -1276,7 +1283,6 @@ export default function AudiobookStitcherView({
                     placeholder="e.g. 2021"
                     value={metaYear}
                     onChange={(e) => setMetaYear(e.target.value)}
-                    disabled={isStitching}
                   />
                 </div>
               </div>
@@ -1290,7 +1296,6 @@ export default function AudiobookStitcherView({
                   placeholder="Summary or chapter notes..."
                   value={metaComment}
                   onChange={(e) => setMetaComment(e.target.value)}
-                  disabled={isStitching}
                 />
               </div>
             </div>
@@ -1314,7 +1319,6 @@ export default function AudiobookStitcherView({
                       value={preset.id}
                       checked={selectedPreset === preset.id}
                       onChange={() => setSelectedPreset(preset.id)}
-                      disabled={isStitching}
                     />
                     <div className="preset-card-content">
                       <div className="preset-top-row">
@@ -1343,7 +1347,6 @@ export default function AudiobookStitcherView({
                         className="stitcher-select"
                         value={customBitrate}
                         onChange={(e) => setCustomBitrate(e.target.value)}
-                        disabled={isStitching}
                       >
                         <option value="32k">32 kbps (Ultra Small)</option>
                         <option value="48k">48 kbps</option>
@@ -1362,7 +1365,6 @@ export default function AudiobookStitcherView({
                         className="stitcher-select"
                         value={customChannels}
                         onChange={(e) => setCustomChannels(e.target.value)}
-                        disabled={isStitching}
                       >
                         <option value="1">Mono (Voice)</option>
                         <option value="2">Stereo</option>
@@ -1377,7 +1379,6 @@ export default function AudiobookStitcherView({
                         className="stitcher-select"
                         value={customSampleRate}
                         onChange={(e) => setCustomSampleRate(e.target.value)}
-                        disabled={isStitching}
                       >
                         <option value="original">Keep Original</option>
                         <option value="44100">44.1 kHz</option>
@@ -1396,7 +1397,6 @@ export default function AudiobookStitcherView({
                     type="checkbox"
                     checked={smartBitrateEnabled}
                     onChange={(e) => setSmartBitrateEnabled(e.target.checked)}
-                    disabled={isStitching}
                   />
                   <div>
                     <span style={{ fontWeight: 600 }}>
@@ -1427,7 +1427,7 @@ export default function AudiobookStitcherView({
                     type="checkbox"
                     checked={normalizeVolume}
                     onChange={(e) => setNormalizeVolume(e.target.checked)}
-                    disabled={isStitching || selectedPreset === 'copy'}
+                    disabled={selectedPreset === 'copy'}
                   />
                   <div>
                     <span style={{ fontWeight: 600 }}>EBU R128 Volume Normalization</span>
@@ -1497,7 +1497,7 @@ export default function AudiobookStitcherView({
                   type="button"
                   className="btn-tool"
                   onClick={() => selectAllConvertFiles(true)}
-                  disabled={convertFiles.length === 0 || isConverting}
+                  disabled={convertFiles.length === 0}
                 >
                   Select All
                 </button>
@@ -1505,7 +1505,7 @@ export default function AudiobookStitcherView({
                   type="button"
                   className="btn-tool"
                   onClick={() => selectAllConvertFiles(false)}
-                  disabled={convertFiles.length === 0 || isConverting}
+                  disabled={convertFiles.length === 0}
                 >
                   Deselect All
                 </button>
@@ -1549,7 +1549,6 @@ export default function AudiobookStitcherView({
                         type="checkbox"
                         checked={file.selected}
                         onChange={() => {}} // handled by card click
-                        disabled={isConverting}
                       />
                       <div className="convert-file-details">
                         <span className="convert-file-title" title={file.name}>
@@ -1605,7 +1604,6 @@ export default function AudiobookStitcherView({
                       value={preset.id}
                       checked={convertPreset === preset.id}
                       onChange={() => setConvertPreset(preset.id)}
-                      disabled={isConverting}
                     />
                     <div className="preset-card-content">
                       <div className="preset-top-row">
@@ -1630,7 +1628,6 @@ export default function AudiobookStitcherView({
                     type="checkbox"
                     checked={convertSmartBitrate}
                     onChange={(e) => setConvertSmartBitrate(e.target.checked)}
-                    disabled={isConverting}
                   />
                   <div>
                     <span style={{ fontWeight: 600 }}>
@@ -1653,7 +1650,6 @@ export default function AudiobookStitcherView({
                     type="checkbox"
                     checked={convertNormalize}
                     onChange={(e) => setConvertNormalize(e.target.checked)}
-                    disabled={isConverting}
                   />
                   <div>
                     <span style={{ fontWeight: 600 }}>EBU R128 Volume Normalization</span>
@@ -1679,7 +1675,6 @@ export default function AudiobookStitcherView({
                     value="subfolder"
                     checked={convertDestMode === 'subfolder'}
                     onChange={() => setConvertDestMode('subfolder')}
-                    disabled={isConverting}
                   />
                   <div>
                     <div className="radio-card-title">'converted' Subfolder (Recommended)</div>
@@ -1694,7 +1689,6 @@ export default function AudiobookStitcherView({
                     value="in-place"
                     checked={convertDestMode === 'in-place'}
                     onChange={() => setConvertDestMode('in-place')}
-                    disabled={isConverting}
                   />
                   <div>
                     <div className="radio-card-title">In-Place Overwrite</div>
@@ -1709,7 +1703,6 @@ export default function AudiobookStitcherView({
                     value="custom-folder"
                     checked={convertDestMode === 'custom-folder'}
                     onChange={() => setConvertDestMode('custom-folder')}
-                    disabled={isConverting}
                   />
                   <div style={{ flex: 1 }}>
                     <div className="radio-card-title">Custom Drive Folder</div>
@@ -1737,7 +1730,6 @@ export default function AudiobookStitcherView({
                       type="checkbox"
                       checked={convertDeleteSource}
                       onChange={(e) => setConvertDeleteSource(e.target.checked)}
-                      disabled={isConverting}
                     />
                     <div>
                       <span style={{ fontWeight: 600, color: 'var(--danger)' }}>
@@ -1767,120 +1759,184 @@ export default function AudiobookStitcherView({
           </section>
         </div>
       )}
+      </div>
 
       {/* =================================================================== */}
-      {/* STITCH PROGRESS MODAL                                               */}
+      {/* NON-BLOCKING STATUS FOOTER FOR STITCHING & CONVERTING               */}
       {/* =================================================================== */}
-      {isStitching && (
-        <div className="stitcher-modal-backdrop">
-          <div className="stitcher-modal-card">
-            <div className="stitcher-modal-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <div className="spinner-sm" />
-                <h3>Stitching Audiobook...</h3>
-              </div>
-              <span className="badge badge-accent">FFmpeg Processing</span>
-            </div>
+      {(isStitching || isConverting) && (
+        <div
+          className={`stitcher-status-footer ${hasPlayer ? 'has-player' : ''} ${hasDownloadBar ? 'has-download-bar' : ''}`}
+        >
+          {/* Expanded details slide-up card */}
+          {statusFooterExpanded && (
+            <div className="stitcher-status-details-panel">
+              {isStitching && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span className="stitcher-status-badge">Stitching</span>
+                      <strong>{metaTitle || jobStatus?.title || 'Audiobook'}</strong>
+                    </div>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                      {jobStatus?.speed ? `Speed: ${jobStatus.speed}` : ''}
+                    </span>
+                  </div>
 
-            <div className="stitcher-progress-box">
-              <div className="stitcher-progress-bar-bg">
-                <div
-                  className="stitcher-progress-bar-fill"
-                  style={{ width: `${jobStatus?.percent || 0}%` }}
-                />
-              </div>
+                  <div className="stitcher-status-progress-bg" style={{ height: '8px' }}>
+                    <div
+                      className="stitcher-status-progress-fill"
+                      style={{ width: `${jobStatus?.percent || 0}%` }}
+                    />
+                  </div>
 
-              <div className="stitcher-progress-meta">
-                <span>{jobStatus?.percent || 0}%</span>
-                <span>
-                  {jobStatus?.currentTime || '00:00:00'} / {jobStatus?.totalDuration || formatLengthShort(totalDurationSec)}
-                  {jobStatus?.speed ? ` [${jobStatus.speed}]` : ''}
-                </span>
-              </div>
+                  <div className="stitcher-status-progress-meta">
+                    <span>{jobStatus?.percent || 0}% complete</span>
+                    <span>
+                      {jobStatus?.currentTime || '00:00:00'} / {jobStatus?.totalDuration || formatLengthShort(totalDurationSec)}
+                    </span>
+                  </div>
 
-              <div className="stitcher-phase-text">{jobStatus?.phase}</div>
-            </div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                    {jobStatus?.phase}
+                  </div>
 
-            <div className="stitcher-modal-footer">
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={handleCancelStitch}
-              >
-                Cancel Stitching
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* =================================================================== */}
-      {/* BATCH CONVERTER PROGRESS MODAL                                      */}
-      {/* =================================================================== */}
-      {isConverting && (
-        <div className="stitcher-modal-backdrop">
-          <div className="stitcher-modal-card" style={{ maxWidth: '580px' }}>
-            <div className="stitcher-modal-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <div className="spinner-sm" />
-                <div>
-                  <h3 style={{ margin: 0 }}>Batch Converting Audio Files...</h3>
-                  <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                    File {(convertJobStatus?.currentFileIndex || 0) + 1} of {convertJobStatus?.totalFiles || selectedConvertCount}
-                  </span>
+                  {jobStatus?.smartBitrate && (
+                    <div className={`smart-bitrate-hint hint-${jobStatus.smartBitrate.action || 'preserve'}`} style={{ marginTop: '0.2rem' }}>
+                      <span className="hint-icon">💡</span>
+                      <span>{jobStatus.smartBitrate.reason}</span>
+                    </div>
+                  )}
                 </div>
-              </div>
-              <span className="badge badge-accent">Batch Active</span>
-            </div>
+              )}
 
-            <div className="dual-progress-box">
-              {/* Overall Progress */}
-              <div>
-                <div className="progress-section-header">
-                  <span>Overall Batch Progress</span>
-                  <strong>{convertJobStatus?.overallPercent || 0}%</strong>
-                </div>
-                <div className="stitcher-progress-bar-bg">
-                  <div
-                    className="stitcher-progress-bar-fill"
-                    style={{ width: `${convertJobStatus?.overallPercent || 0}%` }}
-                  />
-                </div>
-              </div>
+              {isConverting && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span className="stitcher-status-badge">Batch Converter</span>
+                      <strong style={{ fontSize: '0.85rem' }}>
+                        File {(convertJobStatus?.currentFileIndex || 0) + 1} of {convertJobStatus?.totalFiles || selectedConvertCount}: {convertJobStatus?.currentFileName || 'Processing...'}
+                      </strong>
+                    </div>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                      {convertJobStatus?.completedCount || 0} completed · {convertJobStatus?.failedCount || 0} failed
+                    </span>
+                  </div>
 
-              {/* Current File Progress */}
-              <div>
-                <div className="progress-section-header">
-                  <span>Current: <strong>{convertJobStatus?.currentFileName || 'Processing...'}</strong></span>
-                  <strong>{convertJobStatus?.currentPercent || 0}%</strong>
-                </div>
-                <div className="stitcher-progress-bar-bg">
-                  <div
-                    className="stitcher-progress-bar-fill"
-                    style={{ width: `${convertJobStatus?.currentPercent || 0}%`, backgroundColor: 'var(--accent-color)' }}
-                  />
-                </div>
-                <div className="stitcher-progress-meta" style={{ marginTop: '0.35rem' }}>
-                  <span>{convertJobStatus?.speed ? `Speed: ${convertJobStatus.speed}` : ''}</span>
-                  <span>{convertJobStatus?.currentTime || '00:00:00'} / {convertJobStatus?.totalDuration || '00:00:00'}</span>
-                </div>
-              </div>
+                  {/* Overall Bar */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '0.25rem', color: 'var(--text-secondary)' }}>
+                      <span>Overall Batch Progress</span>
+                      <strong>{convertJobStatus?.overallPercent || 0}%</strong>
+                    </div>
+                    <div className="stitcher-status-progress-bg" style={{ height: '8px' }}>
+                      <div
+                        className="stitcher-status-progress-fill"
+                        style={{ width: `${convertJobStatus?.overallPercent || 0}%` }}
+                      />
+                    </div>
+                  </div>
 
-              {convertJobStatus?.smartBitrate && (
-                <div className={`smart-bitrate-hint hint-${convertJobStatus.smartBitrate.action || 'preserve'}`} style={{ marginTop: '0.2rem' }}>
-                  <span className="hint-icon">💡</span>
-                  <span>{convertJobStatus.smartBitrate.reason}</span>
+                  {/* Current File Bar */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '0.25rem', color: 'var(--text-secondary)' }}>
+                      <span>Current File Encoding: {convertJobStatus?.speed ? `[${convertJobStatus.speed}]` : ''}</span>
+                      <strong>{convertJobStatus?.currentPercent || 0}%</strong>
+                    </div>
+                    <div className="stitcher-status-progress-bg" style={{ height: '8px' }}>
+                      <div
+                        className="stitcher-status-progress-fill"
+                        style={{ width: `${convertJobStatus?.currentPercent || 0}%`, backgroundColor: 'var(--accent-color)' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                      <span>{convertJobStatus?.phase}</span>
+                      <span>{convertJobStatus?.currentTime || '00:00:00'} / {convertJobStatus?.totalDuration || '00:00:00'}</span>
+                    </div>
+                  </div>
+
+                  {convertJobStatus?.smartBitrate && (
+                    <div className={`smart-bitrate-hint hint-${convertJobStatus.smartBitrate.action || 'preserve'}`} style={{ marginTop: '0.2rem' }}>
+                      <span className="hint-icon">💡</span>
+                      <span>{convertJobStatus.smartBitrate.reason}</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
+          )}
 
-            <div className="stitcher-modal-footer">
+          {/* Compact horizontal footer bar */}
+          <div className="stitcher-status-bar-content">
+            <div className="stitcher-status-left">
+              <Loader2 size={18} className="spin" style={{ color: '#3ddc97', flexShrink: 0 }} />
+              <div className="stitcher-status-info">
+                <span
+                  className="stitcher-status-title"
+                  onClick={() => onNavigate?.('stitcher')}
+                  title="Click to view in Audiobook Stitcher"
+                >
+                  {isConverting
+                    ? `Converting (${(convertJobStatus?.currentFileIndex || 0) + 1}/${convertJobStatus?.totalFiles || selectedConvertCount}): ${convertJobStatus?.currentFileName || 'Audio files'}`
+                    : `Stitching: ${metaTitle || jobStatus?.title || 'Audiobook'}`
+                  }
+                </span>
+                <span className="stitcher-status-sub">
+                  {isConverting
+                    ? (convertJobStatus?.phase || 'Converting audio in background...')
+                    : (jobStatus?.phase || 'Encoding audiobook in background...')
+                  }
+                </span>
+              </div>
+            </div>
+
+            <div className="stitcher-status-center">
+              <div className="stitcher-status-progress-meta">
+                <span>
+                  {isConverting
+                    ? `Overall: ${convertJobStatus?.overallPercent || 0}% · File: ${convertJobStatus?.currentPercent || 0}%`
+                    : `${jobStatus?.percent || 0}% · ${jobStatus?.currentTime || '00:00:00'} / ${jobStatus?.totalDuration || formatLengthShort(totalDurationSec)}`
+                  }
+                </span>
+                <span>
+                  {isConverting
+                    ? (convertJobStatus?.speed || '')
+                    : (jobStatus?.speed ? `Speed: ${jobStatus.speed}` : '')
+                  }
+                </span>
+              </div>
+              <div className="stitcher-status-progress-bg">
+                <div
+                  className="stitcher-status-progress-fill"
+                  style={{
+                    width: `${isConverting ? (convertJobStatus?.overallPercent || 0) : (jobStatus?.percent || 0)}%`
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="stitcher-status-right">
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setStatusFooterExpanded((prev) => !prev)}
+                title={statusFooterExpanded ? 'Collapse details' : 'Expand full details'}
+                style={{ padding: '0.35rem 0.6rem', fontSize: '0.78rem' }}
+              >
+                {statusFooterExpanded ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+                <span>{statusFooterExpanded ? 'Less' : 'Details'}</span>
+              </button>
+
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
-                onClick={handleCancelConvert}
+                onClick={isConverting ? handleCancelConvert : handleCancelStitch}
+                title="Cancel ongoing operation"
+                style={{ padding: '0.35rem 0.65rem', fontSize: '0.78rem', color: '#ff6b6b' }}
               >
-                Cancel Conversion
+                <X size={14} />
+                <span>Cancel</span>
               </button>
             </div>
           </div>
@@ -2180,6 +2236,6 @@ export default function AudiobookStitcherView({
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
