@@ -195,12 +195,16 @@ export const api = {
   saveSettings: (patchBody) => post('/api/settings', patchBody),
   health: () => get('/api/health'),
 
-  // ---- audiobook stitcher --------------------------------------------
+  // ---- audiobook stitcher & batch converter -------------------------
   startStitch: (payload) => post('/api/audiobooks/stitch', payload),
   stitchStatus: (jobId) => get(`/api/audiobooks/stitch/status/${encodeURIComponent(jobId)}`),
   cancelStitch: (jobId) => post(`/api/audiobooks/stitch/cancel/${encodeURIComponent(jobId)}`),
   deleteStitchSources: (fileIds) => post('/api/audiobooks/stitch/delete-sources', { fileIds }),
   updateAudiobookMetadata: (payload) => post('/api/audiobooks/metadata', payload),
+  startConvert: (payload) => post('/api/audiobooks/convert', payload),
+  convertStatus: (jobId) => get(`/api/audiobooks/convert/status/${encodeURIComponent(jobId)}`),
+  cancelConvert: (jobId) => post(`/api/audiobooks/convert/cancel/${encodeURIComponent(jobId)}`),
+  getFolderAudioFiles: (folderId) => get(`/api/audiobooks/folder-audio-files?folderId=${encodeURIComponent(folderId)}`),
 
   // ---- admin ---------------------------------------------------------
   restartStreamer: () => post('/api/admin/restart-streamer'),

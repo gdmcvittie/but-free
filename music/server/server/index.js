@@ -21,7 +21,7 @@ import metaStore from './metaStore.js';
 import offlineCache, { cacheUsage, localFileFor, getOfflineItemIds } from './offlineCache.js';
 import binManager from './binManager.js';
 import { attachClient, broadcast, clientCount, recentEvents } from './events.js';
-import { formatDuration, inferGenreFromText } from './libraryParser.js';
+import { formatDuration, inferGenreFromText, isAudioFile, stripExtension } from './libraryParser.js';
 import { groupAudiobookItems } from './bookGrouper.js';
 import audiobookStitcher from './audiobookStitcher.js';
 
@@ -1228,6 +1228,77 @@ app.post('/api/audiobooks/metadata', async (req, res) => {
     return res.json(result);
   } catch (err) {
     return res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/audiobooks/convert', async (req, res) => {
+  try {
+    const job = audiobookStitcher.startConvert(req.user, req.body || {});
+    return res.json({ success: true, jobId: job.id, job });
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/audiobooks/convert/status/:jobId', (req, res) => {
+  const job = audiobookStitcher.getStatus(req.params.jobId);
+  if (!job || job.userId !== req.user.id) {
+    return res.status(404).json({ error: 'Conversion job not found.' });
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  return res.json(job);
+});
+
+app.post('/api/audiobooks/convert/cancel/:jobId', (req, res) => {
+  const cancelled = audiobookStitcher.cancel(req.params.jobId);
+  return res.json({ success: cancelled });
+});
+
+app.get('/api/audiobooks/folder-audio-files', async (req, res) => {
+  try {
+    const folderId = req.query.folderId;
+    if (!folderId) return res.status(400).json({ error: 'Folder ID is required.' });
+
+    // 1. Check local DB items first
+    const allUserItems = db.getUserItems(req.user.id, 'audiobook');
+    const matchingItems = allUserItems.filter((item) =>
+      item.driveFolderId === folderId || item.googleFileId === folderId
+    );
+
+    if (matchingItems.length > 0) {
+      return res.json({
+        files: matchingItems.map((item) => ({
+          id: item.id,
+          googleFileId: item.googleFileId,
+          name: item.fileName || item.title,
+          title: item.title,
+          author: item.author,
+          sizeBytes: item.sizeBytes || 0,
+          durationSec: item.durationSec || 0,
+          bitrateKbps: item.bitrateKbps || null,
+          bitrate: item.bitrate || (item.bitrateKbps ? `${item.bitrateKbps} kbps` : null)
+        }))
+      });
+    }
+
+    // 2. Query Google Drive directly for files in folder
+    const driveFiles = await googleDrive.listFilesInFolder(req.user, folderId);
+    const audioFiles = driveFiles.filter((f) => isAudioFile(f.name));
+
+    return res.json({
+      files: audioFiles.map((f) => ({
+        id: f.id,
+        googleFileId: f.id,
+        name: f.name,
+        title: stripExtension(f.name),
+        sizeBytes: Number(f.size) || 0,
+        durationSec: 0,
+        bitrateKbps: null,
+        bitrate: null
+      }))
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
 });
 

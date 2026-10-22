@@ -767,6 +767,68 @@ export const googleDrive = {
     };
   },
 
+  /** Replaces an existing Drive file's binary content in-place using resumable upload. */
+  async updateFileContent(user, fileId, localPath, { onProgress, signal } = {}) {
+    const accessToken = await googleAuth.getValidAccessToken(user);
+    const stat = fs.statSync(localPath);
+
+    const initRes = await fetch(`${DRIVE_UPLOAD_API}/files/${fileId}?uploadType=resumable`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json; charset=UTF-8',
+        'X-Upload-Content-Length': String(stat.size)
+      }
+    });
+
+    if (!initRes.ok) {
+      const errText = await initRes.text();
+      throw new Error(`Could not start Drive update: HTTP ${initRes.status} ${errText.slice(0, 200)}`);
+    }
+
+    const sessionUrl = initRes.headers.get('location');
+    if (!sessionUrl) throw new Error('Google Drive did not return an update session URL.');
+
+    let uploaded = 0;
+    const source = fs.createReadStream(localPath, { highWaterMark: 1024 * 512 });
+    source.on('data', (chunk) => {
+      uploaded += chunk.length;
+      onProgress?.({ uploaded, total: stat.size });
+    });
+
+    const uploadRes = await fetch(sessionUrl, {
+      method: 'PUT',
+      headers: { 'Content-Length': String(stat.size) },
+      body: Readable.toWeb(source),
+      signal,
+      duplex: 'half'
+    });
+
+    const text = await uploadRes.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch { /* ignore */ }
+    if (!uploadRes.ok) {
+      throw new Error(data?.error?.message || `Drive update failed (HTTP ${uploadRes.status})`);
+    }
+    onProgress?.({ uploaded: stat.size, total: stat.size });
+    return {
+      ...data,
+      driveFileId: fileId,
+      sizeBytes: Number(data.size) || stat.size
+    };
+  },
+
+  /** Lists all files within a specific Drive folder. */
+  async listFilesInFolder(user, folderId) {
+    if (!folderId) return [];
+    const url = new URL(`${DRIVE_API}/files`);
+    url.searchParams.set('q', `'${folderId}' in parents and trashed = false`);
+    url.searchParams.set('fields', 'files(id,name,mimeType,size,modifiedTime)');
+    url.searchParams.set('pageSize', '1000');
+    const data = await driveJson(user, url.toString());
+    return data.files || [];
+  },
+
   /** Uploads an audiobook into Author / Series / Book inside the audiobooks folder. */
   async uploadAudiobook(user, localPath, { fileName, author, series, onProgress } = {}) {
     const folderId = user.audiobooksFolderId;
