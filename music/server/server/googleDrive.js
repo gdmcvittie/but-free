@@ -95,7 +95,7 @@ async function resumableUpload(user, localPath, { name, mimeType, parents, onPro
       'X-Upload-Content-Length': String(stat.size),
       'X-Upload-Content-Type': mimeType || 'application/octet-stream'
     },
-    body: JSON.stringify({ name, mimeType: mimeType || 'application/octet-stream', parents: parents || [] })
+    body: JSON.stringify({ name, mimeType: mimeType || 'application/octet-stream', parents: (parents || []).filter(Boolean) })
   });
 
   if (!initRes.ok) {

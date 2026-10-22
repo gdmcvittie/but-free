@@ -22,7 +22,7 @@ const NAV_ITEMS = [
   { id: 'favorites', label: 'Favourites', icon: Heart },
   { id: 'playlists', label: 'Playlists', icon: ListMusic },
   { id: 'search', label: 'Search', icon: Search },
-  { id: 'stitcher', label: 'Audiobook Stitcher', icon: Layers },
+  { id: 'stitcher', label: 'Audio Tools', icon: Layers },
   { id: 'downloads', label: 'Downloads', icon: Download },
   { id: 'car', label: 'Car Mode', icon: Car },
   { id: 'settings', label: 'Settings', icon: SettingsIcon }

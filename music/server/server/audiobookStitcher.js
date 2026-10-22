@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -27,6 +28,22 @@ import { stripExtension } from './libraryParser.js';
 const jobs = new Map();
 const activeProcesses = new Map(); // jobId -> ChildProcess
 const JOB_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+/**
+ * Safe FFmpeg spawn helper:
+ * Lowers scheduling priority on Linux/cPanel (nice 10) and Windows to ensure background
+ * conversions do not trigger CloudLinux LVE resource watchdogs (which issue SIGKILL on high CPU).
+ */
+function spawnFfmpeg(binPath, args, options = {}) {
+  const proc = spawn(binPath, args, { windowsHide: true, ...options });
+  if (proc.pid && typeof os.setPriority === 'function') {
+    try {
+      // 10 = low background priority on Unix (0 is default, 19 is lowest)
+      os.setPriority(proc.pid, 10);
+    } catch (_) {}
+  }
+  return proc;
+}
 
 function newJobId() {
   return `stitch_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
@@ -596,7 +613,7 @@ export const audiobookStitcher = {
       // Build FFmpeg concat arguments
       const args = [
         '-y',
-        '-threads', '2',
+        '-threads', '1',
         '-f', 'concat',
         '-safe', '0',
         '-i', concatListFile,
@@ -626,7 +643,7 @@ export const audiobookStitcher = {
         }
       }
 
-      args.push(intermediateOutput);
+      args.push('-threads', '1', intermediateOutput);
 
       let initialPhase = mode === 'copy'
         ? 'Direct stream copying audio frames (lossless)...'
@@ -650,7 +667,7 @@ export const audiobookStitcher = {
         let proc = null;
         const stderrLines = [];
         try {
-          proc = spawn(ffmpegPath, args, { windowsHide: true });
+          proc = spawnFfmpeg(ffmpegPath, args);
           activeProcesses.set(job.id, proc);
         } catch (spawnErr) {
           return reject(new Error(`Failed to start FFmpeg: ${spawnErr.message}`));
@@ -773,7 +790,7 @@ export const audiobookStitcher = {
       const hasCover = Boolean(coverPath && fs.existsSync(coverPath));
       const tagArgs = [
         '-y',
-        '-threads', '2',
+        '-threads', '1',
         '-i', intermediateOutput
       ];
 
@@ -805,6 +822,7 @@ export const audiobookStitcher = {
         '-metadata', `date=${job.year || ''}`,
         '-metadata', `genre=${job.genre || 'Audiobook'}`,
         '-metadata', `comment=${job.comment || ''}`,
+        '-threads', '1',
         finalStitchedPath
       );
 
@@ -812,7 +830,7 @@ export const audiobookStitcher = {
         let tagProc = null;
         const tagStderrLines = [];
         try {
-          tagProc = spawn(ffmpegPath, tagArgs, { windowsHide: true });
+          tagProc = spawnFfmpeg(ffmpegPath, tagArgs);
           activeProcesses.set(job.id, tagProc);
         } catch (err) {
           return reject(err);
@@ -1082,6 +1100,7 @@ export const audiobookStitcher = {
       let smartPreservedCount = 0;
       let totalDurationSec = 0;
       const convertedResults = [];
+      const conversionErrors = [];
 
       for (let i = 0; i < job.fileIds.length; i++) {
         if (job.status === 'cancelled' || job.phase === 'Cancelled by user') break;
@@ -1200,103 +1219,279 @@ export const audiobookStitcher = {
             }
           }
 
-          // 3. Build FFmpeg conversion command
-          const ffmpegArgs = ['-y', '-threads', '2', '-i', srcPath];
-          if (convMode === 'copy') {
-            ffmpegArgs.push(
-              '-c:a', 'copy',
+          let fileDurationSec = item.durationSec || 0;
+          if (!fileDurationSec && srcPath && fs.existsSync(srcPath)) {
+            try {
+              const { parseFile } = await import('music-metadata');
+              const meta = await parseFile(srcPath, { duration: true, skipCovers: true });
+              if (meta?.format?.duration) {
+                fileDurationSec = Math.round(meta.format.duration);
+              }
+            } catch (_) {}
+          }
+
+          let lastThrottle = 0;
+          const shouldChunk = convMode !== 'copy' && fileDurationSec > 480;
+
+          if (shouldChunk) {
+            // Segmented encoding for long audio files (chunks of 360s / 6 mins)
+            // Each chunk encodes in ~45-75 seconds, well below the 300s CloudLinux process kill ceiling.
+            const CHUNK_LEN = 360;
+            const numChunks = Math.ceil(fileDurationSec / CHUNK_LEN);
+            const chunkPaths = [];
+            console.log(`[AudiobookConverter] Encoding "${fileName}" in ${numChunks} chunks (${CHUNK_LEN}s each) to prevent execution timeouts...`);
+
+            for (let k = 0; k < numChunks; k++) {
+              if (job.status === 'cancelled' || job.phase === 'Cancelled by user') {
+                throw new Error('Operation cancelled by user.');
+              }
+              const chunkPath = path.join(tempDir, `chunk_${i}_${k}.mp3`);
+              chunkPaths.push(chunkPath);
+              const startSec = k * CHUNK_LEN;
+              const isLastChunk = k === numChunks - 1;
+
+              const chunkArgs = [
+                '-y',
+                '-threads', '2',
+                '-ss', String(startSec),
+                '-i', srcPath
+              ];
+              if (!isLastChunk) {
+                chunkArgs.push('-t', String(CHUNK_LEN));
+              }
+              chunkArgs.push(
+                '-vn',
+                '-c:a', 'libmp3lame',
+                '-b:a', effectiveBitrate
+              );
+              if (job.options.channels === '1' || job.options.channels === 1) chunkArgs.push('-ac', '1');
+              else if (job.options.channels === '2' || job.options.channels === 2) chunkArgs.push('-ac', '2');
+              if (job.options.sampleRate && job.options.sampleRate !== 'original') {
+                chunkArgs.push('-ar', String(job.options.sampleRate));
+              }
+              if (job.options.normalize) {
+                chunkArgs.push('-af', 'loudnorm=I=-16:TP=-1.5:LRA=11');
+              }
+              chunkArgs.push('-threads', '2', chunkPath);
+
+              await new Promise((resolveChunk, rejectChunk) => {
+                let chunkProc = null;
+                const chunkStderr = [];
+                try {
+                  chunkProc = spawnFfmpeg(ffmpegPath, chunkArgs);
+                  activeProcesses.set(job.id, chunkProc);
+                } catch (e) {
+                  return rejectChunk(e);
+                }
+
+                chunkProc.stderr.on('data', (d) => {
+                  const line = d.toString();
+                  for (const l of line.split(/\r?\n/)) {
+                    if (l.trim()) {
+                      chunkStderr.push(l.trim());
+                      if (chunkStderr.length > 20) chunkStderr.shift();
+                    }
+                  }
+                  const timeMatch = line.match(/time=(\d+:\d+:\d+\.\d+)/);
+                  const speedMatch = line.match(/speed=\s*([\d\.]+x)/);
+                  if (timeMatch) {
+                    const sliceSec = parseTimeToSeconds(timeMatch[1]);
+                    const currentTotal = startSec + sliceSec;
+                    const percent = fileDurationSec > 0 ? Math.min(99, Math.round((currentTotal / fileDurationSec) * 100)) : 0;
+                    const nowMs = Date.now();
+                    if (nowMs - lastThrottle > 350) {
+                      lastThrottle = nowMs;
+                      updateJob(`Converting ${fileName} (part ${k + 1}/${numChunks}): ${percent}%`, {
+                        currentPercent: percent,
+                        currentTime: formatDuration(currentTotal),
+                        totalDuration: formatDuration(fileDurationSec),
+                        speed: speedMatch ? speedMatch[1] : '',
+                        smartBitrate: smartInfo
+                      });
+                    }
+                  }
+                });
+
+                chunkProc.on('error', (err) => {
+                  activeProcesses.delete(job.id);
+                  rejectChunk(err);
+                });
+
+                chunkProc.on('close', (code, signal) => {
+                  activeProcesses.delete(job.id);
+                  if (job.status === 'cancelled' || job.phase === 'Cancelled by user') {
+                    return rejectChunk(new Error('Operation cancelled by user.'));
+                  }
+                  if (code === 0 && fs.existsSync(chunkPath) && fs.statSync(chunkPath).size > 0) {
+                    resolveChunk();
+                  } else {
+                    const tail = chunkStderr.slice(-5).join(' | ');
+                    const exitDesc = code !== null ? `exit code ${code}` : `signal ${signal || 'SIGKILL'}`;
+                    rejectChunk(new Error(`Chunk ${k + 1}/${numChunks} exited with ${exitDesc}${tail ? `: ${tail}` : ''}`));
+                  }
+                });
+              });
+            }
+
+            // Assembly step: lossless concat + preserve cover art & ID3 tags from original file
+            updateJob(`Assembling converted "${fileName}"...`);
+            const chunkListFile = path.join(tempDir, `chunks_${i}.txt`);
+            const chunkListText = chunkPaths.map((p) => `file '${p.replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n');
+            fs.writeFileSync(chunkListFile, chunkListText, 'utf8');
+
+            const assembleArgs = [
+              '-y',
+              '-threads', '2',
+              '-f', 'concat',
+              '-safe', '0',
+              '-i', chunkListFile,
+              '-i', srcPath,
               '-map', '0:a',
-              '-map', '0:v?',
+              '-map', '1:v?',
+              '-c:a', 'copy',
               '-c:v', 'copy',
               '-disposition:v?', 'attached_pic',
-              '-map_metadata', '0'
-            );
-          } else {
-            ffmpegArgs.push('-c:a', 'libmp3lame', '-b:a', effectiveBitrate);
-            if (job.options.channels === '1' || job.options.channels === 1) ffmpegArgs.push('-ac', '1');
-            else if (job.options.channels === '2' || job.options.channels === 2) ffmpegArgs.push('-ac', '2');
-            if (job.options.sampleRate && job.options.sampleRate !== 'original') {
-              ffmpegArgs.push('-ar', String(job.options.sampleRate));
-            }
-            if (job.options.normalize) {
-              ffmpegArgs.push('-af', 'loudnorm=I=-16:TP=-1.5:LRA=11');
-            }
-            ffmpegArgs.push(
-              '-map', '0:a',
-              '-map', '0:v?',
-              '-c:v', 'mjpeg',
-              '-disposition:v?', 'attached_pic',
               '-id3v2_version', '3',
-              '-map_metadata', '0'
-            );
-          }
-          ffmpegArgs.push(convertedTempPath);
+              '-map_metadata', '1',
+              '-threads', '2',
+              convertedTempPath
+            ];
 
-          let fileDurationSec = item.durationSec || 0;
-          let lastThrottle = 0;
+            await new Promise((resolveAssem, rejectAssem) => {
+              let assemProc = null;
+              const assemStderr = [];
+              try {
+                assemProc = spawnFfmpeg(ffmpegPath, assembleArgs);
+                activeProcesses.set(job.id, assemProc);
+              } catch (e) {
+                return rejectAssem(e);
+              }
 
-          await new Promise((resolveConv, rejectConv) => {
-            let proc = null;
-            const convStderrLines = [];
-            try {
-              proc = spawn(ffmpegPath, ffmpegArgs, { windowsHide: true });
-              activeProcesses.set(job.id, proc);
-            } catch (e) {
-              return rejectConv(e);
+              assemProc.stderr.on('data', (d) => {
+                for (const l of d.toString().split(/\r?\n/)) {
+                  if (l.trim()) {
+                    assemStderr.push(l.trim());
+                    if (assemStderr.length > 20) assemStderr.shift();
+                  }
+                }
+              });
+
+              assemProc.on('error', (err) => {
+                activeProcesses.delete(job.id);
+                rejectAssem(err);
+              });
+
+              assemProc.on('close', (code, signal) => {
+                activeProcesses.delete(job.id);
+                if (code === 0 && fs.existsSync(convertedTempPath) && fs.statSync(convertedTempPath).size > 0) {
+                  resolveAssem();
+                } else {
+                  rejectAssem(new Error(`Assembly failed: ${assemStderr.slice(-5).join(' | ')}`));
+                }
+              });
+            });
+
+            // Cleanup chunk files
+            for (const cp of chunkPaths) {
+              try { if (fs.existsSync(cp)) fs.unlinkSync(cp); } catch (_) {}
             }
+            try { if (fs.existsSync(chunkListFile)) fs.unlinkSync(chunkListFile); } catch (_) {}
+          } else {
+            // 3. Single-pass FFmpeg conversion (for direct copy or files <= 8 mins)
+            const ffmpegArgs = ['-y', '-threads', '2', '-i', srcPath];
+            if (convMode === 'copy') {
+              ffmpegArgs.push(
+                '-c:a', 'copy',
+                '-map', '0:a',
+                '-map', '0:v?',
+                '-c:v', 'copy',
+                '-disposition:v?', 'attached_pic',
+                '-map_metadata', '0'
+              );
+            } else {
+              ffmpegArgs.push('-c:a', 'libmp3lame', '-b:a', effectiveBitrate);
+              if (job.options.channels === '1' || job.options.channels === 1) ffmpegArgs.push('-ac', '1');
+              else if (job.options.channels === '2' || job.options.channels === 2) ffmpegArgs.push('-ac', '2');
+              if (job.options.sampleRate && job.options.sampleRate !== 'original') {
+                ffmpegArgs.push('-ar', String(job.options.sampleRate));
+              }
+              if (job.options.normalize) {
+                ffmpegArgs.push('-af', 'loudnorm=I=-16:TP=-1.5:LRA=11');
+              }
+              ffmpegArgs.push(
+                '-map', '0:a',
+                '-map', '0:v?',
+                '-c:v', 'copy',
+                '-disposition:v?', 'attached_pic',
+                '-id3v2_version', '3',
+                '-map_metadata', '0'
+              );
+            }
+            ffmpegArgs.push('-threads', '2', convertedTempPath);
 
-            proc.stderr.on('data', (chunk) => {
-              const line = chunk.toString();
-              for (const l of line.split(/\r?\n/)) {
-                const tr = l.trim();
-                if (tr) {
-                  convStderrLines.push(tr);
-                  if (convStderrLines.length > 25) convStderrLines.shift();
+            await new Promise((resolveConv, rejectConv) => {
+              let proc = null;
+              const convStderrLines = [];
+              try {
+                proc = spawnFfmpeg(ffmpegPath, ffmpegArgs);
+                activeProcesses.set(job.id, proc);
+              } catch (e) {
+                return rejectConv(e);
+              }
+
+              proc.stderr.on('data', (chunk) => {
+                const line = chunk.toString();
+                for (const l of line.split(/\r?\n/)) {
+                  const tr = l.trim();
+                  if (tr) {
+                    convStderrLines.push(tr);
+                    if (convStderrLines.length > 25) convStderrLines.shift();
+                  }
                 }
-              }
 
-              if (fileDurationSec === 0) {
-                const durMatch = line.match(/Duration:\s*(\d+:\d+:\d+\.\d+)/);
-                if (durMatch) fileDurationSec = parseTimeToSeconds(durMatch[1]);
-              }
-              const timeMatch = line.match(/time=(\d+:\d+:\d+\.\d+)/);
-              const speedMatch = line.match(/speed=\s*([\d\.]+x)/);
-              if (timeMatch) {
-                const currentSec = parseTimeToSeconds(timeMatch[1]);
-                const percent = fileDurationSec > 0 ? Math.min(99, Math.round((currentSec / fileDurationSec) * 100)) : 0;
-                const nowMs = Date.now();
-                if (nowMs - lastThrottle > 250) {
-                  lastThrottle = nowMs;
-                  updateJob(`Converting ${fileName}: ${percent}%`, {
-                    currentPercent: percent,
-                    currentTime: timeMatch[1].split('.')[0],
-                    totalDuration: formatDuration(fileDurationSec),
-                    speed: speedMatch ? speedMatch[1] : '',
-                    smartBitrate: smartInfo
-                  });
+                if (fileDurationSec === 0) {
+                  const durMatch = line.match(/Duration:\s*(\d+:\d+:\d+\.\d+)/);
+                  if (durMatch) fileDurationSec = parseTimeToSeconds(durMatch[1]);
                 }
-              }
-            });
+                const timeMatch = line.match(/time=(\d+:\d+:\d+\.\d+)/);
+                const speedMatch = line.match(/speed=\s*([\d\.]+x)/);
+                if (timeMatch) {
+                  const currentSec = parseTimeToSeconds(timeMatch[1]);
+                  const percent = fileDurationSec > 0 ? Math.min(99, Math.round((currentSec / fileDurationSec) * 100)) : 0;
+                  const nowMs = Date.now();
+                  if (nowMs - lastThrottle > 250) {
+                    lastThrottle = nowMs;
+                    updateJob(`Converting ${fileName}: ${percent}%`, {
+                      currentPercent: percent,
+                      currentTime: timeMatch[1].split('.')[0],
+                      totalDuration: formatDuration(fileDurationSec),
+                      speed: speedMatch ? speedMatch[1] : '',
+                      smartBitrate: smartInfo
+                    });
+                  }
+                }
+              });
 
-            proc.on('error', (err) => {
-              activeProcesses.delete(job.id);
-              rejectConv(err);
-            });
+              proc.on('error', (err) => {
+                activeProcesses.delete(job.id);
+                rejectConv(err);
+              });
 
-            proc.on('close', (code, signal) => {
-              activeProcesses.delete(job.id);
-              if (job.status === 'cancelled' || job.phase === 'Cancelled by user') {
-                return rejectConv(new Error('Operation cancelled by user.'));
-              }
-              if (code === 0 && fs.existsSync(convertedTempPath) && fs.statSync(convertedTempPath).size > 0) {
-                resolveConv();
-              } else {
-                const stderrTail = convStderrLines.slice(-6).join(' | ');
-                const exitDesc = code !== null ? `exit code ${code}` : `signal ${signal || 'SIGKILL'}`;
-                rejectConv(new Error(`FFmpeg exited with ${exitDesc}${stderrTail ? `: ${stderrTail}` : ''}`));
-              }
+              proc.on('close', (code, signal) => {
+                activeProcesses.delete(job.id);
+                if (job.status === 'cancelled' || job.phase === 'Cancelled by user') {
+                  return rejectConv(new Error('Operation cancelled by user.'));
+                }
+                if (code === 0 && fs.existsSync(convertedTempPath) && fs.statSync(convertedTempPath).size > 0) {
+                  resolveConv();
+                } else {
+                  const stderrTail = convStderrLines.slice(-6).join(' | ');
+                  const exitDesc = code !== null ? `exit code ${code}` : `signal ${signal || 'SIGKILL'}`;
+                  rejectConv(new Error(`FFmpeg exited with ${exitDesc}${stderrTail ? `: ${stderrTail}` : ''}`));
+                }
+              });
             });
-          });
+          }
 
           totalDurationSec += fileDurationSec;
           const convertedStat = fs.statSync(convertedTempPath);
@@ -1348,11 +1543,13 @@ export const audiobookStitcher = {
             }
 
             updateJob(`Uploading converted "${baseName}.mp3" to Google Drive...`);
+            console.log(`[AudiobookConverter] Uploading converted "${baseName}.mp3" to Drive folder ${targetFolderId}...`);
             const uploadRes = await googleDrive.uploadFile(user, convertedTempPath, {
               name: `${baseName}.mp3`,
               folderId: targetFolderId
             });
             finalDriveFileId = uploadRes.id || uploadRes.driveFileId;
+            console.log(`[AudiobookConverter] Successfully uploaded "${baseName}.mp3" (Google Drive ID: ${finalDriveFileId}) into folder ${targetFolderId}`);
 
             db.upsertItem(user.id, {
               ...item,
@@ -1389,10 +1586,12 @@ export const audiobookStitcher = {
           });
         } catch (fileErr) {
           failedCount++;
+          conversionErrors.push({ fileName, error: fileErr.message });
           console.error(`[AudiobookConverter] Error converting file #${i + 1} (${fileName}):`, fileErr.message);
           updateJob(`Skipped "${fileName}": ${fileErr.message}`, {
             failedCount,
-            completedCount
+            completedCount,
+            errors: conversionErrors
           });
           if (job.status === 'cancelled' || job.phase === 'Cancelled by user') {
             break;
@@ -1417,11 +1616,16 @@ export const audiobookStitcher = {
       job.status = 'done';
       job.overallPercent = 100;
       job.currentPercent = 100;
-      job.phase = `Batch conversion completed (${completedCount} of ${job.fileIds.length} files converted).`;
+      job.phase = failedCount === 0
+        ? `Batch conversion completed (${completedCount} of ${job.fileIds.length} files converted).`
+        : completedCount > 0
+          ? `Batch conversion completed with ${failedCount} failure(s) (${completedCount}/${job.fileIds.length} succeeded).`
+          : `Batch conversion failed (${failedCount} files failed).`;
       job.completedCount = completedCount;
       job.failedCount = failedCount;
       job.freedBytes = totalFreedBytes;
       job.smartPreservedCount = smartPreservedCount;
+      job.errors = conversionErrors;
       job.result = {
         completedCount,
         failedCount,
@@ -1430,7 +1634,8 @@ export const audiobookStitcher = {
         totalDurationFormatted: formatDuration(totalDurationSec),
         freedBytes: totalFreedBytes,
         smartPreservedCount,
-        files: convertedResults
+        files: convertedResults,
+        errors: conversionErrors
       };
       job.updatedAt = Date.now();
       saveJobToDisk(job);

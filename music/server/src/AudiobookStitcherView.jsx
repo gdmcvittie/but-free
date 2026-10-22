@@ -1951,8 +1951,16 @@ export default function AudiobookStitcherView({
           <div className="stitcher-modal-card" style={{ maxWidth: '540px' }}>
             <div className="stitcher-modal-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                <div style={{ color: 'var(--accent-color)' }}>✓</div>
-                <h3>Batch Conversion Completed!</h3>
+                <div style={{ color: (convertSummary?.completedCount === 0) ? '#ff6b6b' : (convertSummary?.failedCount > 0) ? '#eab308' : 'var(--accent-color)' }}>
+                  {convertSummary?.completedCount === 0 ? '✕' : convertSummary?.failedCount > 0 ? '⚠️' : '✓'}
+                </div>
+                <h3>
+                  {convertSummary?.completedCount === 0
+                    ? 'Batch Conversion Failed'
+                    : convertSummary?.failedCount > 0
+                      ? 'Batch Conversion Finished with Warnings'
+                      : 'Batch Conversion Completed!'}
+                </h3>
               </div>
             </div>
 
@@ -1986,8 +1994,26 @@ export default function AudiobookStitcherView({
               </div>
             </div>
 
-            <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', lineHeight: 1.45, margin: '0.5rem 0 1.25rem 0' }}>
-              Your audio files have been converted and synchronized with Google Drive. The FRAUDIO library has been updated.
+            {convertSummary?.errors?.length > 0 && (
+              <div className="cleanup-prompt-box" style={{ background: 'rgba(255,107,107,0.08)', borderColor: 'rgba(255,107,107,0.3)', marginTop: '0.8rem' }}>
+                <div className="cleanup-header">
+                  <AlertCircle size={16} style={{ color: '#ff6b6b' }} />
+                  <h4 style={{ color: '#ff6b6b' }}>Failed Files ({convertSummary.errors.length})</h4>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: '120px', overflowY: 'auto', fontSize: '0.78rem' }}>
+                  {convertSummary.errors.map((err, idx) => (
+                    <div key={idx} style={{ color: 'var(--text-secondary)' }}>
+                      <strong style={{ color: 'var(--text-primary)' }}>{err.fileName}</strong>: {err.error}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', lineHeight: 1.45, margin: '0.75rem 0 1.25rem 0' }}>
+              {convertSummary?.completedCount > 0
+                ? 'Your audio files have been converted and synchronized with Google Drive. The FRAUDIO library has been updated.'
+                : 'No files were converted or saved to Google Drive. Review the error details above.'}
             </p>
 
             <div className="stitcher-modal-footer">
