@@ -2160,10 +2160,18 @@ img {
     backdrop-filter: blur(14px);
     border-top: 1px solid var(--border-color);
     z-index: 280;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .mobile-bottom-nav::-webkit-scrollbar {
+    display: none;
   }
 
   .mobile-nav-btn {
-    flex: 1;
+    flex: 1 0 auto;
+    min-width: 44px;
     background: transparent;
     border: none;
     color: var(--text-muted);

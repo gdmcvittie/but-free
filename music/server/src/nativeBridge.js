@@ -44,8 +44,9 @@ export function isCarConnected() {
  * @param {number} state.durationSec
  * @param {boolean} [state.stop] - true when playback is finished/closed
  * @param {object} [state.meta] - { title, artist, album, coverUrl }
+ * @param {number} [state.playbackRate] - playback speed multiplier (e.g. 1.0, 1.25, 1.5)
  */
-export function pushNativeState({ playing, positionSec = 0, durationSec = 0, stop = false, meta = null }) {
+export function pushNativeState({ playing, positionSec = 0, durationSec = 0, stop = false, meta = null, playbackRate = 1.0 }) {
   const bridge = getBridge();
   if (!bridge) return;
   try {
@@ -53,6 +54,7 @@ export function pushNativeState({ playing, positionSec = 0, durationSec = 0, sto
       playing: Boolean(playing),
       positionSec: Math.max(0, Math.floor(positionSec || 0)),
       durationSec: Math.max(0, Math.floor(durationSec || 0)),
+      playbackRate: Number(playbackRate) || 1.0,
       stop: Boolean(stop),
       meta: meta || undefined
     }));

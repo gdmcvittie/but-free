@@ -142,9 +142,10 @@ export default function CarMode({
   const loadMedia = useCallback(async () => {
     setLoadingList(true);
     try {
-      const [booksRes, musicRes, plRes, offStats] = await Promise.all([
+      const [booksRes, musicRes, bookPlRes, musicPlRes, offStats] = await Promise.all([
         api.library('audiobooks').catch(() => ({ items: [] })),
         api.library('music').catch(() => ({ items: [] })),
+        api.playlists('audiobooks').catch(() => []),
         api.playlists('music').catch(() => []),
         getOfflineStats().catch(() => null)
       ]);
@@ -155,7 +156,9 @@ export default function CarMode({
 
       // Prefetch every playlist's tracks so a tap can start playback
       // synchronously (autoplay grants only live inside the gesture window).
-      const plList = Array.isArray(plRes) ? plRes : [];
+      const bookPlaylists = Array.isArray(bookPlRes) ? bookPlRes.map((p) => ({ ...p, isAudiobook: true })) : [];
+      const musicPlaylists = Array.isArray(musicPlRes) ? musicPlRes.map((p) => ({ ...p, isAudiobook: false })) : [];
+      const plList = [...bookPlaylists, ...musicPlaylists];
       setPlaylists(plList);
       setPlaylistTracks({});
       Promise.all(
@@ -183,10 +186,22 @@ export default function CarMode({
     loadMedia();
   }, [loadMedia]);
 
-  const [localPlaying, setLocalPlaying] = useState(playing);
-  const [localPosition, setLocalPosition] = useState(position);
-  const [localDuration, setLocalDuration] = useState(duration);
-  const [localRateIndex, setLocalRateIndex] = useState(rateIndex);
+  const [localPlaying, setLocalPlaying] = useState(Boolean(playing));
+  const [localPosition, setLocalPosition] = useState(position || 0);
+  const [localDuration, setLocalDuration] = useState(duration || 0);
+  const [localRateIndex, setLocalRateIndex] = useState(rateIndex || 0);
+
+  useEffect(() => {
+    if (typeof playing === 'boolean') setLocalPlaying(playing);
+  }, [playing]);
+
+  useEffect(() => {
+    if (typeof position === 'number') setLocalPosition(position);
+  }, [position]);
+
+  useEffect(() => {
+    if (typeof duration === 'number') setLocalDuration(duration);
+  }, [duration]);
 
   useEffect(() => {
     const handleState = (e) => {
@@ -593,7 +608,7 @@ export default function CarMode({
             {loadingList ? (
               <p className="car-list-note">Loading playlists…</p>
             ) : playlists.length === 0 ? (
-              <p className="car-list-note">No music playlists yet.</p>
+              <p className="car-list-note">No playlists yet.</p>
             ) : (
               <div className="car-list">
                 {playlists.map((pl) => (
@@ -603,12 +618,12 @@ export default function CarMode({
                     onClick={() => startPlaylist(pl, true)}
                   >
                     <div className="car-row-thumb">
-                      <span>📋</span>
+                      <span>{pl.isAudiobook ? '📖' : '📋'}</span>
                     </div>
                     <div className="car-row-meta">
                       <div className="car-row-title">{pl.name}</div>
                       <div className="car-row-subtitle">
-                        {`${pl.count ?? 0} tracks · plays shuffled`}
+                        {`${pl.count ?? 0} ${pl.isAudiobook ? 'items' : 'tracks'}${pl.isAudiobook ? ' · Audiobook playlist' : ' · Music playlist'}`}
                       </div>
                     </div>
                     <div className="car-row-actions">

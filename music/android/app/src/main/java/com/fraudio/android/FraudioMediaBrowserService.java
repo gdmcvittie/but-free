@@ -118,6 +118,7 @@ public class FraudioMediaBrowserService extends MediaBrowserServiceCompat {
     private volatile boolean webDriven = false;
     private volatile boolean webPlaying = false;
     private volatile boolean foregrounded = false;
+    private volatile float currentPlaybackRate = 1.0f;
 
     private PowerManager.WakeLock wakeLock;
     private AudioManager audioManager;
@@ -437,6 +438,8 @@ public class FraudioMediaBrowserService extends MediaBrowserServiceCompat {
 
             webDriven = true;
             webPlaying = playing;
+            double rate = obj.optDouble("playbackRate", 1.0);
+            if (rate > 0) currentPlaybackRate = (float) rate;
             if (durationSec > 0) currentDuration = durationSec * 1000L;
 
             JSONObject meta = obj.optJSONObject("meta");
@@ -719,7 +722,7 @@ public class FraudioMediaBrowserService extends MediaBrowserServiceCompat {
             .setActions(actions)
             .addCustomAction(ACTION_REWIND_15, "Rewind 15s", R.drawable.ic_launcher)
             .addCustomAction(ACTION_FORWARD_30, "Forward 30s", R.drawable.ic_launcher)
-            .setState(state, positionMs, 1.0f);
+            .setState(state, positionMs, currentPlaybackRate);
 
         mediaSession.setPlaybackState(builder.build());
     }

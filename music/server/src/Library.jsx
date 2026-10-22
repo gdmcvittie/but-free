@@ -1674,8 +1674,20 @@ export default function Library({
             <p>
               {query
                 ? `No playlists match "${query}".`
-                : 'Group tracks into playlists to play them back-to-back in one queue.'}
+                : isMusic
+                  ? 'Group tracks into playlists to play them back-to-back in one queue.'
+                  : 'Group audiobooks and chapters into playlists to listen to them in one queue.'}
             </p>
+            {!query && onNavigate && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => onNavigate('playlists')}
+                style={{ marginTop: '0.75rem' }}
+              >
+                Go to Playlists
+              </button>
+            )}
           </div>
         ) : (
           <div className="row-list">

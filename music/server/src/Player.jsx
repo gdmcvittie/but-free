@@ -69,6 +69,7 @@ export default function Player({
   const [audioSrc, setAudioSrc] = useState(api.streamUrl(item.id));
   const [coverSrc, setCoverSrc] = useState(item.coverUrl || api.coverUrl(item.id));
   const [showNowPlaying, setShowNowPlaying] = useState(false);
+  const effectiveDuration = duration > 0 ? duration : item.durationSec || 0;
 
   useEffect(() => {
     let cancelled = false;
@@ -130,6 +131,12 @@ export default function Player({
   const queueIndexRef = useRef(queueIndex);
   const playTriggerRef = useRef(playTrigger);
   const lastSessionPersistRef = useRef(0);
+  const lastNativePushRef = useRef(0);
+  const playingRef = useRef(playing);
+
+  useEffect(() => {
+    playingRef.current = playing;
+  }, [playing]);
 
   // Keep refs pointing at current props without reading during render.
   useEffect(() => {
@@ -163,27 +170,27 @@ export default function Player({
     } catch {}
   }, []);
 
-  // Automatically download and cache audiobooks the user is listening to
+  // Automatically download and cache audiobooks and music for offline listening
   useEffect(() => {
     if (!item?.id) return;
-    const isAudiobook = item.kind !== 'track' || Boolean(item.author || item.narrator || item.isAudiobook);
-    if (!isAudiobook) return;
 
     let cancelled = false;
     (async () => {
       try {
         const alreadyOffline = await isItemOffline(item.id);
         if (!alreadyOffline && !cancelled) {
-          await downloadTrack(item);
+          if (item.isMultiPart && Array.isArray(item.parts) && item.parts.length > 0) {
+            await downloadBook(item, item.parts);
+          } else {
+            await downloadTrack(item);
+          }
           if (!cancelled) {
-            const offlineAudio = await getOfflineAudioUrl(item.id);
-            if (!cancelled && offlineAudio) setAudioSrc(offlineAudio);
             const offlineCover = await getOfflineCoverUrl(item.id);
             if (!cancelled && offlineCover) setCoverSrc(offlineCover);
           }
         }
 
-        // Also pre-cache companion chapters in queue if listening to a book
+        // Also pre-cache companion tracks or chapters in the queue for offline continuity
         const currentQueue = queueRef.current;
         if (Array.isArray(currentQueue) && currentQueue.length > 1) {
           for (const companion of currentQueue) {
@@ -196,7 +203,7 @@ export default function Player({
           }
         }
       } catch (err) {
-        console.warn('[Player] Audiobook background cache note:', err.message);
+        console.warn('[Player] Offline auto-download note:', err.message);
       }
     })();
 
@@ -258,7 +265,9 @@ export default function Player({
     if (!playTrigger) return;
     const audio = audioRef.current;
     if (!audio) return;
-    audio.play().catch(() => setPlaying(false));
+    audio.play().catch(() => {
+      if (audio.paused) setPlaying(false);
+    });
   }, [playTrigger]);
 
   // Fire-and-forget checkpoint that survives the page going away: `keepalive`
@@ -291,6 +300,48 @@ export default function Player({
     }
   }, [persistSessionState]);
 
+  // Push state to native bridge with current playback rate
+  const pushNative = useCallback((isPlaying, curPos) => {
+    const audio = audioRef.current;
+    const curItem = itemRef.current;
+    if (!audio || !curItem?.id) return;
+    const pos = typeof curPos === 'number' ? curPos : audio.currentTime;
+    const dur = audio && Number.isFinite(audio.duration) && audio.duration > 0
+      ? audio.duration
+      : effectiveDuration;
+    pushNativeState({
+      playing: Boolean(isPlaying),
+      positionSec: pos,
+      durationSec: dur,
+      playbackRate: curItem.kind !== 'track' ? RATES[rateIndex] || 1.0 : 1.0,
+      meta: {
+        title: curItem.title,
+        artist: curItem.artist || curItem.albumArtist || curItem.author || 'FRAUDIO',
+        album: curItem.album || '',
+        coverUrl: curItem.coverUrl || api.coverUrl(curItem.id)
+      }
+    });
+  }, [effectiveDuration, rateIndex]);
+
+  // Update web standard MediaSession position state
+  const updateMediaSessionPosition = useCallback((curPos, dur, rate) => {
+    if (!('mediaSession' in navigator) || typeof navigator.mediaSession.setPositionState !== 'function') return;
+    const audio = audioRef.current;
+    const totalDuration = dur || (audio && Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : effectiveDuration);
+    if (!totalDuration || !Number.isFinite(totalDuration) || totalDuration <= 0) return;
+    const pos = typeof curPos === 'number' ? curPos : (audio ? audio.currentTime : 0);
+    const targetRate = rate || (audio ? audio.playbackRate : (itemRef.current.kind !== 'track' ? RATES[rateIndex] : 1.0));
+    try {
+      navigator.mediaSession.setPositionState({
+        duration: Math.max(0, totalDuration),
+        playbackRate: Math.max(0.5, Math.min(4.0, targetRate || 1.0)),
+        position: Math.min(Math.max(0, pos), totalDuration)
+      });
+    } catch {
+      /* ignore setPositionState errors */
+    }
+  }, [effectiveDuration, rateIndex]);
+
   // Media element wiring.
   useEffect(() => {
     const audio = audioRef.current;
@@ -310,16 +361,37 @@ export default function Player({
       }
       // Only auto-play if play was triggered by an explicit user action
       if (playTriggerRef.current > 0) {
-        audio.play().catch(() => setPlaying(false));
+        audio.play().catch(() => {
+          if (audio.paused) setPlaying(false);
+        });
       }
     };
 
     const handleTimeUpdate = () => {
       const cur = audio.currentTime;
       setPosition(cur);
+
+      // Self-healing: if audio is actively updating position and not paused, sync state
+      if (!audio.paused && !audio.ended && !playingRef.current) {
+        setPlaying(true);
+      }
+
       if (Math.abs(cur - (lastSessionPersistRef.current || 0)) >= 3) {
         lastSessionPersistRef.current = cur;
         persistSessionState(cur);
+      }
+
+      // Checkpoint progress regularly via timeupdate, which fires reliably
+      // in the background even when browser throttles setInterval timers.
+      if (Math.abs(cur - savedAtRef.current) >= SAVE_INTERVAL_SEC) {
+        void persist();
+      }
+
+      // Keep native and MediaSession playheads fresh during background playback
+      if (Math.abs(cur - (lastNativePushRef.current || 0)) >= 5) {
+        lastNativePushRef.current = cur;
+        pushNative(true, cur);
+        updateMediaSessionPosition(cur);
       }
     };
     const handlePlay = () => {
@@ -331,7 +403,9 @@ export default function Player({
       setPlaying(true);
     };
     const handlePause = () => {
-      setPlaying(false);
+      if (audio.paused) {
+        setPlaying(false);
+      }
       persistSessionState(audio.currentTime);
       // Pausing (button, lock screen, headset, focus loss) is the last moment
       // we reliably own before playback can be abandoned - checkpoint it.
@@ -361,6 +435,7 @@ export default function Player({
     audio.addEventListener('timeupdate', handleTimeUpdate);
     audio.addEventListener('durationchange', handleDuration);
     audio.addEventListener('play', handlePlay);
+    audio.addEventListener('playing', handlePlay);
     audio.addEventListener('pause', handlePause);
     audio.addEventListener('ended', handleEnded);
     audio.addEventListener('error', handleError);
@@ -373,6 +448,7 @@ export default function Player({
       audio.removeEventListener('timeupdate', handleTimeUpdate);
       audio.removeEventListener('durationchange', handleDuration);
       audio.removeEventListener('play', handlePlay);
+      audio.removeEventListener('playing', handlePlay);
       audio.removeEventListener('pause', handlePause);
       audio.removeEventListener('ended', handleEnded);
       audio.removeEventListener('error', handleError);
@@ -420,29 +496,58 @@ export default function Player({
   }, [playing, item.id, persist]);
 
   // Flush progress the instant the page is backgrounded (screen off / app
-  // switch), before timers get throttled and before the OS can kill us.
+  // switch), and instantly re-synchronize state with the audio element when returning to foreground.
   useEffect(() => {
-    const flush = () => {
-      persistKeepalive();
+    const syncFromAudio = () => {
+      const audio = audioRef.current;
+      if (!audio) return;
+      const isActualPlaying = !audio.paused && !audio.ended && audio.readyState > 1;
+      const curPos = audio.currentTime;
+      setPosition(curPos);
+      setPlaying(isActualPlaying);
+      if (Number.isFinite(audio.duration) && audio.duration > 0) {
+        setDuration(audio.duration);
+      }
+      updateMediaSessionPosition(curPos);
+      pushNative(isActualPlaying, curPos);
+      window.dispatchEvent(new CustomEvent('fraudio:player-state', {
+        detail: {
+          playing: isActualPlaying,
+          position: curPos,
+          duration: Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : effectiveDuration,
+          rateIndex
+        }
+      }));
     };
+
     const onVisibility = () => {
-      if (document.visibilityState === 'hidden') flush();
+      if (document.visibilityState === 'hidden') {
+        persistKeepalive();
+      } else if (document.visibilityState === 'visible') {
+        syncFromAudio();
+      }
     };
+
     document.addEventListener('visibilitychange', onVisibility);
-    window.addEventListener('pagehide', flush);
-    window.addEventListener('beforeunload', flush);
+    window.addEventListener('pagehide', persistKeepalive);
+    window.addEventListener('beforeunload', persistKeepalive);
+    window.addEventListener('focus', syncFromAudio);
+    window.addEventListener('pageshow', syncFromAudio);
+
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('pagehide', flush);
-      window.removeEventListener('beforeunload', flush);
+      window.removeEventListener('pagehide', persistKeepalive);
+      window.removeEventListener('beforeunload', persistKeepalive);
+      window.removeEventListener('focus', syncFromAudio);
+      window.removeEventListener('pageshow', syncFromAudio);
     };
-  }, [persistKeepalive]);
+  }, [persistKeepalive, effectiveDuration, rateIndex]);
 
   // Checkpoint on unmount. `keepalive` lets the write finish during navigation.
   useEffect(() => {
     return () => {
       const audio = audioRef.current;
-      if (!audio) return;
+      if (!audio || !itemRef.current?.id) return;
       const positionSec = Math.floor(audio.currentTime);
       persistSessionState(positionSec);
       if (positionSec < 2) return;
@@ -453,7 +558,7 @@ export default function Player({
           keepalive: true,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            itemId: currentId,
+            itemId: itemRef.current.id,
             positionSec,
             durationSec: audio.duration || itemRef.current.durationSec
           })
@@ -462,7 +567,7 @@ export default function Player({
         /* ignore */
       }
     };
-  }, []);
+  }, [persistSessionState]);
 
   // OS-level media controls (lockscreen, tray, hardware keys).
   useEffect(() => {
@@ -474,7 +579,54 @@ export default function Player({
       artwork: item.coverUrl ? [{ src: item.coverUrl, sizes: '300x300' }] : []
     });
     navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
-  }, [item, playing]);
+    updateMediaSessionPosition(position);
+  }, [item, playing, position, updateMediaSessionPosition]);
+
+  // OS-level media action handlers (lock screen, notification, bluetooth headsets)
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    const handlers = [
+      ['play', () => {
+        const audio = audioRef.current;
+        if (audio && audio.paused) audio.play().catch(() => {});
+      }],
+      ['pause', () => {
+        const audio = audioRef.current;
+        if (audio && !audio.paused) audio.pause();
+      }],
+      ['seekbackward', (details) => {
+        seekBy(-(details?.seekOffset || SKIP_SECONDS));
+      }],
+      ['seekforward', (details) => {
+        seekBy(details?.seekOffset || SKIP_SECONDS);
+      }],
+      ['seekto', (details) => {
+        if (typeof details?.seekTime === 'number') {
+          commitScrub(details.seekTime);
+        }
+      }],
+      ['previoustrack', () => {
+        if (hasPrev) onPrev?.();
+      }],
+      ['nexttrack', () => {
+        if (hasNext) onNext?.();
+      }]
+    ];
+
+    for (const [action, handler] of handlers) {
+      try {
+        navigator.mediaSession.setActionHandler(action, handler);
+      } catch {}
+    }
+
+    return () => {
+      for (const [action] of handlers) {
+        try {
+          navigator.mediaSession.setActionHandler(action, null);
+        } catch {}
+      }
+    };
+  }, [hasNext, hasPrev, onNext, onPrev]);
 
   const togglePlay = () => {
     const audio = audioRef.current;
@@ -516,7 +668,6 @@ export default function Player({
     onClose();
   };
 
-  const effectiveDuration = duration > 0 ? duration : item.durationSec || 0;
   const shownPosition = scrubPosition ?? position;
   const subtitle = item.artist || item.albumArtist || item.author || item.narrator || '';
 
@@ -528,7 +679,11 @@ export default function Player({
     const handleCycleRate = () => cycleRate();
     const handleNativePlay = () => {
       const audio = audioRef.current;
-      if (audio) audio.play().catch(() => setPlaying(false));
+      if (audio) {
+        audio.play().catch(() => {
+          if (audio.paused) setPlaying(false);
+        });
+      }
     };
     const handleNativePause = () => {
       const audio = audioRef.current;
@@ -566,19 +721,8 @@ export default function Player({
 
   // Native (Android) media session sync: lock screen + notification controls.
   useEffect(() => {
-    const audio = audioRef.current;
-    pushNativeState({
-      playing,
-      positionSec: audio ? audio.currentTime : 0,
-      durationSec: audio && Number.isFinite(audio.duration) ? audio.duration : effectiveDuration,
-      meta: {
-        title: item.title,
-        artist: item.artist || item.albumArtist || item.author || 'FRAUDIO',
-        album: item.album || '',
-        coverUrl: item.coverUrl || api.coverUrl(item.id)
-      }
-    });
-  }, [playing, item]); // eslint-disable-line react-hooks/exhaustive-deps
+    pushNative(playing, position);
+  }, [playing, item, pushNative]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep the native playhead reasonably fresh during long background playback.
   useEffect(() => {
@@ -586,14 +730,11 @@ export default function Player({
     const timer = setInterval(() => {
       const audio = audioRef.current;
       if (!audio) return;
-      pushNativeState({
-        playing: true,
-        positionSec: audio.currentTime,
-        durationSec: Number.isFinite(audio.duration) ? audio.duration : 0
-      });
+      pushNative(true, audio.currentTime);
+      updateMediaSessionPosition(audio.currentTime);
     }, 10000);
     return () => clearInterval(timer);
-  }, [playing]);
+  }, [playing, pushNative, updateMediaSessionPosition]);
 
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('fraudio:player-state', {

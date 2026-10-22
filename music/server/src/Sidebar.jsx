@@ -28,7 +28,7 @@ const NAV_ITEMS = [
   { id: 'settings', label: 'Settings', icon: SettingsIcon }
 ];
 
-const MOBILE_NAV_IDS = ['whats-new', 'library', 'continue', 'favorites', 'search', 'stitcher', 'downloads'];
+const MOBILE_NAV_IDS = ['whats-new', 'library', 'continue', 'favorites', 'playlists', 'search', 'stitcher', 'downloads'];
 
 function GoogleIcon({ size = 16 }) {
   return (
@@ -61,7 +61,7 @@ export default function Sidebar({
   const items = kind === 'audiobooks'
     ? NAV_ITEMS
     : NAV_ITEMS.filter((item) => item.id !== 'stitcher');
-  const mobileItems = NAV_ITEMS.filter((item) => MOBILE_NAV_IDS.includes(item.id));
+  const mobileItems = items.filter((item) => MOBILE_NAV_IDS.includes(item.id));
 
   return (
     <>
