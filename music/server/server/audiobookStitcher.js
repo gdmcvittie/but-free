@@ -279,7 +279,8 @@ export const audiobookStitcher = {
         channels: options.channels || (options.mode === 'voice' ? '1' : '2'),
         sampleRate: options.sampleRate || 'original',
         normalize: Boolean(options.normalize),
-        smartBitrate: options.smartBitrate !== false
+        smartBitrate: options.smartBitrate !== false,
+        deleteSource: Boolean(options.deleteSource)
       },
       status: 'running',
       phase: 'Initializing audiobook stitcher...',
@@ -954,6 +955,16 @@ export const audiobookStitcher = {
       });
 
       broadcast('library_changed', { userId: user.id, reason: 'stitch_completed' });
+
+      // Automatically clean up original source chapter files if deleteSource was requested
+      if (job.options?.deleteSource) {
+        try {
+          updateJob('Cleaning up source chapter files...', 99);
+          await this.deleteSourceChapters(user, job.fileIds);
+        } catch (delErr) {
+          console.warn('[AudiobookStitcher] Auto-delete source chapters note:', delErr.message);
+        }
+      }
 
       // Automatically update/rescan audiobooks folder to sync the new file and library state
       try {

@@ -9,7 +9,7 @@ import {
   Settings as SettingsIcon,
   Car,
   Smartphone,
-  Layers
+  Wrench
 } from 'lucide-react';
 import { hasNativeBridge } from './nativeBridge';
 
@@ -22,7 +22,7 @@ const NAV_ITEMS = [
   { id: 'favorites', label: 'Favourites', icon: Heart },
   { id: 'playlists', label: 'Playlists', icon: ListMusic },
   { id: 'search', label: 'Search', icon: Search },
-  { id: 'stitcher', label: 'Audio Tools', icon: Layers },
+  { id: 'stitcher', label: 'Audio Tools', icon: Wrench },
   { id: 'downloads', label: 'Downloads', icon: Download },
   { id: 'car', label: 'Car Mode', icon: Car },
   { id: 'settings', label: 'Settings', icon: SettingsIcon }

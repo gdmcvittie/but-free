@@ -51,7 +51,10 @@ export const DEFAULT_SETTINGS = {
   musicAudioFormat: 'mp3',
   musicAudioQuality: 'v4',
   youtubeCookiesFile: '',
-  youtubeCookiesBrowser: ''
+  youtubeCookiesBrowser: '',
+  autoStitchAudiobooks: false,
+  autoStitchBitrate: '64k',
+  autoStitchDeleteSource: true
 };
 
 // In-memory cache: userId -> { audiobooks, music, user, dirty: { audiobooks, music, user }, mtime: { audiobooks, music, user } }

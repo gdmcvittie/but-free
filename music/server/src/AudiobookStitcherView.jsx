@@ -28,7 +28,8 @@ import {
   ChevronDown,
   RefreshCw,
   FileAudio,
-  Loader2
+  Loader2,
+  Wrench
 } from 'lucide-react';
 import { api } from './api';
 import { formatLengthShort } from './format';
@@ -923,8 +924,8 @@ export default function AudiobookStitcherView({
           )}
 
           <h1 className="stitcher-title">
-            <Layers size={24} className="stitcher-title-icon" />
-            <span>Audiobook Tools</span>
+            <Wrench size={24} className="stitcher-title-icon" />
+            <span>Audio Tools</span>
           </h1>
 
           {/* Mode Switcher Tabs */}
@@ -935,7 +936,7 @@ export default function AudiobookStitcherView({
               onClick={() => setViewMode('stitch')}
             >
               <Layers size={14} />
-              <span>Stitch Audiobook</span>
+              <span>Stitcher</span>
             </button>
             <button
               type="button"
@@ -943,7 +944,7 @@ export default function AudiobookStitcherView({
               onClick={() => setViewMode('convert')}
             >
               <Sliders size={14} />
-              <span>Batch Audio Converter</span>
+              <span>Converter</span>
             </button>
           </div>
 

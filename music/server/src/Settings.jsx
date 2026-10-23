@@ -478,6 +478,57 @@ export default function Settings({ user, libraryVersion, onOpenDrivePicker, onLo
           </select>
         </div>
 
+        <div className="setting-row">
+          <div>
+            <div className="setting-label">Auto-stitch downloaded audiobooks</div>
+            <div className="setting-help">
+              Automatically join chapter files into a single unified audiobook after download completes.
+            </div>
+          </div>
+          <Switch
+            checked={Boolean(settings?.autoStitchAudiobooks)}
+            onChange={(v) => update('autoStitchAudiobooks', v)}
+          />
+        </div>
+
+        {Boolean(settings?.autoStitchAudiobooks) && (
+          <>
+            <div className="setting-row" style={{ paddingLeft: '1rem', borderLeft: '2px solid var(--accent, #6366f1)' }}>
+              <div>
+                <div className="setting-label">Auto-stitch encoding bitrate</div>
+                <div className="setting-help">
+                  Audio bitrate for stitched audiobooks. Voice (64 kbps) is optimized for speech clarity and compact file sizes (~28 MB/hr).
+                </div>
+              </div>
+              <select
+                className="input-field"
+                style={{ width: 220 }}
+                value={settings?.autoStitchBitrate ?? '64k'}
+                onChange={(e) => update('autoStitchBitrate', e.target.value)}
+              >
+                <option value="64k">64 kbps (Voice / Recommended)</option>
+                <option value="96k">96 kbps (Balanced Stereo)</option>
+                <option value="128k">128 kbps (Standard Quality)</option>
+                <option value="192k">192 kbps (High Fidelity)</option>
+                <option value="copy">Direct Stream Copy (Lossless)</option>
+              </select>
+            </div>
+
+            <div className="setting-row" style={{ paddingLeft: '1rem', borderLeft: '2px solid var(--accent, #6366f1)' }}>
+              <div>
+                <div className="setting-label">Delete chapters after auto-stitch</div>
+                <div className="setting-help">
+                  Safely remove original individual chapter files from Google Drive once the stitched book is ready.
+                </div>
+              </div>
+              <Switch
+                checked={settings?.autoStitchDeleteSource !== false}
+                onChange={(v) => update('autoStitchDeleteSource', v)}
+              />
+            </div>
+          </>
+        )}
+
         {savingKey && <div className="setting-help" style={{ marginTop: '0.5rem' }}>Saving…</div>}
       </div>
 

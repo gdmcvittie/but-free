@@ -12,6 +12,8 @@ import {
   sanitizeTitle,
   extensionOf
 } from './libraryParser.js';
+import audiobookStitcher from './audiobookStitcher.js';
+import { groupAudiobookItems } from './bookGrouper.js';
 
 /**
  * Audiobook download pipeline:
@@ -302,6 +304,67 @@ function ensureActivePolling() {
       await downloadManager.syncFromNode(uid).catch(() => {});
     }
   }, 3000);
+}
+
+/**
+ * Triggers automatic stitching of multi-chapter audiobooks following a successful download.
+ * Reads user settings for target encoding bitrate and source file cleanup.
+ */
+async function triggerAutoStitch(userId, itemIds, settings) {
+  try {
+    const user = db.getUser(userId);
+    if (!user) return;
+
+    // Fetch the newly added items from DB
+    const items = itemIds
+      .map((id) => db.getItem(userId, id))
+      .filter((item) => item && item.kind === 'audiobook');
+
+    if (items.length < 2) return;
+
+    // Group items into books to detect multi-chapter audiobooks
+    const books = groupAudiobookItems(items);
+
+    for (const book of books) {
+      if (!book.isMultiPart || !Array.isArray(book.parts) || book.parts.length < 2) {
+        continue;
+      }
+
+      const chapterFileIds = book.parts.map((p) => p.id);
+      const targetBitrate = settings.autoStitchBitrate || '64k';
+      const deleteSource = settings.autoStitchDeleteSource !== false;
+
+      const channels = targetBitrate === '64k' ? '1' : '2';
+      const mode = targetBitrate === 'copy'
+        ? 'copy'
+        : targetBitrate === '64k'
+          ? 'voice'
+          : targetBitrate === '96k'
+            ? 'balanced'
+            : 'custom';
+
+      console.log(`[DownloadManager] Auto-stitching "${book.title}" (${chapterFileIds.length} chapters) at ${targetBitrate} for user ${userId}...`);
+
+      audiobookStitcher.start(user, {
+        fileIds: chapterFileIds,
+        title: book.title,
+        author: book.author,
+        series: book.series,
+        narrator: book.narrator,
+        genre: book.genre,
+        coverUrl: book.coverUrl,
+        options: {
+          mode,
+          bitrate: targetBitrate,
+          channels,
+          deleteSource,
+          smartBitrate: true
+        }
+      });
+    }
+  } catch (err) {
+    console.error('[DownloadManager] Auto-stitch failed to start:', err);
+  }
 }
 
 export const downloadManager = {
@@ -673,6 +736,19 @@ export const downloadManager = {
     });
 
     broadcast('library_changed', { userId, reason: 'download' });
+
+    // Auto-stitch multi-chapter audiobooks if enabled in user settings
+    try {
+      const userSettings = db.getSettings(userId);
+      if (userSettings?.autoStitchAudiobooks && itemIds.length >= 2) {
+        triggerAutoStitch(userId, itemIds, userSettings).catch((err) => {
+          console.error('[DownloadManager] Auto-stitch error:', err);
+        });
+      }
+    } catch (stitchErr) {
+      console.warn('[DownloadManager] Auto-stitch trigger note:', stitchErr.message);
+    }
+
     return { handled: true, itemIds };
   },
 
