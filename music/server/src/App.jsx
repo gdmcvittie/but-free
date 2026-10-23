@@ -17,6 +17,7 @@ import Player from './Player';
 import DownloadBar from './DownloadBar';
 import CarMode from './CarMode';
 import AudiobookStitcherView from './AudiobookStitcherView';
+import Id3EditorModal from './Id3EditorModal';
 import { hasActiveJob } from './stitcherJobs';
 import { registerNativeCommands, pushNativeState, isCarConnected } from './nativeBridge';
 import { clearLibraryCache, purgeThumbnailCache } from './libraryCache';
@@ -54,6 +55,14 @@ export default function App() {
 
   const [whatsNewSeed, setWhatsNewSeed] = useState('');
   const [stitcherInitialBook, setStitcherInitialBook] = useState(null);
+  const [id3EditorItemId, setId3EditorItemId] = useState(null);
+
+  const openId3Editor = useCallback((item) => {
+    if (!item?.id) return;
+    setId3EditorItemId(item.id);
+  }, []);
+
+  const closeId3Editor = useCallback(() => setId3EditorItemId(null), []);
 
   const [authChecking, setAuthChecking] = useState(true);
   const [authError, setAuthError] = useState(null);
@@ -559,6 +568,7 @@ const handleFolderSelected = useCallback((folderKind, folderId, folderName) => {
             onRefresh={bumpLibrary}
             onNavigate={navigate}
             notify={notify}
+            onOpenId3Editor={openId3Editor}
           />
         )}
 
@@ -592,6 +602,7 @@ const handleFolderSelected = useCallback((folderKind, folderId, folderName) => {
             onToggleFavorite={toggleFavorite}
             onRefresh={bumpLibrary}
             notify={notify}
+            onOpenId3Editor={openId3Editor}
           />
         )}
 
@@ -630,6 +641,7 @@ const handleFolderSelected = useCallback((folderKind, folderId, folderName) => {
             onPlay={play}
             onRefresh={bumpLibrary}
             notify={notify}
+            onOpenId3Editor={openId3Editor}
           />
         )}
 
@@ -687,6 +699,14 @@ const handleFolderSelected = useCallback((folderKind, folderId, folderName) => {
           notify={notify}
         />
       )}
+
+      <Id3EditorModal
+        isOpen={Boolean(id3EditorItemId)}
+        itemId={id3EditorItemId}
+        onClose={closeId3Editor}
+        onSaved={() => bumpLibrary()}
+        notify={notify}
+      />
 
       <AccountModal
         isOpen={isAccountOpen}

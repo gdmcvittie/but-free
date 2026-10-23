@@ -41,6 +41,7 @@ async function request(path, { method = 'GET', body, signal } = {}) {
 const get = (path, options) => request(path, options);
 const post = (path, body, options) => request(path, { ...options, method: 'POST', body: body ?? {} });
 const patch = (path, body) => request(path, { method: 'PATCH', body: body ?? {} });
+const put = (path, body) => request(path, { method: 'PUT', body: body ?? {} });
 const del = (path) => request(path, { method: 'DELETE' });
 
 /**
@@ -201,6 +202,15 @@ export const api = {
   cancelStitch: (jobId) => post(`/api/audiobooks/stitch/cancel/${encodeURIComponent(jobId)}`),
   deleteStitchSources: (fileIds) => post('/api/audiobooks/stitch/delete-sources', { fileIds }),
   updateAudiobookMetadata: (payload) => post('/api/audiobooks/metadata', payload),
+  getId3Item: (itemId) => get(`/api/items/${encodeURIComponent(itemId)}/id3`),
+  saveId3Item: (itemId, payload) => put(`/api/items/${encodeURIComponent(itemId)}/id3`, payload),
+  searchCovers: (params = {}) => {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
+    }
+    return get(`/api/covers/search?${query.toString()}`);
+  },
   startConvert: (payload) => post('/api/audiobooks/convert', payload),
   convertStatus: (jobId) => get(`/api/audiobooks/convert/status/${encodeURIComponent(jobId)}`),
   cancelConvert: (jobId) => post(`/api/audiobooks/convert/cancel/${encodeURIComponent(jobId)}`),

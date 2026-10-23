@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Play, Heart, HardDriveDownload, HardDrive, ListPlus } from 'lucide-react';
+import { Play, Heart, HardDriveDownload, HardDrive, ListPlus, Pencil } from 'lucide-react';
 import { api } from './api';
 import { formatLengthShort, percentOf, stripTrackNumber } from './format';
 
@@ -18,6 +18,7 @@ function MediaCard({
   onCacheOffline,
   onAddToPlaylist,
   onOpenBook,
+  onOpenId3Editor,
   busy
 }) {
   const durationSec = item.durationSec || 0;
@@ -103,6 +104,19 @@ function MediaCard({
           onClick={() => onToggleFavorite?.(item, !item.favorite)}
         >
           <Heart size={13} fill={item.favorite ? 'currentColor' : 'none'} />
+        </button>
+
+        <button
+          type="button"
+          className="icon-btn"
+          title="Edit ID3 tags"
+          disabled={busy}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenId3Editor?.(item);
+          }}
+        >
+          <Pencil size={13} />
         </button>
 
         <button

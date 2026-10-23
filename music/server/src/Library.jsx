@@ -20,7 +20,8 @@ import {
   Tag,
   X,
   ListMusic,
-  Layers
+  Layers,
+  Pencil
 } from 'lucide-react';
 import { api } from './api';
 import MediaCard from './MediaCard';
@@ -204,7 +205,8 @@ export default function Library({
   onRefresh,
   onNavigate,
   favoritesOnly = false,
-  notify
+  notify,
+  onOpenId3Editor
 }) {
   const isMusic = kind === 'music';
 
@@ -1373,6 +1375,17 @@ export default function Library({
                       <div className="row-aside">
                         <button
                           type="button"
+                          className="icon-btn"
+                          title="Edit ID3 tags"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenId3Editor?.(part);
+                          }}
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          type="button"
                           className={`icon-btn ${part.favorite ? 'active' : ''}`}
                           title={part.favorite ? 'Remove from favourites' : 'Add to favourites'}
                           onClick={(e) => {
@@ -1568,6 +1581,7 @@ export default function Library({
                         busy={busyIds.has(item.id)}
                         onPlay={handlePlayCard}
                         onOpenBook={(book) => setDrill({ type: 'book', book, name: book.title, label: book.title, parent: drill })}
+                        onOpenId3Editor={onOpenId3Editor}
                         onToggleFavorite={onToggleFavorite}
                         onCacheOffline={handleCacheOffline}
                         onAddToPlaylist={handleAddToPlaylist}

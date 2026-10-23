@@ -29,7 +29,8 @@ import {
   RefreshCw,
   FileAudio,
   Loader2,
-  Wrench
+  Wrench,
+  Pencil
 } from 'lucide-react';
 import { api } from './api';
 import { formatLengthShort } from './format';
@@ -164,7 +165,8 @@ export default function AudiobookStitcherView({
   onNavigate,
   onPlay,
   onRefresh,
-  notify
+  notify,
+  onOpenId3Editor
 }) {
   // Mode selection: 'stitch' | 'convert'
   const [viewMode, setViewMode] = useState('stitch');
@@ -178,6 +180,11 @@ export default function AudiobookStitcherView({
   // 1. Single Book Stitcher State
   // ---------------------------------------------------------------------------
   const [tracks, setTracks] = useState([]);
+
+  // Cover art search results for the metadata form
+  const [coverSearchOpen, setCoverSearchOpen] = useState(false);
+  const [coverSearchResults, setCoverSearchResults] = useState([]);
+  const [coverSearching, setCoverSearching] = useState(false);
 
   // Metadata form state
   const [metaTitle, setMetaTitle] = useState('');
@@ -427,6 +434,33 @@ export default function AudiobookStitcherView({
 
   const reverseList = () => {
     setTracks((prev) => [...prev].reverse());
+  };
+
+  const handleSearchCoverArt = async () => {
+    setCoverSearching(true);
+    try {
+      const res = await api.searchCovers({
+        title: metaTitle,
+        artist: metaAuthor,
+        album: metaSeries || metaTitle,
+        kind: 'audiobooks'
+      });
+      setCoverSearchResults(res.options || []);
+      setCoverSearchOpen(true);
+      if ((res.options || []).length === 0) {
+        notify?.('No covers found', 'Try filling in the title and author first.');
+      }
+    } catch (err) {
+      notify?.('Cover search failed', err.message, true);
+    } finally {
+      setCoverSearching(false);
+    }
+  };
+
+  const pickSearchedCover = (option) => {
+    setCoverPreview(option.artworkUrl);
+    setCoverBase64(null);
+    setCoverSearchOpen(false);
   };
 
   // Cover image file selection
@@ -1194,6 +1228,16 @@ export default function AudiobookStitcherView({
                           </span>
                         </div>
                         <div className="chapter-actions">
+                          {onOpenId3Editor && (
+                            <button
+                              type="button"
+                              className="btn-icon"
+                              onClick={() => onOpenId3Editor(track)}
+                              title="Edit ID3 tags for this file"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="btn-icon"
@@ -1281,6 +1325,16 @@ export default function AudiobookStitcherView({
                       <Upload size={12} />
                       <span>{coverPreview ? 'Change Art' : 'Upload Art'}</span>
                     </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-xs"
+                      onClick={handleSearchCoverArt}
+                      disabled={coverSearching}
+                      title="Search for cover art online"
+                    >
+                      {coverSearching ? <Loader2 size={12} className="spin" /> : <Search size={12} />}
+                      <span>Search</span>
+                    </button>
                     {coverPreview && (
                       <button
                         type="button"
@@ -1321,6 +1375,36 @@ export default function AudiobookStitcherView({
                   </div>
                 </div>
               </div>
+
+              {coverSearchOpen && (
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', overflow: 'hidden', marginBottom: '0.75rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.55rem 0.75rem', background: 'var(--panel-bg)' }}>
+                    <span style={{ fontSize: '0.86rem', fontWeight: 600 }}>Cover Art Search</span>
+                    <button type="button" className="btn btn-ghost btn-xs" onClick={() => setCoverSearchOpen(false)}>
+                      <X size={12} />
+                    </button>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.7rem', padding: '0.7rem' }}>
+                    {coverSearchResults.length === 0 ? (
+                      <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: 'var(--text-muted)', padding: '0.8rem' }}>
+                        No results
+                      </div>
+                    ) : (
+                      coverSearchResults.map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => pickSearchedCover(opt)}
+                          style={{ border: '1px solid var(--border-color)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', background: 'var(--panel-bg)', textAlign: 'left' }}
+                        >
+                          <img src={opt.thumbnailUrl} alt={opt.title} style={{ width: '100%', aspectRatio: '1', objectFit: 'cover' }} />
+                          <div style={{ padding: '0.4rem 0.5rem', fontSize: '0.78rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{opt.title}</div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Secondary Metadata Fields */}
               <div className="form-grid-2">

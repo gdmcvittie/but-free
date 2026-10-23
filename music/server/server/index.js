@@ -24,6 +24,7 @@ import { attachClient, broadcast, clientCount, recentEvents } from './events.js'
 import { formatDuration, inferGenreFromText, isAudioFile, stripExtension } from './libraryParser.js';
 import { groupAudiobookItems } from './bookGrouper.js';
 import audiobookStitcher, { recoverInterruptedJobs } from './audiobookStitcher.js';
+import id3Editor from './id3Editor.js';
 
 function isAdminUser(user) {
   const adminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
@@ -817,6 +818,51 @@ app.patch('/api/items/:id', (req, res) => {
   const updated = db.updateItem(req.user.id, req.params.id, req.body || {});
   if (!updated) return res.status(404).json({ error: 'Item not found.' });
   return res.json({ success: true, item: updated });
+});
+
+// -------------------------------------------------------------------------
+// ID3 editor: read the current file metadata, then write tags/art back to Drive
+// -------------------------------------------------------------------------
+
+app.get('/api/items/:id/id3', async (req, res) => {
+  try {
+    const payload = await id3Editor.getEditorItem(req.user, req.params.id);
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json(payload);
+  } catch (err) {
+    return res.status(404).json({ error: err.message });
+  }
+});
+
+app.put('/api/items/:id/id3', async (req, res) => {
+  try {
+    const result = await id3Editor.saveItemTags(req.user, req.params.id, req.body || {});
+    return res.json(result);
+  } catch (err) {
+    console.error('[ID3] Save failed:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/** Cover-art search used by the ID3 editor and the audiobook stitcher. */
+app.get('/api/covers/search', async (req, res) => {
+  try {
+    const result = await id3Editor.searchCovers(
+      {
+        q: req.query.q,
+        title: req.query.title,
+        artist: req.query.artist,
+        album: req.query.album,
+        kind: req.query.kind,
+        itemId: req.query.itemId
+      },
+      req.user
+    );
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json(result);
+  } catch (err) {
+    return res.status(502).json({ error: err.message });
+  }
 });
 
 /** Removes an item from Drive (default) or just the library row. */

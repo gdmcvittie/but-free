@@ -481,6 +481,17 @@ export const googleDrive = {
     return Buffer.from(await res.arrayBuffer());
   },
 
+  /** Streams a Drive file to local disk without holding it in memory. */
+  async downloadFile(user, googleFileId, destPath) {
+    const res = await driveFetch(user, `${DRIVE_API}/files/${googleFileId}?alt=media`);
+    if (!res.ok && res.status !== 206) {
+      throw new Error(`Drive download failed (HTTP ${res.status})`);
+    }
+    fs.mkdirSync(path.dirname(destPath), { recursive: true });
+    await pipeline(Readable.fromWeb(res.body), fs.createWriteStream(destPath));
+    return destPath;
+  },
+
   // ------------------------------------------------------------------
   // Covers
   // ------------------------------------------------------------------
@@ -543,13 +554,20 @@ export const googleDrive = {
 
     const task = (async () => {
       const key = crypto.createHash('sha1').update(buildKey).digest('hex');
+
+      // 0. A locally cached cover chosen by the ID3 editor or stitcher wins over
+      //    anything Drive-derived, so the user's pick shows immediately.
+      if (hintCoverUrl && !/^https?:\/\//i.test(hintCoverUrl) && fs.existsSync(hintCoverUrl)) {
+        return { file: hintCoverUrl, cached: true };
+      }
+
       const cached = ['jpg', 'png', 'gif', 'webp']
         .map((ext) => path.join(COVERS_DIR, `${key}.${ext}`))
         .find((file) => fs.existsSync(file) && fs.statSync(file).size > 0);
       if (cached) return { file: cached, cached: true };
       const outPath = path.join(COVERS_DIR, `${key}.jpg`);
 
-      // 0. Hint cover URL (e.g. from YouTube Music, thumbnailLink, or known art)
+      // 1. Hint cover URL (e.g. from YouTube Music, thumbnailLink, or known art)
       if (hintCoverUrl && (hintCoverUrl.startsWith('http://') || hintCoverUrl.startsWith('https://'))) {
         try {
           const hinted = await this.cacheRemoteCover(hintCoverUrl, key, outPath, user);
