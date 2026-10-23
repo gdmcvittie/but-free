@@ -189,12 +189,38 @@ async function detectAudioBitrate(items = [], localPaths = []) {
         const meta = await parseFile(filePath, { duration: true, skipCovers: true });
         if (meta?.format?.bitrate) {
           detectedBitrates.push(Math.round(meta.format.bitrate / 1000));
+        } else if (meta?.format?.duration && fs.existsSync(filePath)) {
+          const sz = fs.statSync(filePath).size;
+          const calc = Math.round((sz * 8) / meta.format.duration / 1000);
+          if (calc >= 16 && calc <= 1411) detectedBitrates.push(calc);
         }
       } catch (_) {}
     }
   } catch (_) {}
 
   return detectedBitrates.length > 0 ? Math.max(...detectedBitrates) : null;
+}
+
+/**
+ * Resolves the destination Google Drive folder ID for converted files.
+ */
+async function resolveTargetFolderId(user, job, item) {
+  const destMode = job.options.destMode || 'subfolder';
+  if (destMode === 'custom-folder' && job.options.customFolderId) {
+    return job.options.customFolderId;
+  }
+  let parentFolderId = job.options.sourceFolderId || item.driveFolderId || null;
+  if (!parentFolderId && item.googleFileId) {
+    try {
+      const meta = await googleDrive.getFileMetadata(user, item.googleFileId, 'id,parents');
+      if (meta?.parents?.[0]) parentFolderId = meta.parents[0];
+    } catch (_) {}
+  }
+  if (!parentFolderId) {
+    parentFolderId = user.audiobooksFolderId;
+  }
+  const subfolder = await googleDrive.getOrCreateSubfolder(user, 'converted', parentFolderId);
+  return subfolder.id;
 }
 
 export const audiobookStitcher = {
@@ -1142,13 +1168,30 @@ export const audiobookStitcher = {
         const rawLocalPath = path.join(tempDir, `src_${i}_${fileName}`);
         const convertedTempPath = path.join(tempDir, `out_${i}_${baseName}.mp3`);
         let srcPath = rawLocalPath;
+        let downloadedTemp = false;
 
         try {
-          // 1. Download file to temp
-          const cached = localFileFor(item.id);
-          if (cached && fs.existsSync(cached) && fs.statSync(cached).size > 0) {
-            srcPath = cached;
-          } else {
+          const destMode = job.options.destMode || 'subfolder';
+          let isOverwritingSameFile = destMode === 'in-place';
+          if (!isOverwritingSameFile && destMode === 'custom-folder' && job.options.customFolderId) {
+            const sourceFolderId = item.driveFolderId || job.options.sourceFolderId || null;
+            if (sourceFolderId && job.options.customFolderId === sourceFolderId) {
+              isOverwritingSameFile = true;
+            }
+          }
+
+          // 1. Detect source bitrate (from metadata first, then cache, then download if needed)
+          let detectedKbps = await detectAudioBitrate([item]);
+
+          if (!detectedKbps) {
+            const cached = localFileFor(item.id);
+            if (cached && fs.existsSync(cached) && fs.statSync(cached).size > 0) {
+              srcPath = cached;
+              detectedKbps = await detectAudioBitrate([item], [srcPath]);
+            }
+          }
+
+          if (!detectedKbps) {
             if (!item.googleFileId) {
               throw new Error(`File "${fileName}" has no Google Drive file ID.`);
             }
@@ -1162,62 +1205,206 @@ export const audiobookStitcher = {
             const writeStream = fs.createWriteStream(rawLocalPath);
             await pipeline(Readable.fromWeb(res.body), writeStream);
             srcPath = rawLocalPath;
-          }
-
-          // 2. Detect source bitrate
-          let detectedKbps = null;
-          if (isSmartBitrate) {
+            downloadedTemp = true;
             detectedKbps = await detectAudioBitrate([item], [srcPath]);
           }
 
-          // Determine effective bitrate and whether to compress or copy
-          let effectiveBitrate = desiredBitrateRaw;
-          let convMode = 'compress';
-          let smartInfo = null;
-          const sameExt = originalExt === '.mp3';
-          const canDirectCopy = sameExt && !job.options.normalize;
+          const isBitrateLeq = typeof detectedKbps === 'number' && detectedKbps > 0 && detectedKbps <= desiredBitrateKbps;
 
-          if (isSmartBitrate && detectedKbps && detectedKbps > 0) {
-            const shouldCompress = detectedKbps > desiredBitrateKbps;
-            if (shouldCompress) {
-              effectiveBitrate = `${desiredBitrateKbps}k`;
-              smartInfo = {
-                enabled: true,
-                detectedBitrate: detectedKbps,
-                desiredBitrate: desiredBitrateKbps,
-                shouldCompress: true,
-                action: 'compress',
-                effectiveBitrate: effectiveBitrate,
-                reason: `Source (${detectedKbps}k) > Target (${desiredBitrateKbps}k) → Compressing`
-              };
+          // If bitrate is <= target bitrate:
+          // - Overwriting same file -> skip file entirely
+          // - Another folder -> copy file directly to target destination
+          if (isBitrateLeq) {
+            if (isOverwritingSameFile) {
+              console.log(`[AudiobookConverter] Skipping "${fileName}": Bitrate (${detectedKbps}k) <= target (${desiredBitrateKbps}k) and overwriting same file.`);
+              smartPreservedCount++;
+              completedCount++;
+              convertedResults.push({
+                fileId: item.id,
+                fileName,
+                originalSize: item.sizeBytes || 0,
+                convertedSize: item.sizeBytes || 0,
+                driveFileId: item.googleFileId,
+                status: 'skipped',
+                reason: `Source bitrate (${detectedKbps} kbps) ≤ target (${desiredBitrateKbps} kbps). Skipped in-place overwrite.`,
+                smartBitrate: {
+                  enabled: true,
+                  detectedBitrate: detectedKbps,
+                  desiredBitrate: desiredBitrateKbps,
+                  shouldCompress: false,
+                  action: 'skipped',
+                  effectiveBitrate: `${detectedKbps}k`,
+                  reason: `Source (${detectedKbps}k) ≤ Target (${desiredBitrateKbps}k) → Skipped in-place overwrite`
+                }
+              });
+              updateJob(`Skipped "${fileName}": already ≤ ${desiredBitrateKbps} kbps`, {
+                smartPreservedCount,
+                completedCount,
+                currentPercent: 100,
+                overallPercent: Math.round(((i + 1) / job.fileIds.length) * 100),
+                smartBitrate: {
+                  enabled: true,
+                  detectedBitrate: detectedKbps,
+                  desiredBitrate: desiredBitrateKbps,
+                  shouldCompress: false,
+                  action: 'skipped',
+                  effectiveBitrate: `${detectedKbps}k`,
+                  reason: `Source (${detectedKbps}k) ≤ Target (${desiredBitrateKbps}k) → Skipped in-place overwrite`
+                }
+              });
+
+              if (downloadedTemp && fs.existsSync(rawLocalPath)) {
+                try { fs.unlinkSync(rawLocalPath); } catch (_) {}
+              }
+              continue;
             } else {
-              // Source is already <= target -> Do not compress!
-              if (canDirectCopy) {
-                convMode = 'copy';
-                smartInfo = {
+              console.log(`[AudiobookConverter] Copying "${fileName}" to destination folder (bitrate ${detectedKbps}k <= target ${desiredBitrateKbps}k)...`);
+              updateJob(`Copying "${fileName}" to destination folder...`, {
+                currentPercent: 50,
+                smartBitrate: {
                   enabled: true,
                   detectedBitrate: detectedKbps,
                   desiredBitrate: desiredBitrateKbps,
                   shouldCompress: false,
                   action: 'copy',
                   effectiveBitrate: `${detectedKbps}k`,
-                  reason: `Source (${detectedKbps}k) ≤ Target (${desiredBitrateKbps}k) → Lossless stream copy`
+                  reason: `Source (${detectedKbps}k) ≤ Target (${desiredBitrateKbps}k) → Copying to destination folder`
+                }
+              });
+
+              const targetFolderId = await resolveTargetFolderId(user, job, item);
+              let copyRes = null;
+
+              if (item.googleFileId) {
+                try {
+                  copyRes = await googleDrive.copyFile(user, item.googleFileId, {
+                    name: fileName,
+                    folderId: targetFolderId
+                  });
+                } catch (copyErr) {
+                  console.warn(`[AudiobookConverter] Drive copy failed for "${fileName}", falling back to upload:`, copyErr.message);
+                }
+              }
+
+              if (!copyRes) {
+                if (!srcPath || !fs.existsSync(srcPath)) {
+                  const accessToken = await googleAuth.getValidAccessToken(user);
+                  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${item.googleFileId}?alt=media`, {
+                    headers: { Authorization: `Bearer ${accessToken}` }
+                  });
+                  if (!res.ok) throw new Error(`Failed to download for copy fallback (HTTP ${res.status}).`);
+                  const writeStream = fs.createWriteStream(rawLocalPath);
+                  await pipeline(Readable.fromWeb(res.body), writeStream);
+                  srcPath = rawLocalPath;
+                  downloadedTemp = true;
+                }
+                const uploadRes = await googleDrive.uploadFile(user, srcPath, {
+                  name: fileName,
+                  folderId: targetFolderId
+                });
+                copyRes = {
+                  id: uploadRes.id || uploadRes.driveFileId,
+                  driveFileId: uploadRes.id || uploadRes.driveFileId,
+                  sizeBytes: uploadRes.sizeBytes || item.sizeBytes || (fs.existsSync(srcPath) ? fs.statSync(srcPath).size : 0)
                 };
-              } else {
-                effectiveBitrate = `${detectedKbps}k`;
-                smartInfo = {
+              }
+
+              const finalDriveFileId = copyRes.driveFileId || copyRes.id;
+              const originalSize = item.sizeBytes || copyRes.sizeBytes || (srcPath && fs.existsSync(srcPath) ? fs.statSync(srcPath).size : 0);
+
+              db.upsertItem(user.id, {
+                ...item,
+                id: newId('abk'),
+                fileName: fileName,
+                format: item.format || originalExt.replace('.', '') || 'mp3',
+                googleFileId: finalDriveFileId,
+                driveFolderId: targetFolderId,
+                sizeBytes: copyRes.sizeBytes || originalSize,
+                bitrateKbps: detectedKbps || desiredBitrateKbps,
+                addedAt: new Date().toISOString()
+              });
+
+              if (job.options.deleteSource && item.googleFileId && item.googleFileId !== finalDriveFileId) {
+                try {
+                  await googleDrive.deleteFile(user, item.googleFileId);
+                  totalFreedBytes += originalSize;
+                  db.removeItem(user.id, item.id, { silent: true });
+                } catch (delErr) {
+                  console.warn('[AudiobookConverter] Delete source note:', delErr.message);
+                }
+              }
+
+              smartPreservedCount++;
+              completedCount++;
+              convertedResults.push({
+                fileId: item.id,
+                fileName,
+                originalSize,
+                convertedSize: copyRes.sizeBytes || originalSize,
+                driveFileId: finalDriveFileId,
+                status: 'copied',
+                reason: `Source bitrate (${detectedKbps} kbps) ≤ target (${desiredBitrateKbps} kbps). Copied directly to destination.`,
+                smartBitrate: {
                   enabled: true,
                   detectedBitrate: detectedKbps,
                   desiredBitrate: desiredBitrateKbps,
                   shouldCompress: false,
-                  action: 'preserve',
-                  effectiveBitrate: effectiveBitrate,
-                  reason: `Source (${detectedKbps}k) ≤ Target (${desiredBitrateKbps}k) → Preserving ${detectedKbps}k`
-                };
+                  action: 'copy',
+                  effectiveBitrate: `${detectedKbps}k`,
+                  reason: `Source (${detectedKbps}k) ≤ Target (${desiredBitrateKbps}k) → Copied to destination`
+                }
+              });
+
+              updateJob(`Copied "${fileName}" to destination`, {
+                smartPreservedCount,
+                completedCount,
+                currentPercent: 100,
+                overallPercent: Math.round(((i + 1) / job.fileIds.length) * 100)
+              });
+
+              if (downloadedTemp && fs.existsSync(rawLocalPath)) {
+                try { fs.unlinkSync(rawLocalPath); } catch (_) {}
               }
-              smartPreservedCount++;
+              continue;
             }
           }
+
+          // Source bitrate > target bitrate -> Compress with FFmpeg
+          if (!srcPath || (srcPath === rawLocalPath && !fs.existsSync(rawLocalPath))) {
+            const cached = localFileFor(item.id);
+            if (cached && fs.existsSync(cached) && fs.statSync(cached).size > 0) {
+              srcPath = cached;
+            } else {
+              if (!item.googleFileId) {
+                throw new Error(`File "${fileName}" has no Google Drive file ID.`);
+              }
+              const accessToken = await googleAuth.getValidAccessToken(user);
+              const res = await fetch(`https://www.googleapis.com/drive/v3/files/${item.googleFileId}?alt=media`, {
+                headers: { Authorization: `Bearer ${accessToken}` }
+              });
+              if (!res.ok) {
+                throw new Error(`Failed to download from Google Drive (HTTP ${res.status}).`);
+              }
+              const writeStream = fs.createWriteStream(rawLocalPath);
+              await pipeline(Readable.fromWeb(res.body), writeStream);
+              srcPath = rawLocalPath;
+              downloadedTemp = true;
+            }
+          }
+
+          const effectiveBitrate = `${desiredBitrateKbps}k`;
+          const convMode = 'compress';
+          const smartInfo = {
+            enabled: true,
+            detectedBitrate: detectedKbps,
+            desiredBitrate: desiredBitrateKbps,
+            shouldCompress: true,
+            action: 'compress',
+            effectiveBitrate,
+            reason: detectedKbps
+              ? `Source (${detectedKbps}k) > Target (${desiredBitrateKbps}k) → Compressing`
+              : `Compressing to target (${desiredBitrateKbps}k)`
+          };
 
           let fileDurationSec = item.durationSec || 0;
           if (!fileDurationSec && srcPath && fs.existsSync(srcPath)) {
@@ -1499,7 +1686,6 @@ export const audiobookStitcher = {
 
           // 4. Destination Handling (Google Drive)
           let finalDriveFileId = item.googleFileId;
-          const destMode = job.options.destMode || 'subfolder';
 
           if (destMode === 'in-place') {
             // In-place: replace file content in Drive directly
@@ -1518,29 +1704,7 @@ export const audiobookStitcher = {
             });
           } else {
             // Subfolder ('converted') or Custom folder
-            let targetFolderId = user.audiobooksFolderId;
-            if (destMode === 'custom-folder' && job.options.customFolderId) {
-              targetFolderId = job.options.customFolderId;
-            } else {
-              // Ensure 'converted' folder is created inside the exact source folder
-              let parentFolderId = job.options.sourceFolderId || item.driveFolderId || null;
-
-              if (!parentFolderId && item.googleFileId) {
-                try {
-                  const meta = await googleDrive.getFileMetadata(user, item.googleFileId, 'id,parents');
-                  if (meta?.parents?.[0]) {
-                    parentFolderId = meta.parents[0];
-                  }
-                } catch (_) {}
-              }
-
-              if (!parentFolderId) {
-                parentFolderId = user.audiobooksFolderId;
-              }
-
-              const subfolder = await googleDrive.getOrCreateSubfolder(user, 'converted', parentFolderId);
-              targetFolderId = subfolder.id;
-            }
+            const targetFolderId = await resolveTargetFolderId(user, job, item);
 
             updateJob(`Uploading converted "${baseName}.mp3" to Google Drive...`);
             console.log(`[AudiobookConverter] Uploading converted "${baseName}.mp3" to Drive folder ${targetFolderId}...`);
@@ -1617,7 +1781,7 @@ export const audiobookStitcher = {
       job.overallPercent = 100;
       job.currentPercent = 100;
       job.phase = failedCount === 0
-        ? `Batch conversion completed (${completedCount} of ${job.fileIds.length} files converted).`
+        ? `Batch conversion completed (${completedCount} of ${job.fileIds.length} files processed).`
         : completedCount > 0
           ? `Batch conversion completed with ${failedCount} failure(s) (${completedCount}/${job.fileIds.length} succeeded).`
           : `Batch conversion failed (${failedCount} files failed).`;

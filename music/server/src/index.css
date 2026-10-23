@@ -4554,6 +4554,11 @@ img {
   border-color: rgba(234, 179, 8, 0.3);
 }
 
+.smart-bitrate-hint.hint-skipped {
+  background: rgba(148, 163, 184, 0.08);
+  border-color: rgba(148, 163, 184, 0.3);
+}
+
 .smart-bitrate-hint .hint-icon {
   font-size: 1.1rem;
   flex-shrink: 0;

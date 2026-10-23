@@ -2,7 +2,7 @@
   "name": "fraudio",
   "productName": "FRAUDIO",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "main": "electron-main.js",
   "description": "FRAUDIO - audio library for Google Drive. Audiobooks and music, with progress, playlists, favourites and offline playback.",
@@ -63,10 +63,7 @@
       "node_modules/node-unrar-js/**/*"
     ],
     "asar": true,
-    "asarUnpack": [
-      "dist/**/*",
-      "**/node_modules/@ffmpeg-installer/**/*"
-    ],
+    "asarUnpack": ["dist/**/*", "**/node_modules/@ffmpeg-installer/**/*"],
     "win": {
       "target": "portable",
       "requestedExecutionLevel": "asInvoker"

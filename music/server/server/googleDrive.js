@@ -851,6 +851,32 @@ export const googleDrive = {
     return { ...result, drivePath: [...segments, result.fileName].join('/') };
   },
 
+  /** Copies an existing Drive file to a target destination folder using Google Drive API v3. */
+  async copyFile(user, googleFileId, { name, folderId } = {}) {
+    if (!googleFileId) throw new Error('File ID is required for copy.');
+    const url = new URL(`${DRIVE_API}/files/${googleFileId}/copy`);
+    url.searchParams.set('supportsAllDrives', 'true');
+    url.searchParams.set('fields', 'id,name,mimeType,size,parents');
+
+    const body = {};
+    if (name) body.name = name;
+    if (folderId) body.parents = [folderId];
+
+    const data = await driveJson(user, url.toString(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=UTF-8' },
+      body: JSON.stringify(body)
+    });
+
+    return {
+      ...data,
+      driveFileId: data.id,
+      driveFolderId: folderId || data.parents?.[0],
+      sizeBytes: Number(data.size) || 0,
+      fileName: data.name || name
+    };
+  },
+
   async deleteFile(user, googleFileId) {
     await driveJson(user, `${DRIVE_API}/files/${googleFileId}`, { method: 'DELETE' });
     return true;

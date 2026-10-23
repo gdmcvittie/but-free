@@ -1637,7 +1637,7 @@ export default function AudiobookStitcherView({
                       </span>
                     </span>
                     <span className="checkbox-subtext">
-                      Inspects each file's bitrate and only compresses if source bitrate is higher than target
+                      Inspects each file's bitrate: skips files already ≤ target if overwriting in-place, or copies directly if saving to another folder
                     </span>
                   </div>
                 </label>
@@ -1678,7 +1678,7 @@ export default function AudiobookStitcherView({
                   />
                   <div>
                     <div className="radio-card-title">'converted' Subfolder (Recommended)</div>
-                    <div className="radio-card-desc">Creates a 'converted/' folder in Google Drive and uploads new files there.</div>
+                    <div className="radio-card-desc">Creates a 'converted/' folder in Google Drive. Files already ≤ target bitrate are copied directly.</div>
                   </div>
                 </label>
 
@@ -1692,7 +1692,7 @@ export default function AudiobookStitcherView({
                   />
                   <div>
                     <div className="radio-card-title">In-Place Overwrite</div>
-                    <div className="radio-card-desc">Safely replaces each file directly in Google Drive, preserving the same Drive ID.</div>
+                    <div className="radio-card-desc">Safely replaces files in Google Drive. Files already ≤ target bitrate are skipped entirely.</div>
                   </div>
                 </label>
 
@@ -1707,7 +1707,7 @@ export default function AudiobookStitcherView({
                   <div style={{ flex: 1 }}>
                     <div className="radio-card-title">Custom Drive Folder</div>
                     <div className="radio-card-desc">
-                      {convertCustomFolderName ? `Upload to: ${convertCustomFolderName}` : 'Choose a specific folder in Google Drive.'}
+                      {convertCustomFolderName ? `Upload to: ${convertCustomFolderName}` : 'Choose a specific folder. Files already ≤ target bitrate are copied directly.'}
                     </div>
                   </div>
                   {convertDestMode === 'custom-folder' && (
@@ -1969,7 +1969,7 @@ export default function AudiobookStitcherView({
                 <div className="convert-stat-val">
                   {convertSummary?.completedCount || 0} / {convertSummary?.totalFiles || 0}
                 </div>
-                <div className="convert-stat-lbl">Files Converted</div>
+                <div className="convert-stat-lbl">Files Processed</div>
               </div>
 
               <div className="convert-stat-card">
@@ -2012,8 +2012,8 @@ export default function AudiobookStitcherView({
 
             <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', lineHeight: 1.45, margin: '0.75rem 0 1.25rem 0' }}>
               {convertSummary?.completedCount > 0
-                ? 'Your audio files have been converted and synchronized with Google Drive. The FRAUDIO library has been updated.'
-                : 'No files were converted or saved to Google Drive. Review the error details above.'}
+                ? 'Your audio files have been processed and synchronized with Google Drive. Files already at or below target bitrate were skipped or directly copied.'
+                : 'No files were processed or saved to Google Drive. Review the error details above.'}
             </p>
 
             <div className="stitcher-modal-footer">
