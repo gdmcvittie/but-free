@@ -100,6 +100,52 @@ function pruneOldJobs() {
   } catch (e) {}
 }
 
+/**
+ * Marks jobs left in the "running" state by a previous server process as failed.
+ *
+ * Stitching and batch conversion live only in memory plus the job JSON on disk,
+ * so a restart mid-job leaves an orphaned record that the UI would poll forever
+ * (it can never progress again). Called once at startup.
+ */
+export function recoverInterruptedJobs() {
+  const dir = getJobsDir();
+  let files = [];
+  try {
+    files = fs.readdirSync(dir);
+  } catch (e) {
+    return 0;
+  }
+
+  let recovered = 0;
+  for (const file of files) {
+    if ((!file.startsWith('stitch_') && !file.startsWith('convert_')) || !file.endsWith('.json')) continue;
+    if (file.includes('.tmp.')) continue;
+
+    const filePath = path.join(dir, file);
+    let job = null;
+    try {
+      job = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    } catch (e) {
+      continue;
+    }
+    if (!job || !job.id || job.status !== 'running') continue;
+
+    job.status = 'error';
+    job.phase = 'Interrupted (server restarted)';
+    job.error = 'The server restarted before this job finished. Please run it again.';
+    job.updatedAt = Date.now();
+    jobs.set(job.id, job);
+    saveJobToDisk(job);
+    broadcast(job.type === 'convert' ? 'convert_progress' : 'stitch_progress', { jobId: job.id, ...job });
+    recovered++;
+  }
+
+  if (recovered > 0) {
+    console.warn(`[AudiobookStitcher] Marked ${recovered} interrupted job(s) as failed after restart.`);
+  }
+  return recovered;
+}
+
 function formatDuration(sec) {
   if (!sec || isNaN(sec)) return '00:00';
   const hours = Math.floor(sec / 3600);

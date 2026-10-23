@@ -17,6 +17,7 @@ import Player from './Player';
 import DownloadBar from './DownloadBar';
 import CarMode from './CarMode';
 import AudiobookStitcherView from './AudiobookStitcherView';
+import { hasActiveJob } from './stitcherJobs';
 import { registerNativeCommands, pushNativeState, isCarConnected } from './nativeBridge';
 import { clearLibraryCache, purgeThumbnailCache } from './libraryCache';
 
@@ -67,7 +68,9 @@ export default function App() {
   const [scanState, setScanState] = useState(null);
   const [queueBarActive, setQueueBarActive] = useState(false);
   const [stitcherBarActive, setStitcherBarActive] = useState(false);
-  const [stitcherMounted, setStitcherMounted] = useState(false);
+  // Also mount the Audio Tools view on boot when a job from a previous session
+  // is still running server-side, so its progress footer re-attaches.
+  const [stitcherMounted, setStitcherMounted] = useState(() => hasActiveJob());
 
   // Stable handle so effects that run before runScan is defined (folder
   // connect) can still kick off a scan.

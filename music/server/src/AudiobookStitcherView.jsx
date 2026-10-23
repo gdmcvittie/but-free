@@ -33,6 +33,13 @@ import {
 } from 'lucide-react';
 import { api } from './api';
 import { formatLengthShort } from './format';
+import {
+  ACTIVE_STITCH_JOB_KEY,
+  ACTIVE_CONVERT_JOB_KEY,
+  readActiveJob,
+  writeActiveJob,
+  clearActiveJob
+} from './stitcherJobs';
 
 const PRESETS = [
   {
@@ -208,6 +215,7 @@ export default function AudiobookStitcherView({
 
   const pollingTimerRef = useRef(null);
   const fileInputRef = useRef(null);
+  const restoredJobsRef = useRef(false);
 
   // ---------------------------------------------------------------------------
   // 2. Batch Audio Converter State (Google Drive files/folders, non-stitching)
@@ -276,6 +284,73 @@ export default function AudiobookStitcherView({
   useEffect(() => {
     fetchAudiobooks();
   }, [fetchAudiobooks]);
+
+  // Re-attach to jobs that were still running when the tab was closed. The
+  // server keeps stitching/converting; only the UI state was lost on reload.
+  useEffect(() => {
+    if (restoredJobsRef.current) return;
+    restoredJobsRef.current = true;
+
+    const restoreJobs = async () => {
+      const storedStitch = readActiveJob(ACTIVE_STITCH_JOB_KEY);
+      const storedConvert = readActiveJob(ACTIVE_CONVERT_JOB_KEY);
+      if (!storedStitch && !storedConvert) return;
+
+      // Distinguish "job no longer exists" (404 -> forget it) from a transient
+      // network failure (keep the id so the next load can try again).
+      const loadStatus = (promise) => promise
+        .then((data) => ({ data, error: null }))
+        .catch((error) => ({ data: null, error }));
+      const isGone = (res) => Boolean(res.error) && /\b404\b/.test(res.error.message || '');
+
+      const [stitchRes, convertRes] = await Promise.all([
+        storedStitch ? loadStatus(api.stitchStatus(storedStitch.jobId)) : Promise.resolve({ data: null, error: null }),
+        storedConvert ? loadStatus(api.convertStatus(storedConvert.jobId)) : Promise.resolve({ data: null, error: null })
+      ]);
+
+      const stitchData = stitchRes.data;
+      if (stitchData?.status === 'running') {
+        setActiveJobId(stitchData.id || storedStitch.jobId);
+        setJobStatus(stitchData);
+        setIsStitching(true);
+        setViewMode('stitch');
+      } else if (stitchData) {
+        clearActiveJob(ACTIVE_STITCH_JOB_KEY);
+        if (stitchData.status === 'done') {
+          notify?.('Stitching finished', `"${stitchData.title || 'Audiobook'}" finished while you were away.`);
+          api.scanLibrary('audiobooks').catch(() => {});
+          onRefresh?.();
+          fetchAudiobooks();
+        } else if (stitchData.status === 'error') {
+          notify?.('Stitching failed', stitchData.error || 'Audiobook stitching failed.', true);
+        }
+      } else if (isGone(stitchRes)) {
+        clearActiveJob(ACTIVE_STITCH_JOB_KEY);
+      }
+
+      const convertData = convertRes.data;
+      if (convertData?.status === 'running') {
+        setActiveConvertJobId(convertData.id || storedConvert.jobId);
+        setConvertJobStatus(convertData);
+        setIsConverting(true);
+        setViewMode('convert');
+      } else if (convertData) {
+        clearActiveJob(ACTIVE_CONVERT_JOB_KEY);
+        if (convertData.status === 'done') {
+          notify?.('Conversion finished', 'Batch audio conversion finished while you were away.');
+          api.scanLibrary('audiobooks').catch(() => {});
+          onRefresh?.();
+          fetchAudiobooks();
+        } else if (convertData.status === 'error') {
+          notify?.('Conversion failed', convertData.error || 'Batch audio conversion failed.', true);
+        }
+      } else if (isGone(convertRes)) {
+        clearActiveJob(ACTIVE_CONVERT_JOB_KEY);
+      }
+    };
+
+    restoreJobs();
+  }, [notify, onRefresh, fetchAudiobooks]);
 
   // Multi-part books from the library
   const multiPartBooks = useMemo(() => {
@@ -467,14 +542,18 @@ export default function AudiobookStitcherView({
             setIsStitching(false);
             setShowCompletionModal(true);
             setDeleteSinglesState('idle');
+            clearActiveJob(ACTIVE_STITCH_JOB_KEY);
             if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
             api.scanLibrary('audiobooks').catch(() => {});
             onRefresh?.();
             fetchAudiobooks();
           } else if (data.status === 'error') {
             setIsStitching(false);
+            clearActiveJob(ACTIVE_STITCH_JOB_KEY);
             if (pollingTimerRef.current) clearInterval(pollingTimerRef.current);
             notify?.('Stitching failed', data.error || 'Audiobook stitching failed.', true);
+          } else if (data.status === 'cancelled') {
+            clearActiveJob(ACTIVE_STITCH_JOB_KEY);
           }
         }
       } catch (err) {
@@ -536,6 +615,7 @@ export default function AudiobookStitcherView({
 
       if (res?.jobId) {
         setActiveJobId(res.jobId);
+        writeActiveJob(ACTIVE_STITCH_JOB_KEY, res.jobId);
       } else {
         throw new Error(res?.error || 'Failed to start stitching job.');
       }
@@ -593,6 +673,7 @@ export default function AudiobookStitcherView({
     if (!activeJobId) return;
     try {
       await api.cancelStitch(activeJobId);
+      clearActiveJob(ACTIVE_STITCH_JOB_KEY);
       setIsStitching(false);
       setJobStatus(null);
       setActiveJobId(null);
@@ -725,14 +806,18 @@ export default function AudiobookStitcherView({
             setIsConverting(false);
             setConvertSummary(data.result);
             setShowConvertSummaryModal(true);
+            clearActiveJob(ACTIVE_CONVERT_JOB_KEY);
             if (convertPollingTimerRef.current) clearInterval(convertPollingTimerRef.current);
             api.scanLibrary('audiobooks').catch(() => {});
             onRefresh?.();
             fetchAudiobooks();
           } else if (data.status === 'error') {
             setIsConverting(false);
+            clearActiveJob(ACTIVE_CONVERT_JOB_KEY);
             if (convertPollingTimerRef.current) clearInterval(convertPollingTimerRef.current);
             notify?.('Conversion failed', data.error || 'Batch audio conversion failed.', true);
+          } else if (data.status === 'cancelled') {
+            clearActiveJob(ACTIVE_CONVERT_JOB_KEY);
           }
         }
       } catch (err) {
@@ -791,6 +876,7 @@ export default function AudiobookStitcherView({
 
       if (res?.jobId) {
         setActiveConvertJobId(res.jobId);
+        writeActiveJob(ACTIVE_CONVERT_JOB_KEY, res.jobId);
       } else {
         throw new Error(res?.error || 'Failed to start batch conversion job.');
       }
@@ -806,6 +892,7 @@ export default function AudiobookStitcherView({
     if (!activeConvertJobId) return;
     try {
       await api.cancelConvert(activeConvertJobId);
+      clearActiveJob(ACTIVE_CONVERT_JOB_KEY);
       setIsConverting(false);
       setConvertJobStatus(null);
       setActiveConvertJobId(null);

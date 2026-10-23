@@ -23,7 +23,7 @@ import binManager from './binManager.js';
 import { attachClient, broadcast, clientCount, recentEvents } from './events.js';
 import { formatDuration, inferGenreFromText, isAudioFile, stripExtension } from './libraryParser.js';
 import { groupAudiobookItems } from './bookGrouper.js';
-import audiobookStitcher from './audiobookStitcher.js';
+import audiobookStitcher, { recoverInterruptedJobs } from './audiobookStitcher.js';
 
 function isAdminUser(user) {
   const adminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
@@ -1576,6 +1576,14 @@ db.setMetaHook((userId, kind) => metaStore.schedulePersist(userId, kind));
 
 const server = app.listen(config.port, () => {
   console.log(`\n  FRAUDIO listening on http://localhost:${config.port}\n`);
+
+  // Jobs persisted mid-run by a previous process can never finish now, so mark
+  // them failed instead of leaving the UI polling a permanently "running" job.
+  try {
+    recoverInterruptedJobs();
+  } catch (err) {
+    console.warn('[Stitcher] Interrupted job recovery failed:', err.message);
+  }
 
   // Re-arm pending YouTube Music downloads from the persisted queue (jobs
   // interrupted mid-run simply re-run; per-track overwrites keep it clean).
