@@ -47,8 +47,13 @@ export default function Reader({ comic, currentProfile: propProfile, user, onClo
     return 1;
   });
   const progressLoadedRef = useRef<boolean>(Boolean((comic?.initialPage && comic.initialPage > 0) || (comic?.currentPage && comic.currentPage > 0)));
-  const [totalPages, setTotalPages] = useState<number>(1);
-  const [_loadingPages, setLoadingPages] = useState(true);
+  const [totalPages, setTotalPages] = useState<number>(() => {
+    if (comic?.totalPages && comic.totalPages > 0) return comic.totalPages;
+    if (comic?.pages && comic.pages > 0) return comic.pages;
+    return 1;
+  });
+  const [_loadingPages, setLoadingPages] = useState<boolean>(() => !(comic?.totalPages && comic.totalPages > 0));
+  const hasCompletedReadingRef = useRef<boolean>(false);
   const [backendError, setBackendError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
 
@@ -647,11 +652,20 @@ export default function Reader({ comic, currentProfile: propProfile, user, onClo
   // Immediately load any cached offline page URLs from IndexedDB for instant display
   useEffect(() => {
     if (!comic?.id) return;
-    getCachedComicPageUrls(comic.id).then((cachedMap) => {
-      if (cachedMap && Object.keys(cachedMap).length > 0) {
-        setOfflinePageUrls((prev) => ({ ...prev, ...cachedMap }));
-      }
-    }).catch(() => {});
+    let isCancelled = false;
+    const loadCachedPages = () => {
+      getCachedComicPageUrls(comic.id).then((cachedMap) => {
+        if (!isCancelled && cachedMap && Object.keys(cachedMap).length > 0) {
+          setOfflinePageUrls((prev) => ({ ...prev, ...cachedMap }));
+        }
+      }).catch(() => {});
+    };
+    loadCachedPages();
+    window.addEventListener('comix_offline_updated', loadCachedPages);
+    return () => {
+      isCancelled = true;
+      window.removeEventListener('comix_offline_updated', loadCachedPages);
+    };
   }, [comic?.id]);
 
   // Automatically download and cache comic on device when opened for reading
@@ -798,20 +812,13 @@ export default function Reader({ comic, currentProfile: propProfile, user, onClo
     if (lastZoomRef.current && currentPage >= 1) {
       persistProgress(currentPage, lastZoomRef.current);
     }
-    if (comic?.id && totalPages > 0 && currentPage >= totalPages) {
+    // Only delete from offline storage if all pages have actually been completed
+    if (comic?.id && totalPages > 1 && (hasCompletedReadingRef.current || currentPage >= totalPages)) {
+      persistProgress(totalPages);
       deleteOfflineComic(comic.id).catch(() => {});
     }
     onClose();
   }, [comic?.id, totalPages, currentPage, onClose, persistProgress]);
-
-  // Clean up any remaining offline blob URLs on unmount if comic was completed
-  useEffect(() => {
-    return () => {
-      if (comic?.id && totalPages > 0 && currentPage >= totalPages) {
-        deleteOfflineComic(comic.id).catch(() => {});
-      }
-    };
-  }, [comic?.id, totalPages, currentPage]);
 
   // Reading direction & subpage aware navigation
   const navigateForward = useCallback(() => {
@@ -820,7 +827,10 @@ export default function Reader({ comic, currentProfile: propProfile, user, onClo
         ? currentPage >= totalPages || doublePages.includes(totalPages)
         : currentPage >= totalPages && (!splitSpreads || !widePages[currentPage]?.isWide || subPage === 1);
 
-    if (isAtEnd && totalPages > 0) {
+    if (isAtEnd && totalPages > 1) {
+      hasCompletedReadingRef.current = true;
+      persistProgress(totalPages);
+      deleteOfflineComic(comic?.id).catch(() => {});
       setCompletedOfflineNotice(true);
       setTimeout(() => setCompletedOfflineNotice(false), 3500);
       resetControlsTimeout();
@@ -2503,7 +2513,7 @@ export default function Reader({ comic, currentProfile: propProfile, user, onClo
             alt={`Page ${slide.page} (${slide.subPage + 1}/2)`}
             loading="eager"
             decoding="async"
-            crossOrigin="anonymous"
+            crossOrigin={pageImageUrl(slide.page).startsWith('blob:') ? undefined : 'anonymous'}
             onLoadStart={isCenter ? handleImageLoadStart : undefined}
             onLoad={(e) => handleImageLoad(e, slide.page!)}
             onError={() => handleImageError(slide.page!)}
@@ -2536,7 +2546,7 @@ export default function Reader({ comic, currentProfile: propProfile, user, onClo
           alt={`Page ${slide.page}`}
           loading="eager"
           decoding="async"
-          crossOrigin="anonymous"
+          crossOrigin={pageImageUrl(slide.page).startsWith('blob:') ? undefined : 'anonymous'}
           onLoadStart={isCenter ? handleImageLoadStart : undefined}
           onLoad={(e) => handleImageLoad(e, slide.page!)}
           onError={() => handleImageError(slide.page!)}
@@ -2951,7 +2961,7 @@ export default function Reader({ comic, currentProfile: propProfile, user, onClo
                   alt={`Page ${currentPage} (${subPage + 1}/2)`}
                   loading="eager"
                   decoding="async"
-                  crossOrigin="anonymous"
+                  crossOrigin={pageImageUrl(currentPage).startsWith('blob:') ? undefined : 'anonymous'}
                   onLoad={(e) => {
                     handleImageLoad(e, currentPage);
                     setTimeout(initMobilePortraitZoom, 40);
@@ -2994,7 +3004,7 @@ export default function Reader({ comic, currentProfile: propProfile, user, onClo
                   alt={`Page ${currentPage}`}
                   loading="eager"
                   decoding="async"
-                  crossOrigin="anonymous"
+                  crossOrigin={pageImageUrl(currentPage).startsWith('blob:') ? undefined : 'anonymous'}
                   onLoad={(e) => {
                     handleImageLoad(e, currentPage);
                     setTimeout(initMobilePortraitZoom, 40);

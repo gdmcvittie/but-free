@@ -186,6 +186,11 @@ export async function saveComicPageBlob(
 ): Promise<void> {
   const db = await getOfflineDB();
   const key = `${comicId}_${pageNum}`;
+  if (!pageObjectUrls.has(key)) {
+    try {
+      pageObjectUrls.set(key, URL.createObjectURL(blob));
+    } catch {}
+  }
   return new Promise((resolve, reject) => {
     const tx = db.transaction('pages', 'readwrite');
     const store = tx.objectStore('pages');
@@ -382,8 +387,17 @@ export function autoDownloadComicForOffline(
 
   (async () => {
     try {
-      // 0. Resolve true totalPages if missing or 0
-      let resolvedTotalPages = totalPages && totalPages > 0 ? totalPages : 0;
+      // 0. Resolve true totalPages if missing, 0, or placeholder 1
+      let resolvedTotalPages = totalPages && totalPages > 1 ? totalPages : 0;
+      if (resolvedTotalPages <= 0) {
+        const existingRec = await getOfflineComic(comicId);
+        if (existingRec && existingRec.totalPages > 0) {
+          resolvedTotalPages = existingRec.totalPages;
+        }
+      }
+      if (resolvedTotalPages <= 0 && comic.totalPages && comic.totalPages > 0) {
+        resolvedTotalPages = comic.totalPages;
+      }
       if (resolvedTotalPages <= 0) {
         try {
           const pagesRes = await fetch(apiUrl(`/api/comics/${comicId}/pages`));
@@ -395,17 +409,14 @@ export function autoDownloadComicForOffline(
           }
         } catch {}
       }
-      if (resolvedTotalPages <= 0) {
-        const existingRec = await getOfflineComic(comicId);
-        if (existingRec && existingRec.totalPages > 0) {
-          resolvedTotalPages = existingRec.totalPages;
-        } else {
-          resolvedTotalPages = 30; // fallback
-        }
-      }
+
       // 1. Load existing offline record or create initial
       let record = await getOfflineComic(comicId);
       if (!record) {
+        if (resolvedTotalPages <= 0) {
+          // If total pages cannot be resolved yet, wait for valid page info
+          return;
+        }
         record = {
           id: comicId,
           title: comic.title || `Comic #${comicId}`,
@@ -423,9 +434,11 @@ export function autoDownloadComicForOffline(
         await saveOfflineComicMetadata(record);
       }
 
-      // If already fully downloaded and complete, notify and exit
-      if (record.isComplete && record.downloadedPages >= resolvedTotalPages) {
-        if (onProgress) onProgress(resolvedTotalPages, resolvedTotalPages, true);
+      const targetTotal = resolvedTotalPages > 0 ? resolvedTotalPages : record.totalPages;
+
+      // If already fully downloaded and complete, notify and exit immediately (never re-download!)
+      if (record.isComplete && record.downloadedPages >= targetTotal && targetTotal > 0) {
+        if (onProgress) onProgress(targetTotal, targetTotal, true);
         return;
       }
 
@@ -445,7 +458,7 @@ export function autoDownloadComicForOffline(
       const missingPages: number[] = [];
       let downloadedCount = 0;
 
-      for (let p = 1; p <= resolvedTotalPages; p++) {
+      for (let p = 1; p <= targetTotal; p++) {
         if (isAborted) return;
         const exists = await isPageCachedOffline(comicId, p);
         if (exists) {
@@ -455,13 +468,14 @@ export function autoDownloadComicForOffline(
         }
       }
 
-      if (onProgress) onProgress(downloadedCount, resolvedTotalPages, missingPages.length === 0);
+      if (onProgress) onProgress(downloadedCount, targetTotal, missingPages.length === 0);
 
-      if (missingPages.length === 0) {
-        record.downloadedPages = resolvedTotalPages;
+      if (missingPages.length === 0 && targetTotal > 0) {
+        record.downloadedPages = targetTotal;
+        record.totalPages = targetTotal;
         record.isComplete = true;
         await saveOfflineComicMetadata(record);
-        if (onProgress) onProgress(resolvedTotalPages, resolvedTotalPages, true);
+        if (onProgress) onProgress(targetTotal, targetTotal, true);
         window.dispatchEvent(new CustomEvent('comix_offline_updated', { detail: { comicId, isComplete: true } }));
         return;
       }
@@ -483,7 +497,7 @@ export function autoDownloadComicForOffline(
               await saveOfflineComicMetadata(record);
 
               if (onProgress) {
-                onProgress(downloadedCount, resolvedTotalPages, record.isComplete);
+                onProgress(downloadedCount, targetTotal, record.isComplete);
               }
             }
           }
@@ -495,10 +509,10 @@ export function autoDownloadComicForOffline(
       }
 
       if (!isAborted) {
-        record.isComplete = downloadedCount >= resolvedTotalPages;
+        record.isComplete = downloadedCount >= targetTotal && targetTotal > 0;
         record.downloadedPages = downloadedCount;
         await saveOfflineComicMetadata(record);
-        if (onProgress) onProgress(downloadedCount, resolvedTotalPages, record.isComplete);
+        if (onProgress) onProgress(downloadedCount, targetTotal, record.isComplete);
         window.dispatchEvent(new CustomEvent('comix_offline_updated', { detail: { comicId, isComplete: record.isComplete } }));
       }
     } catch (err) {

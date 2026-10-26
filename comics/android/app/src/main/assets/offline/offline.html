@@ -791,7 +791,7 @@
 
     if (items.length === 0) {
       var curOrigin = window.location.origin || (window.location.protocol + '//' + window.location.host);
-      var isCloudOrigin = curOrigin.indexOf('liftedpixel.ca') !== -1;
+      var isCloudOrigin = curOrigin.indexOf('liftedpixel.ca') !== -1 || curOrigin.indexOf('butfree.online') !== -1;
       var otherOriginBtn = '';
       if (isCloudOrigin) {
         otherOriginBtn = '<button id="btnSwitchOrigin" style="margin-top:16px;padding:10px 18px;background:#374151;color:#fff;border:none;border-radius:8px;font-weight:600;font-size:14px;cursor:pointer;">Check Local Server Storage</button>';
@@ -817,7 +817,7 @@
             var target = (savedIp ? 'http://' + savedIp + ':42069' : 'http://127.0.0.1:42069') + '/offline.html';
             window.location.href = target;
           } else {
-            window.location.href = 'https://comix.liftedpixel.ca/offline.html';
+            window.location.href = 'https://comics.butfree.online/offline.html';
           }
         });
       }
@@ -976,7 +976,7 @@
       var isAtEnd = readerState.index >= readerState.pages.length - 1;
       var total = readerState.comic.totalPages || readerState.pages.length;
       var pageNum = readerState.pages[readerState.index] || 0;
-      if (readerState.hasAutoDeleted || (isAtEnd && pageNum >= total)) {
+      if (readerState.hasAutoDeleted || (isAtEnd && total > 1 && pageNum >= total)) {
         deleteComicFromOffline(db, readerState.comic.id);
       }
     }

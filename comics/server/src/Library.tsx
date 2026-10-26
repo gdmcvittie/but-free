@@ -479,7 +479,38 @@ export default function Library({
         setReadingProgress(data || {});
       }
     } catch (e) {
-      console.warn('Failed to load reading progress:', e);
+      console.warn('Failed to load reading progress from server, loading from localStorage:', e);
+      if (typeof window !== 'undefined') {
+        const localProg: Record<string, any> = {};
+        const prefix = `comix_prog_${currentProfile.id}_`;
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith(prefix)) {
+            const comicId = key.substring(prefix.length);
+            try {
+              const val = localStorage.getItem(key);
+              if (val) {
+                if (val.trim().startsWith('{')) {
+                  const parsed = JSON.parse(val);
+                  localProg[comicId] = {
+                    currentPage: parseInt(parsed.currentPage || parsed.page, 10) || 1,
+                    totalPages: parsed.totalPages || 0,
+                    lastRead: parsed.timestamp ? new Date(parsed.timestamp).toISOString() : new Date().toISOString()
+                  };
+                } else {
+                  localProg[comicId] = {
+                    currentPage: parseInt(val, 10) || 1,
+                    lastRead: new Date().toISOString()
+                  };
+                }
+              }
+            } catch {}
+          }
+        }
+        if (Object.keys(localProg).length > 0) {
+          setReadingProgress((prev) => ({ ...localProg, ...prev }));
+        }
+      }
     }
   }, [currentProfile?.id]);
 
@@ -492,13 +523,15 @@ export default function Library({
   useEffect(() => {
     if (offlineComicIds.size === 0) return;
     Object.entries(readingProgress).forEach(([comicId, prog]) => {
-      if (prog && prog.totalPages && prog.currentPage >= prog.totalPages) {
+      const comic = comics.find((c) => String(c.id) === comicId);
+      const total = (comic && comic.totalPages > 1) ? comic.totalPages : (prog.totalPages && prog.totalPages > 1 ? prog.totalPages : 0);
+      if (prog && total > 1 && prog.currentPage >= total) {
         if (offlineComicIds.has(comicId)) {
           deleteOfflineComic(comicId);
         }
       }
     });
-  }, [readingProgress, offlineComicIds]);
+  }, [readingProgress, offlineComicIds, comics]);
 
   // Load comics from backend with stale-while-revalidate and offline caching
   const fetchComics = useCallback(async () => {
@@ -718,8 +751,10 @@ export default function Library({
       .filter((comic) => {
         const prog = readingProgress[String(comic.id)];
         if (!prog || prog.currentPage <= 0) return false;
-        const totalPages = prog.totalPages || comic.totalPages;
-        if (totalPages && totalPages > 0) {
+        const totalPages = (comic.totalPages && comic.totalPages > 1)
+          ? comic.totalPages
+          : (prog.totalPages && prog.totalPages > 1 ? prog.totalPages : 0);
+        if (totalPages > 1) {
           const isCompleted = prog.currentPage >= totalPages || Math.round((prog.currentPage / totalPages) * 100) >= 100;
           if (isCompleted) return false;
         }
@@ -965,10 +1000,12 @@ export default function Library({
         } catch {}
       }
 
+      const resolvedTotal = comic.totalPages || prog?.totalPages || 0;
       onOpenComic({
         ...comic,
         initialPage: resumePage,
         currentPage: resumePage,
+        totalPages: resolvedTotal,
         initialZoomNormX: zoomX,
         initialZoomNormY: zoomY
       });
