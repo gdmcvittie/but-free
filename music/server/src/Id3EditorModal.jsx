@@ -99,6 +99,9 @@ export default function Id3EditorModal({ isOpen, itemId, onClose, onSaved, notif
       });
       setCoverOptions(res.options || []);
       setShowCoverPicker(true);
+      if (!res.options?.length) {
+        notify?.('No covers found', (res.sourceErrors || []).join('; ') || `Nothing matched "${res.query}".`, true);
+      }
     } catch (err) {
       notify?.('Cover search failed', err.message, true);
     } finally {
@@ -298,14 +301,14 @@ export default function Id3EditorModal({ isOpen, itemId, onClose, onSaved, notif
               </div>
 
               {showCoverPicker && (
-                <div style={{ border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                <div style={{ border: '1px solid var(--border-color)', borderRadius: 'var(--radius-md)', overflow: 'hidden', flexShrink: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.6rem 0.8rem', background: 'var(--panel-bg)' }}>
                     <span style={{ fontSize: '0.88rem', fontWeight: 600 }}>Search results</span>
                     <button type="button" className="btn btn-ghost btn-xs" onClick={() => setShowCoverPicker(false)}>
                       <X size={12} />
                     </button>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '0.8rem', padding: '0.8rem' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '0.8rem', padding: '0.8rem', maxHeight: 360, overflowY: 'auto' }}>
                     {coverOptions.length === 0 ? (
                       <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: 'var(--text-muted)', padding: '1rem' }}>
                         No covers found. Try a different search.

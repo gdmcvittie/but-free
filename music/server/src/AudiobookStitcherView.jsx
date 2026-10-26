@@ -448,7 +448,7 @@ export default function AudiobookStitcherView({
       setCoverSearchResults(res.options || []);
       setCoverSearchOpen(true);
       if ((res.options || []).length === 0) {
-        notify?.('No covers found', 'Try filling in the title and author first.');
+        notify?.('No covers found', (res.sourceErrors || []).join('; ') || `Nothing matched "${res.query}".`, true);
       }
     } catch (err) {
       notify?.('Cover search failed', err.message, true);
@@ -1384,7 +1384,7 @@ export default function AudiobookStitcherView({
                       <X size={12} />
                     </button>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.7rem', padding: '0.7rem' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.7rem', padding: '0.7rem', maxHeight: 360, overflowY: 'auto' }}>
                     {coverSearchResults.length === 0 ? (
                       <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: 'var(--text-muted)', padding: '0.8rem' }}>
                         No results

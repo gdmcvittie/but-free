@@ -27,6 +27,27 @@ function ensureTempDir() {
   return TMP_DIR;
 }
 
+/**
+ * A save killed mid-way (process restart, host memory limit, full disk) never
+ * reaches its cleanup, and each leftover holds a full copy of the audio file.
+ * Remove any work folder older than the longest plausible save.
+ */
+function purgeStaleWorkDirs() {
+  const cutoff = Date.now() - 15 * 60 * 1000;
+  try {
+    for (const name of fs.readdirSync(TMP_DIR)) {
+      const dir = path.join(TMP_DIR, name);
+      try {
+        if (fs.statSync(dir).mtimeMs < cutoff) fs.rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
+    }
+  } catch {
+    /* temp dir may not exist yet */
+  }
+}
+
 function cleanupWorkDir(dir) {
   try {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -134,8 +155,18 @@ export async function searchCovers({ q, title, artist, album, kind, itemId }, us
 
   if (itemId && user) {
     const item = db.getItem(user.id, itemId);
-    if (item) subject = subjectFromItem(item);
+    if (item) {
+      const stored = subjectFromItem(item);
+      subject = {
+        title: title !== undefined ? subject.title : stored.title,
+        artist: artist !== undefined ? subject.artist : stored.artist,
+        album: album !== undefined ? subject.album : stored.album,
+        kind: kind ? subject.kind : stored.kind
+      };
+    }
   }
+
+  subject = { ...subject, title: cleanSearchTitle(subject.title), album: cleanSearchTitle(subject.album) };
 
   const query = text(q, 300).trim() || buildQuery(subject);
   if (!query) throw new Error('Add a title or artist before searching for cover art.');
@@ -182,7 +213,7 @@ export async function searchCovers({ q, title, artist, album, kind, itemId }, us
     throw new Error(`Cover search is unavailable (${errors[0]}).`);
   }
 
-  return { query, options, kind: subject.kind };
+  return { query, options, kind: subject.kind, sourceErrors: errors };
 }
 
 async function openLibrarySearch(subject, query) {
@@ -208,6 +239,19 @@ async function openLibrarySearch(subject, query) {
       artworkUrl: `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`,
       thumbnailUrl: `https://covers.openlibrary.org/b/id/${doc.cover_i}-M.jpg`
     }));
+}
+
+/**
+ * Library titles carry series and edition markers ("(bk1) The Great and Secret
+ * Show", "Dune [Unabridged]") that search providers treat as literal words and
+ * match nothing. Strip them before searching.
+ */
+function cleanSearchTitle(value = '') {
+  return String(value)
+    .replace(/\([^)]*\)|\[[^\]]*\]/g, ' ')
+    .replace(/\b(bk|book)\s*\d+\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function buildQuery({ title, artist, album, kind }) {
@@ -345,6 +389,7 @@ export async function saveItemTags(user, itemId, payload = {}) {
   const ext = (extensionOf(fileName) || 'mp3').toLowerCase();
 
   ensureTempDir();
+  purgeStaleWorkDirs();
   const workDir = fs.mkdtempSync(path.join(TMP_DIR, 'edit-'));
   const inputPath = path.join(workDir, `input.${ext}`);
   const outputPath = path.join(workDir, `output.${ext}`);
@@ -401,6 +446,7 @@ export async function saveItemTags(user, itemId, payload = {}) {
     args.push(outputPath);
 
     await runProcess(ffmpeg, args);
+    fs.rmSync(inputPath, { force: true });
 
     if (!fs.existsSync(outputPath) || fs.statSync(outputPath).size === 0) {
       throw new Error('FFmpeg produced an empty audio file.');
