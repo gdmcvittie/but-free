@@ -107,7 +107,7 @@ export default function Sidebar({
                 <div className="sidebar-user-name">{user.name}</div>
                 <div className="sidebar-user-folder">
                   <Folder size={13} style={{ flexShrink: 0 }} />
-                  {user.driveFolderName || 'Select folder...'}
+                   {user.driveFolderName || 'Select folder...'}
                 </div>
               </div>
             </div>
