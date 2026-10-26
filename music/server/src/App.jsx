@@ -329,15 +329,23 @@ const handleFolderSelected = useCallback((folderKind, folderId, folderName) => {
   // Scan progress arrives on its own event; clear it once the scan POST returns.
   // Pass an explicit kind for background passes (launch/folder connect); the
   // Library button uses the current section.
-  const runScan = useCallback(async (scanKind = kind) => {
-    setScanState({ processed: 0, total: 0, current: 'Starting…' });
+  const runScan = useCallback(async (scanKind = kind, options = {}) => {
+    const isForceCovers = Boolean(options?.forceCovers);
+    setScanState({
+      processed: 0,
+      total: 0,
+      current: isForceCovers ? 'Updating cover art…' : 'Starting…'
+    });
     try {
-      const result = await api.scanLibrary(scanKind);
-      notify('Library scanned', `${result.count} item${result.count === 1 ? '' : 's'} indexed.`);
+      const result = await api.scanLibrary(scanKind, options);
+      notify(
+        isForceCovers ? 'Cover art updated' : 'Library scanned',
+        `${result.count} item${result.count === 1 ? '' : 's'} indexed.`
+      );
       bumpLibrary();
       return result;
     } catch (err) {
-      notify('Scan failed', err.message, true);
+      notify(isForceCovers ? 'Cover update failed' : 'Scan failed', err.message, true);
       return null;
     } finally {
       setScanState(null);

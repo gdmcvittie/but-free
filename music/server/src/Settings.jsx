@@ -138,6 +138,22 @@ export default function Settings({ user, libraryVersion, onOpenDrivePicker, onLo
     }
   };
 
+  const [forceCoversBusy, setForceCoversBusy] = useState(false);
+
+  const handleForceUpdateCovers = async () => {
+    if (forceCoversBusy) return;
+    setForceCoversBusy(true);
+    notify('Updating cover art', 'Scanning library and re-extracting audio artwork…');
+    try {
+      const res = await api.scanLibrary(user?.musicFolderId ? 'music' : 'audiobooks', { forceCovers: true });
+      notify('Cover art updated', `${res.count} items re-indexed with fresh covers.`);
+    } catch (err) {
+      notify('Cover update failed', err.message, true);
+    } finally {
+      setForceCoversBusy(false);
+    }
+  };
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -459,6 +475,24 @@ export default function Settings({ user, libraryVersion, onOpenDrivePicker, onLo
             <option value={30}>30 days</option>
             <option value={90}>90 days</option>
           </select>
+        </div>
+
+        <div className="setting-row">
+          <div>
+            <div className="setting-label">Force update cover art</div>
+            <div className="setting-help">
+              Re-extract embedded ID3/audio artwork and replace any mismatched or missing cover art across your library.
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={handleForceUpdateCovers}
+            disabled={forceCoversBusy}
+          >
+            <RefreshCw size={14} className={forceCoversBusy ? 'spin' : ''} />
+            {forceCoversBusy ? 'Updating…' : 'Update Covers Now'}
+          </button>
         </div>
 
         <div className="setting-row">

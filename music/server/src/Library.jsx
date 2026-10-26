@@ -21,7 +21,9 @@ import {
   X,
   ListMusic,
   Layers,
-  Pencil
+  Pencil,
+  ChevronDown,
+  Image
 } from 'lucide-react';
 import { api } from './api';
 import MediaCard from './MediaCard';
@@ -230,6 +232,19 @@ export default function Library({
   const [busyIds, setBusyIds] = useState(() => new Set());
   const [playlists, setPlaylists] = useState([]);
   const [selectedGenre, setSelectedGenre] = useState('');
+  const [scanMenuOpen, setScanMenuOpen] = useState(false);
+  const scanMenuRef = useRef(null);
+
+  useEffect(() => {
+    if (!scanMenuOpen) return;
+    const handleClickOutside = (e) => {
+      if (scanMenuRef.current && !scanMenuRef.current.contains(e.target)) {
+        setScanMenuOpen(false);
+      }
+    };
+    window.addEventListener('pointerdown', handleClickOutside);
+    return () => window.removeEventListener('pointerdown', handleClickOutside);
+  }, [scanMenuOpen]);
 
   useEffect(() => {
     setDisplayLimit(80);
@@ -901,10 +916,60 @@ export default function Library({
         </div>
 
         {!favoritesOnly && (
-          <button type="button" className="btn btn-secondary" onClick={() => onScan()} disabled={Boolean(scanState)}>
-            <RefreshCw size={15} className={scanState ? 'spin' : ''} />
-            {scanState ? 'Scanning…' : 'Rescan Drive'}
-          </button>
+          <div className="scan-actions-group" ref={scanMenuRef}>
+            <button
+              type="button"
+              className="btn btn-secondary scan-main-btn"
+              onClick={() => onScan()}
+              disabled={Boolean(scanState)}
+              title="Rescan Drive for new and modified files"
+            >
+              <RefreshCw size={15} className={scanState ? 'spin' : ''} />
+              {scanState ? (scanState.current || 'Scanning…') : 'Rescan Drive'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary scan-chevron-btn"
+              onClick={() => setScanMenuOpen((o) => !o)}
+              disabled={Boolean(scanState)}
+              title="Scan options"
+              aria-label="Scan options"
+            >
+              <ChevronDown size={14} />
+            </button>
+            {scanMenuOpen && (
+              <div className="scan-dropdown-menu">
+                <button
+                  type="button"
+                  className="scan-dropdown-item"
+                  onClick={() => {
+                    setScanMenuOpen(false);
+                    onScan();
+                  }}
+                >
+                  <RefreshCw size={15} />
+                  <div>
+                    <div className="scan-dropdown-title">Rescan Drive</div>
+                    <div className="scan-dropdown-desc">Quickly index newly added or modified tracks</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  className="scan-dropdown-item"
+                  onClick={() => {
+                    setScanMenuOpen(false);
+                    onScan(kind, { forceCovers: true });
+                  }}
+                >
+                  <Image size={15} />
+                  <div>
+                    <div className="scan-dropdown-title">Force Update Cover Art</div>
+                    <div className="scan-dropdown-desc">Re-extract embedded artwork & replace mismatched covers</div>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
         )}
 
         {!favoritesOnly && (

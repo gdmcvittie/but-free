@@ -96,7 +96,7 @@ export const api = {
   // Same payload as libraryGroups, but revalidated against a stored ETag.
   libraryGroupsIfChanged: (kind, etag, options) =>
     conditionalGet(`/api/library/groups?kind=${encodeURIComponent(kind)}`, etag, options),
-  scanLibrary: (kind) => post('/api/library/scan', { kind }),
+  scanLibrary: (kind, options = {}) => post('/api/library/scan', { kind, ...options }),
 
   // ---- items ---------------------------------------------------------
   coverUrl: (itemId) => apiUrl(`/api/items/${encodeURIComponent(itemId)}/cover`),

@@ -260,7 +260,7 @@ app.get('/api/library', (req, res) => {
 
   const decorated = items.map((item) => ({
     ...item,
-    coverUrl: `/api/items/${item.id}/cover`,
+    coverUrl: `/api/items/${item.id}/cover${item.coverUpdatedAt ? `?v=${item.coverUpdatedAt}` : ''}`,
     offline: Boolean(localFileFor(item.id)),
     progress: progress[item.id] || null,
     favorite: favorites.has(item.id)
@@ -286,7 +286,8 @@ const activeScans = new Map();
 
 app.post('/api/library/scan', async (req, res) => {
   const kind = req.body?.kind === 'music' ? 'music' : 'audiobooks';
-  const scanKey = `${req.user?.id || 'anon'}:${kind}`;
+  const forceCovers = Boolean(req.body?.forceCovers);
+  const scanKey = `${req.user?.id || 'anon'}:${kind}${forceCovers ? ':forceCovers' : ''}`;
   if (activeScans.has(scanKey)) {
     try {
       const existing = await activeScans.get(scanKey);
@@ -301,7 +302,8 @@ app.post('/api/library/scan', async (req, res) => {
   try {
 const result = await googleDrive.syncLibrary(req.user, kind, {
         protectFileIds: req.body?.protectFileIds || [],
-        onProgress: (p) => broadcast('library_scan', { userId: req.user.id, kind, ...p })
+        forceCovers,
+        onProgress: (p) => broadcast('library_scan', { userId: req.user.id, kind, forceCovers, ...p })
       });
       // Newly discovered files are exactly what smart-playlist rules want to
       // see; the engine is music-only and idempotent so this is cheap.
@@ -392,7 +394,7 @@ app.get('/api/library/groups', (req, res) => {
     genre: (!item.genre && kind === 'music')
       ? (inferGenreFromText([item.album, item.artist, item.albumArtist, item.drivePath, item.title].filter(Boolean).join(' ')) || '')
       : (item.genre || ''),
-    coverUrl: `/api/items/${item.id}/cover`,
+    coverUrl: `/api/items/${item.id}/cover${item.coverUpdatedAt ? `?v=${item.coverUpdatedAt}` : ''}`,
     offline: Boolean(localFileFor(item.id)),
     favorite: favorites.has(item.id),
     progressSec: progress[item.id]?.positionSec || 0,
@@ -754,7 +756,8 @@ app.get('/api/items/:id/cover', async (req, res) => {
 
   try {
     const built = await googleDrive.buildCover(req.user, item.googleFileId, {
-      hintCoverUrl: item.coverImage || null
+      hintCoverUrl: item.coverImage || null,
+      force: req.query.force === 'true' || req.query.force === '1'
     });
     if (!built?.file || !fs.existsSync(built.file)) {
       throw new Error('Cover build produced no file.');

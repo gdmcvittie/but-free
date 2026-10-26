@@ -229,7 +229,7 @@ export const googleDrive = {
           const image = localImages.get(stripExtension(entry.name).toLowerCase());
           audioFiles.push({
             ...entry,
-            coverImage: image?.thumbnailLink || entry.thumbnailLink || null,
+            coverImage: image?.thumbnailLink || null,
             folderSegments: [...segments]
           });
         }
@@ -302,7 +302,7 @@ export const googleDrive = {
    * Rebuilds the database view of one Drive folder.
    * @param {'audiobooks'|'music'} kind
    */
-  async syncLibrary(user, kind = 'audiobooks', { protectFileIds = [], onProgress } = {}) {
+  async syncLibrary(user, kind = 'audiobooks', { protectFileIds = [], forceCovers = false, onProgress } = {}) {
     const folderId = kind === 'music' ? user.musicFolderId : user.audiobooksFolderId;
     if (!folderId) {
       throw new Error(
@@ -312,7 +312,30 @@ export const googleDrive = {
       );
     }
 
-    onProgress?.({ stage: 'listing', message: 'Scanning Google Drive…', processed: 0, total: 0 });
+    if (forceCovers) {
+      activeCoverBuilds.clear();
+      activeBufferReads.clear();
+      try {
+        if (fs.existsSync(COVERS_DIR)) {
+          const entries = fs.readdirSync(COVERS_DIR);
+          for (const ent of entries) {
+            // Keep local custom id3 editor uploads
+            if (!ent.startsWith('id3_')) {
+              try { fs.rmSync(path.join(COVERS_DIR, ent), { force: true }); } catch {}
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[Cover] Could not purge covers cache:', err.message);
+      }
+    }
+
+    onProgress?.({
+      stage: 'listing',
+      message: forceCovers ? 'Scanning Drive & updating covers…' : 'Scanning Google Drive…',
+      processed: 0,
+      total: 0
+    });
 
     const files = await this.listLibraryFiles(user, folderId, {
       onProgress: (p) => onProgress?.({ stage: 'listing', message: p.folder ? `Scanning ${p.folder}…` : 'Scanning Google Drive…', ...p })
@@ -333,6 +356,7 @@ export const googleDrive = {
       const existing = existingByFileId.get(file.id);
       const fileSizeBytes = Number(file.size) || 0;
       const isUnchanged = Boolean(
+        !forceCovers &&
         existing &&
         existing.title &&
         existing.modifiedTime === file.modifiedTime &&
@@ -347,7 +371,7 @@ export const googleDrive = {
           title,
           driveFolderId: folderId,
           drivePath: [...file.folderSegments, file.name].join('/'),
-          coverImage: existing.coverImage || file.coverImage || file.thumbnailLink || null,
+          coverImage: existing.coverImage || file.coverImage || null,
           sizeBytes: fileSizeBytes || existing.sizeBytes || 0,
           modifiedTime: file.modifiedTime || existing.modifiedTime
         };
@@ -365,10 +389,12 @@ export const googleDrive = {
       processed: processedCount,
       current: processedCount,
       total: totalFiles,
-      name: filesToRead.length > 0 ? `Reading metadata (${filesToRead.length} new/changed)…` : 'Up to date'
+      name: filesToRead.length > 0
+        ? `${forceCovers ? 'Re-evaluating covers & metadata' : 'Reading metadata'} (${filesToRead.length} ${forceCovers ? 'tracks' : 'new/changed'})…`
+        : 'Up to date'
     });
 
-    // Read tags only for new or modified files, with controlled concurrency (5 at a time)
+    // Read tags with controlled concurrency (5 at a time)
     const CONCURRENCY = 5;
     for (let i = 0; i < filesToRead.length; i += CONCURRENCY) {
       const chunk = filesToRead.slice(i, i + CONCURRENCY);
@@ -381,12 +407,21 @@ export const googleDrive = {
             console.warn(`[Drive] Could not read tags for ${file.name}:`, err.message);
           }
 
+          // If forceCovers is active, discard old remote URLs to let true embedded covers or fresh siblings win
+          let initialCover = file.coverImage || null;
+          if (!forceCovers && existing?.coverImage) {
+            initialCover = existing.coverImage;
+          } else if (forceCovers && existing?.coverImage && !/^https?:\/\//i.test(existing.coverImage) && fs.existsSync(existing.coverImage)) {
+            // Preserve manual ID3 editor cover file stored locally
+            initialCover = existing.coverImage;
+          }
+
           const base = {
             googleFileId: file.id,
             driveFolderId: folderId,
             sizeBytes: Number(file.size) || 0,
             modifiedTime: file.modifiedTime,
-            coverImage: existing?.coverImage || file.coverImage || file.thumbnailLink || null,
+            coverImage: initialCover,
             fileName: file.name
           };
 
@@ -402,7 +437,17 @@ export const googleDrive = {
             if (existing.genre && (!record.genre || record.genre === 'Audiobook')) record.genre = existing.genre;
             if (existing.author && (!record.author || record.author === 'Unknown Author')) record.author = existing.author;
             if (existing.subtitle && !record.subtitle) record.subtitle = existing.subtitle;
-            if (existing.coverImage) record.coverImage = existing.coverImage;
+            if (!forceCovers && existing.coverImage) {
+              record.coverImage = existing.coverImage;
+            } else if (forceCovers && existing.coverImage && !/^https?:\/\//i.test(existing.coverImage) && fs.existsSync(existing.coverImage)) {
+              record.coverImage = existing.coverImage;
+            } else if (forceCovers) {
+              record.coverImage = initialCover;
+            }
+          }
+
+          if (forceCovers) {
+            record.coverUpdatedAt = Date.now();
           }
 
           incoming.push(record);
@@ -495,11 +540,11 @@ export const googleDrive = {
   // ------------------------------------------------------------------
   // Covers
   // ------------------------------------------------------------------
-  async buildCover(user, googleFileId, { width = 600, hintCoverUrl = null } = {}) {
+  async buildCover(user, googleFileId, { width = 600, hintCoverUrl = null, force = false } = {}) {
     // Drive returns sibling/image covers in the order Author / Series / Book, so a
     // "Book Title.jpg" typically sits next to "Book Title.m4b" rather than beside the
     // first file of the book. Search outward from the item's own folder.
-    const cover = await this.resolveCover(user, googleFileId, width, hintCoverUrl);
+    const cover = await this.resolveCover(user, googleFileId, width, hintCoverUrl, force);
     if (cover) return cover;
 
     // Nothing in Drive at all: synthesise the same branded placeholder the API
@@ -514,30 +559,52 @@ export const googleDrive = {
   },
 
   /**
-   * Extracts the first embedded ID3 picture from an audio file using two small
-   * ranged reads (the 10-byte header, then exactly the declared tag). Most MP3s
-   - including every YouTube Music download, which yt-dlp tags with
-   * --embed-thumbnail - carry their album art here, so the library shows real
-   * covers without downloading the whole track.
+   * Extracts embedded picture data from an audio file.
+   * Handles MP3 ID3v2 tags (with exact ranged tag reads), as well as FLAC, M4A,
+   * OGG, and AAC files via header buffer parsing with music-metadata.
    */
-  async extractEmbeddedPicture(user, googleFileId, key) {
+  async extractEmbeddedPicture(user, googleFileId, key, meta = null) {
     try {
-      const head = await this.getFileBuffer(user, googleFileId, { range: 'bytes=0-9' });
-      if (head.length < 10 || head.subarray(0, 3).toString('latin1') !== 'ID3') return null;
-      const size = ((head[6] & 0x7f) << 21) | ((head[7] & 0x7f) << 14) | ((head[8] & 0x7f) << 7) | (head[9] & 0x7f);
-      if (size <= 0 || size > 16 * 1024 * 1024) return null;
+      // 1. Try ID3v2 header check for MP3 / ID3-tagged files
+      const head = await this.getFileBuffer(user, googleFileId, { range: 'bytes=0-9' }).catch(() => null);
+      if (head && head.length >= 10 && head.subarray(0, 3).toString('latin1') === 'ID3') {
+        const hasFooter = Boolean(head[5] & 0x10);
+        const size = ((head[6] & 0x7f) << 21) | ((head[7] & 0x7f) << 14) | ((head[8] & 0x7f) << 7) | (head[9] & 0x7f);
+        if (size > 0 && size <= 16 * 1024 * 1024) {
+          const totalTagBytes = 10 + size + (hasFooter ? 10 : 0);
+          const tag = await this.getFileBuffer(user, googleFileId, { range: `bytes=0-${totalTagBytes - 1}` }).catch(() => null);
+          if (tag && tag.length >= 10) {
+            const parsed = await parseBuffer(tag, { mimeType: 'audio/mpeg' }, { duration: false, skipCovers: false }).catch(() => null);
+            const pic = parsed?.common?.picture?.[0];
+            if (pic?.data?.length) {
+              const format = String(pic.format || '').toLowerCase();
+              const ext = format.includes('png') ? 'png' : format.includes('gif') ? 'gif' : format.includes('webp') ? 'webp' : 'jpg';
+              const outPath = path.join(COVERS_DIR, `${key}.${ext}`);
+              fs.mkdirSync(COVERS_DIR, { recursive: true });
+              fs.writeFileSync(outPath, pic.data);
+              return { file: outPath, cached: false };
+            }
+          }
+        }
+      }
 
-      const tag = await this.getFileBuffer(user, googleFileId, { range: `bytes=0-${9 + size}` });
-      const parsed = await parseBuffer(tag, { mimeType: 'audio/mpeg' }, { duration: false, skipCovers: false });
-      const pic = parsed.common.picture?.[0];
-      if (!pic?.data?.length) return null;
-
-      const format = String(pic.format || '').toLowerCase();
-      const ext = format.includes('png') ? 'png' : format.includes('gif') ? 'gif' : format.includes('webp') ? 'webp' : 'jpg';
-      const outPath = path.join(COVERS_DIR, `${key}.${ext}`);
-      fs.mkdirSync(COVERS_DIR, { recursive: true });
-      fs.writeFileSync(outPath, pic.data);
-      return { file: outPath, cached: false };
+      // 2. Fallback for FLAC, M4A, OGG, or files without ID3 at byte 0:
+      // Read first COVER_SCAN_BYTES (1MB) and let music-metadata parse the container/tags
+      const buf = await this.getFileBuffer(user, googleFileId, { range: `bytes=0-${COVER_SCAN_BYTES - 1}` }).catch(() => null);
+      if (buf && buf.length >= 32) {
+        const mimeType = meta?.mimeType || (meta?.name?.endsWith('.flac') ? 'audio/flac' : meta?.name?.endsWith('.m4a') ? 'audio/mp4' : undefined);
+        const parsed = await parseBuffer(buf, mimeType ? { mimeType } : undefined, { duration: false, skipCovers: false }).catch(() => null);
+        const pic = parsed?.common?.picture?.[0];
+        if (pic?.data?.length) {
+          const format = String(pic.format || '').toLowerCase();
+          const ext = format.includes('png') ? 'png' : format.includes('gif') ? 'gif' : format.includes('webp') ? 'webp' : 'jpg';
+          const outPath = path.join(COVERS_DIR, `${key}.${ext}`);
+          fs.mkdirSync(COVERS_DIR, { recursive: true });
+          fs.writeFileSync(outPath, pic.data);
+          return { file: outPath, cached: false };
+        }
+      }
+      return null;
     } catch (err) {
       console.warn(`[Cover] Embedded art extraction failed for ${googleFileId}: ${err.message}`);
       return null;
@@ -546,11 +613,11 @@ export const googleDrive = {
 
   /**
    * Resolves a cover image for one Drive file and caches it on disk.
-   * Returns null when Drive has no usable art, so the caller can fall back.
+   * Prioritizes track-specific embedded art to avoid assigning unrelated sibling images.
    */
-  async resolveCover(user, googleFileId, width, hintCoverUrl = null) {
+  async resolveCover(user, googleFileId, width, hintCoverUrl = null, force = false) {
     const buildKey = `${googleFileId}-${width}`;
-    if (activeCoverBuilds.has(buildKey)) return activeCoverBuilds.get(buildKey);
+    if (!force && activeCoverBuilds.has(buildKey)) return activeCoverBuilds.get(buildKey);
 
     const task = (async () => {
       const key = crypto.createHash('sha1').update(buildKey).digest('hex');
@@ -561,13 +628,42 @@ export const googleDrive = {
         return { file: hintCoverUrl, cached: true };
       }
 
-      const cached = ['jpg', 'png', 'gif', 'webp']
-        .map((ext) => path.join(COVERS_DIR, `${key}.${ext}`))
-        .find((file) => fs.existsSync(file) && fs.statSync(file).size > 0);
-      if (cached) return { file: cached, cached: true };
+      if (!force) {
+        const cached = ['jpg', 'png', 'gif', 'webp']
+          .map((ext) => path.join(COVERS_DIR, `${key}.${ext}`))
+          .find((file) => fs.existsSync(file) && fs.statSync(file).size > 0);
+        if (cached) return { file: cached, cached: true };
+      } else {
+        for (const ext of ['jpg', 'png', 'gif', 'webp', 'svg']) {
+          try { fs.rmSync(path.join(COVERS_DIR, `${key}.${ext}`), { force: true }); } catch {}
+        }
+      }
       const outPath = path.join(COVERS_DIR, `${key}.jpg`);
 
-      // 1. Hint cover URL (e.g. from YouTube Music, thumbnailLink, or known art)
+      // `parents` is required: findSiblingCover walks the item's folder.
+      const meta = await this.getFileMetadata(
+        user, googleFileId, 'id,name,mimeType,parents,thumbnailLink,hasThumbnail'
+      );
+      if (!meta) return null;
+
+      const isAudio = isAudioFile(meta.name) || (meta.mimeType || '').startsWith('audio');
+
+      // 1. Embedded art in the audio file itself (ID3 APIC, FLAC picture block, M4A covr).
+      // For audio tracks, embedded art is the most accurate source and prevents
+      // unrelated artist or folder images from overriding the track's real cover.
+      if (isAudio) {
+        const embedded = await this.extractEmbeddedPicture(user, googleFileId, key, meta);
+        if (embedded) return embedded;
+      }
+
+      // 2. A cover image stored beside the audio file:
+      // exact name match ("Track.jpg") or standard album cover name ("cover.jpg", "folder.jpg").
+      const sibling = await this.findSiblingCover(user, meta);
+      if (sibling) {
+        return this.cacheRemoteCover(sibling, key, outPath, user);
+      }
+
+      // 3. Hint cover URL (e.g. from YouTube Music album/song download).
       if (hintCoverUrl && (hintCoverUrl.startsWith('http://') || hintCoverUrl.startsWith('https://'))) {
         try {
           const hinted = await this.cacheRemoteCover(hintCoverUrl, key, outPath, user);
@@ -577,29 +673,12 @@ export const googleDrive = {
         }
       }
 
-      // `parents` is required: findSiblingCover walks the item's folder.
-      const meta = await this.getFileMetadata(
-        user, googleFileId, 'id,name,mimeType,parents,thumbnailLink,hasThumbnail'
-      );
-
-      // 1. A cover image stored beside the audio file, by exact name match.
-      const sibling = await this.findSiblingCover(user, meta);
-      if (sibling) {
-        return this.cacheRemoteCover(sibling, key, outPath, user);
-      }
-
-      // 2. Art embedded in the audio file itself (ID3 APIC on MP3).
-      if (isAudioFile(meta.name) && (meta.mimeType || '').startsWith('audio')) {
-        const embedded = await this.extractEmbeddedPicture(user, googleFileId, key);
-        if (embedded) return embedded;
-      }
-
-      // 3. Drive's own generated thumbnail for this file.
+      // 4. Drive's own generated thumbnail for this file.
       if (meta.thumbnailLink) {
         return this.cacheRemoteCover(meta.thumbnailLink, key, outPath, user);
       }
 
-      // 4. Walk up the folder tree looking for any cover image.
+      // 5. Walk up the folder tree looking for standard album cover art (primarily for multi-file audiobooks).
       const inherited = await this.findInheritedCover(user, meta);
       if (inherited) {
         return this.cacheRemoteCover(inherited, key, outPath, user);
@@ -609,8 +688,6 @@ export const googleDrive = {
     })();
 
     activeCoverBuilds.set(buildKey, task);
-    // Drop the memoised promise once settled, and swallow the rejection on the
-    // bookkeeping chain so a failed build never surfaces as an unhandled rejection.
     task.then(
       () => activeCoverBuilds.delete(buildKey),
       () => activeCoverBuilds.delete(buildKey)
@@ -620,12 +697,14 @@ export const googleDrive = {
 
   /**
    * Looks for cover art in the item's ancestors (Book -> Series -> Author).
-   * Multi-file books usually keep one cover at the series level.
+   * Only matches standard cover names ("cover.jpg", "folder.jpg", "album.jpg", "front.jpg")
+   * to avoid inheriting arbitrary unrelated images from parent directories.
    */
   async findInheritedCover(user, meta, maxDepth = 3) {
     let parentId = meta.parents?.[0];
     let depth = 0;
     const visited = new Set();
+    const STANDARD_COVER_NAMES = new Set(['cover', 'folder', 'album', 'front', 'artwork']);
 
     while (parentId && parentId !== 'root' && depth < maxDepth && !visited.has(parentId)) {
       visited.add(parentId);
@@ -636,7 +715,11 @@ export const googleDrive = {
       const data = await driveJson(user, url.toString()).catch(() => null);
       if (!data) return null;
 
-      const image = (data.files || []).find((f) => isImageFile(f.name) && f.thumbnailLink);
+      const image = (data.files || []).find((f) =>
+        isImageFile(f.name) &&
+        f.thumbnailLink &&
+        STANDARD_COVER_NAMES.has(stripExtension(f.name).toLowerCase())
+      );
       if (image) return image.thumbnailLink;
 
       const info = await driveJson(user, `${DRIVE_API}/files/${parentId}?fields=id,parents`)
@@ -662,7 +745,12 @@ export const googleDrive = {
     return { file: outPath, cached: false };
   },
 
-  /** Looks for "Book Title.jpg" sitting next to "Book Title.m4b" in Drive. */
+  /**
+   * Looks for a cover image sitting in the same folder as the media file:
+   * 1. Exact base match: "Song Name.jpg" next to "Song Name.mp3"
+   * 2. Standard album art: "cover.jpg", "folder.jpg", "album.jpg", "front.jpg", "artwork.jpg"
+   * Arbitrary unrelated images in the folder are strictly ignored.
+   */
   async findSiblingCover(user, meta) {
     const parentId = meta.parents?.[0];
     if (!parentId || !meta.name) return null;
@@ -672,16 +760,26 @@ export const googleDrive = {
     url.searchParams.set('q', `'${parentId}' in parents and trashed = false`);
     url.searchParams.set('fields', 'files(id,name,mimeType,thumbnailLink)');
     url.searchParams.set('pageSize', '200');
-    const data = await driveJson(user, url.toString());
+    const data = await driveJson(user, url.toString()).catch(() => null);
+    if (!data) return null;
 
-    for (const file of data.files || []) {
+    const files = data.files || [];
+    // 1. Exact base match
+    for (const file of files) {
       if (isImageFile(file.name) && stripExtension(file.name).toLowerCase() === base && file.thumbnailLink) {
         return file.thumbnailLink;
       }
     }
-    // Otherwise any image in the folder works as a fallback.
-    const anyImage = (data.files || []).find((f) => isImageFile(f.name) && f.thumbnailLink);
-    return anyImage ? anyImage.thumbnailLink : null;
+
+    // 2. Standard album art filenames
+    const STANDARD_COVER_NAMES = new Set(['cover', 'folder', 'album', 'front', 'artwork']);
+    for (const file of files) {
+      if (isImageFile(file.name) && STANDARD_COVER_NAMES.has(stripExtension(file.name).toLowerCase()) && file.thumbnailLink) {
+        return file.thumbnailLink;
+      }
+    }
+
+    return null;
   },
 
   // ------------------------------------------------------------------
