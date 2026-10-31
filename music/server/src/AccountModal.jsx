@@ -1,4 +1,5 @@
-import { FolderOpen, LogOut, User, Settings as SettingsIcon } from 'lucide-react';
+import { FolderOpen, LogOut, User, Settings as SettingsIcon, RefreshCw } from 'lucide-react';
+import { api } from './api';
 
 export default function AccountModal({ isOpen, onClose, user, onLogout, onOpenDrivePicker, onOpenSettings }) {
   if (!isOpen) return null;
@@ -55,6 +56,25 @@ export default function AccountModal({ isOpen, onClose, user, onLogout, onOpenDr
             </button>
           </div>
         </div>
+
+        <div style={{ marginTop: '1.25rem', marginBottom: '0.25rem' }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
+              onClick={async () => {
+                try {
+                  const data = await api.googleUrl();
+                  if (data.url) window.location.href = data.url;
+                } catch (e) {
+                  alert('Could not start Google sign-in: ' + e.message);
+                }
+              }}
+            >
+              <RefreshCw size={14} />
+              Reconnect Google Account
+            </button>
+          </div>
 
         <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <button type="button" className="btn btn-secondary" onClick={handleOpenSettings}>

@@ -160,6 +160,93 @@ export const GoogleAuth = {
     return newAccessToken;
   },
 
+  async checkDriveToken(user) {
+    if (!user || !user.tokens) {
+      return { valid: false, revoked: true, reason: 'No Google authentication tokens found' };
+    }
+
+    try {
+      let accessToken;
+      try {
+        accessToken = await this.getValidAccessToken(user);
+      } catch (tokenErr) {
+        const isRevoked = tokenErr.message && (
+          tokenErr.message.includes('invalid_grant') ||
+          tokenErr.message.includes('expired') ||
+          tokenErr.message.includes('revoked') ||
+          tokenErr.message.includes('tokens')
+        );
+        return { valid: false, revoked: isRevoked, reason: tokenErr.message };
+      }
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      try {
+        const testRes = await fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
+          headers: { Authorization: "Bearer " + accessToken },
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+
+        if (testRes.ok) {
+          return { valid: true, revoked: false };
+        }
+
+        if (testRes.status === 401) {
+          const clientId = getClientId();
+          const clientSecret = getClientSecret();
+          const refreshToken = user.tokens?.refresh_token;
+
+          if (!refreshToken) {
+            return { valid: false, revoked: true, reason: 'No refresh token available' };
+          }
+
+          const refreshRes = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+              refresh_token: refreshToken,
+              client_id: clientId,
+              client_secret: clientSecret,
+              grant_type: 'refresh_token'
+            })
+          });
+
+          const refreshData = await refreshRes.json();
+          if (!refreshRes.ok || refreshData.error) {
+            return {
+              valid: false,
+              revoked: true,
+              reason: refreshData.error_description || refreshData.error || 'Token expired or revoked'
+            };
+          }
+
+          const newAccessToken = refreshData.access_token;
+          const newExpiry = Date.now() + (refreshData.expires_in ? refreshData.expires_in * 1000 : 3600 * 1000);
+          Database.updateUserTokens(user.id, {
+            access_token: newAccessToken,
+            expiry_date: newExpiry
+          });
+
+          return { valid: true, revoked: false };
+        }
+
+        return { valid: false, revoked: true, reason: "Drive API status " + testRes.status };
+      } catch (fetchErr) {
+        clearTimeout(timeout);
+        if (fetchErr.name === 'AbortError') return { valid: true, networkTimeout: true };
+        throw fetchErr;
+      }
+    } catch (err) {
+      const isRevoked = err.message && (
+        err.message.includes('invalid_grant') ||
+        err.message.includes('expired') ||
+        err.message.includes('revoked')
+      );
+      return { valid: !isRevoked, revoked: isRevoked, reason: err.message };
+    }
+  },
+
   createSessionToken(user) {
     const secret = process.env.SESSION_SECRET || 'freeplay_cloud_games_secret_key_1337';
     const payload = JSON.stringify({ id: user.id, email: user.email, exp: Date.now() + 30 * 86400 * 1000 });

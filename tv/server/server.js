@@ -1043,6 +1043,73 @@ async function forceRefreshGoogleToken(userIdHint) {
   return { token: null, userId: userIdHint || null };
 }
 
+async function checkGoogleDriveTokenStatus(userId) {
+  const user = getUserFile(userId, 'user.json', {});
+  if (!user.refreshToken && !user.accessToken) {
+    return { valid: false, revoked: true, reason: 'No Google authentication tokens found' };
+  }
+  try {
+    let accessToken;
+    try {
+      accessToken = await getValidGoogleToken(userId);
+    } catch (err) {
+      const isRevoked = err.message && (
+        err.message.includes('invalid_grant') ||
+        err.message.includes('expired') ||
+        err.message.includes('revoked') ||
+        err.message.includes('refresh token')
+      );
+      return { valid: false, revoked: isRevoked, reason: err.message };
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    try {
+      const testRes = await fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
+        headers: { Authorization: 'Bearer ' + accessToken },
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+      if (testRes.ok) {
+        return { valid: true, revoked: false };
+      }
+      if (testRes.status === 401) {
+        try {
+          await refreshGoogleAccessToken(userId);
+          return { valid: true, revoked: false };
+        } catch (refreshErr) {
+          return { valid: false, revoked: true, reason: refreshErr.message };
+        }
+      }
+      return { valid: false, revoked: true, reason: 'Status ' + testRes.status };
+    } catch (fetchErr) {
+      clearTimeout(timeout);
+      if (fetchErr.name === 'AbortError') return { valid: true, networkTimeout: true };
+      throw fetchErr;
+    }
+  } catch (err) {
+    const isRevoked = err.message && (
+      err.message.includes('invalid_grant') ||
+      err.message.includes('expired') ||
+      err.message.includes('revoked') ||
+      err.message.includes('refresh token')
+    );
+    return { valid: !isRevoked, revoked: isRevoked, reason: err.message };
+  }
+}
+
+app.get('/auth/drive-status', optionalAuth, async (req, res) => {
+  if (!req.user) return res.status(401).json({ authenticated: false, valid: false });
+  const result = await checkGoogleDriveTokenStatus(req.user.id);
+  res.json({ authenticated: true, ...result });
+});
+
+app.get('/api/drive/status', optionalAuth, async (req, res) => {
+  if (!req.user) return res.status(401).json({ authenticated: false, valid: false });
+  const result = await checkGoogleDriveTokenStatus(req.user.id);
+  res.json({ authenticated: true, ...result });
+});
+
 // -------------------------------------------------------------
 // Auth Routes
 // -------------------------------------------------------------

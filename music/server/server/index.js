@@ -66,6 +66,7 @@ const PUBLIC_PATHS = new Set([
   '/api/auth/google/callback',
   '/api/auth/me',
   '/api/auth/logout',
+  '/api/auth/drive-status',
   '/api/ping',
   '/api/health',
   // Machine-to-machine callbacks from the VPS torrent node. These have no Google
@@ -115,6 +116,12 @@ app.get('/api/auth/google/callback', async (req, res) => {
     console.error('[Auth] Callback failed:', err.message);
     res.redirect(`/?auth_error=${encodeURIComponent(err.message)}`);
   }
+});
+
+app.get('/api/auth/drive-status', async (req, res) => {
+  if (!req.user) return res.status(401).json({ authenticated: false, valid: false });
+  const status = await googleAuth.checkDriveToken(req.user);
+  res.json({ authenticated: true, ...status });
 });
 
 app.get('/api/auth/me', (req, res) => {

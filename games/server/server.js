@@ -166,6 +166,22 @@ app.get('/api/auth/user', (req, res) => {
 
 // A strict session check for the cross-subdomain landing-page launcher. Unlike
 // the legacy app middleware fallback, this requires a real signed OAuth cookie.
+app.get('/api/auth/drive-status', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ authenticated: false, valid: false });
+  }
+  const status = await GoogleAuth.checkDriveToken(req.user);
+  res.json({ authenticated: true, ...status });
+});
+
+app.get('/api/welcome/drive-status', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const user = GoogleAuth.verifySessionToken(req.cookies?.freeplay_session);
+  if (!user) return res.status(401).json({ authenticated: false, valid: false });
+  const status = await GoogleAuth.checkDriveToken(user);
+  res.json({ authenticated: true, ...status });
+});
+
 app.get('/api/welcome/session', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const user = GoogleAuth.verifySessionToken(req.cookies?.freeplay_session);

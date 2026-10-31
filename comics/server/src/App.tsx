@@ -25,6 +25,29 @@ export default function App() {
   const [user, setUser] = useState<GoogleUserProfile | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isDrivePickerOpen, setIsDrivePickerOpen] = useState(false);
+  const [toastMessage, setToastMessage] = useState<{
+    text: string;
+    action?: string;
+    onClick?: () => void;
+  } | null>(null);
+
+  const checkDriveStatus = async () => {
+    try {
+      const res = await fetch(apiUrl('/api/auth/drive-status'));
+      if (res.ok) {
+        const data = await res.json();
+        if (data.authenticated && (data.revoked || !data.valid)) {
+          setToastMessage({
+            text: 'Google Drive access has expired or been revoked. Click to reconnect.',
+            action: 'Reconnect',
+            onClick: () => setIsAuthModalOpen(true)
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[App] Could not verify Google Drive token status:', err);
+    }
+  };
 
   const [progressVersion, setProgressVersion] = useState(0);
   const [omnibusInitialSeries, setOmnibusInitialSeries] = useState<string | null>(null);
@@ -272,6 +295,72 @@ export default function App() {
         onOpenDrivePicker={() => setIsDrivePickerOpen(true)}
         onLibraryUpdated={() => setProgressVersion((v) => v + 1)}
       />
+
+      {/* Google Drive Token Warning Toast */}
+      {toastMessage && (
+        <div
+          role="alert"
+          style={{
+            position: 'fixed',
+            bottom: '24px',
+            right: '24px',
+            zIndex: 99999,
+            backgroundColor: '#1e293b',
+            color: '#f8fafc',
+            border: '1px solid #ef4444',
+            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5)',
+            padding: '12px 16px',
+            borderRadius: '12px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            fontSize: '0.88rem',
+            cursor: toastMessage.onClick ? 'pointer' : 'default',
+            maxWidth: '420px',
+            animation: 'fadeIn 0.2s ease-out'
+          }}
+          onClick={() => {
+            if (toastMessage.onClick) toastMessage.onClick();
+          }}
+        >
+          <span style={{ fontSize: '1.2rem', color: '#f59e0b' }}>⚠️</span>
+          <span style={{ flex: 1, lineHeight: 1.4 }}>{toastMessage.text}</span>
+          {toastMessage.action && (
+            <span
+              style={{
+                background: '#3b82f6',
+                color: '#fff',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                fontSize: '0.78rem',
+                fontWeight: 600,
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {toastMessage.action}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setToastMessage(null);
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#94a3b8',
+              cursor: 'pointer',
+              fontSize: '1rem',
+              padding: '2px 4px',
+              lineHeight: 1
+            }}
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Google Drive Folder Selector Modal */}
       <DrivePickerModal

@@ -153,6 +153,26 @@ function CloudAppContent() {
     }
   };
 
+  const checkDriveStatus = async () => {
+    try {
+      const res = await fetch('/auth/drive-status');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.authenticated && (data.revoked || !data.valid)) {
+          toast.warning(
+            'Google Drive connection expired or revoked. Click to reconnect.',
+            15000,
+            () => {
+              setIsSettingsOpen(true);
+            }
+          );
+        }
+      }
+    } catch (err) {
+      console.warn('[App] Could not verify Google Drive token status:', err);
+    }
+  };
+
   const checkAuth = async () => {
     const params = new URLSearchParams(window.location.search);
     const authError = params.get('auth_error');

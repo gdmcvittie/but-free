@@ -156,7 +156,7 @@ export default function App() {
   }, [setKind]);
 
   const recentToastsRef = useRef(new Map());
-  const notify = useCallback((title, body = '', isError = false) => {
+  const notify = useCallback((title, body = '', isError = false, onClick = null) => {
     const key = `${title}:${body}`;
     const now = Date.now();
     const lastTime = recentToastsRef.current.get(key) || 0;
@@ -169,7 +169,7 @@ export default function App() {
     }
 
     const id = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    setToasts((prev) => [...prev, { id, title, body, isError }]);
+    setToasts((prev) => [...prev, { id, title, body, isError, onClick }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 5200);

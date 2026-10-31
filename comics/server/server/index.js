@@ -132,6 +132,14 @@ app.get('/api/auth/me', (req, res) => {
   });
 });
 
+app.get('/api/auth/drive-status', async (req, res) => {
+  if (!req.user) {
+    return res.status(401).json({ authenticated: false, valid: false });
+  }
+  const status = await GoogleAuth.checkDriveToken(req.user);
+  res.json({ authenticated: true, ...status });
+});
+
 app.post('/api/auth/logout', (req, res) => {
   res.clearCookie('comix_session');
   res.json({ success: true });
@@ -147,6 +155,7 @@ const PUBLIC_API_PATHS = new Set([
   '/api/auth/google/callback',
   '/api/auth/me',
   '/api/auth/logout',
+  '/api/auth/drive-status',
   '/api/ping',
   '/api/status',
   '/api/health'

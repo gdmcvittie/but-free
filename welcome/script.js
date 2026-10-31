@@ -166,6 +166,89 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  function showDriveToast(message) {
+    if (document.getElementById('drive-warning-toast')) return;
+    const toast = document.createElement('div');
+    toast.id = 'drive-warning-toast';
+    toast.setAttribute('role', 'alert');
+    Object.assign(toast.style, {
+      position: 'fixed',
+      bottom: '24px',
+      right: '24px',
+      zIndex: '99999',
+      backgroundColor: '#1e293b',
+      color: '#f8fafc',
+      border: '1px solid #f59e0b',
+      boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5)',
+      padding: '12px 18px',
+      borderRadius: '12px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '12px',
+      fontSize: '0.9rem',
+      cursor: 'pointer',
+      maxWidth: '420px',
+      fontFamily: 'inherit'
+    });
+
+    const icon = document.createElement('span');
+    icon.textContent = '⚠️';
+    icon.style.fontSize = '1.3rem';
+
+    const text = document.createElement('span');
+    text.textContent = message;
+    text.style.flex = '1';
+    text.style.lineHeight = '1.4';
+
+    const action = document.createElement('span');
+    action.textContent = 'Reconnect';
+    Object.assign(action.style, {
+      background: '#6366f1',
+      color: '#fff',
+      padding: '4px 10px',
+      borderRadius: '6px',
+      fontSize: '0.8rem',
+      fontWeight: '600',
+      whiteSpace: 'nowrap'
+    });
+
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '✕';
+    Object.assign(closeBtn.style, {
+      background: 'none',
+      border: 'none',
+      color: '#94a3b8',
+      cursor: 'pointer',
+      fontSize: '1rem',
+      padding: '2px 4px'
+    });
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toast.remove();
+    });
+
+    toast.append(icon, text, action, closeBtn);
+    toast.addEventListener('click', () => {
+      openModal();
+    });
+    document.body.appendChild(toast);
+  }
+
+  async function checkDriveTokenStatus() {
+    try {
+      const res = await fetch(AUTH_ORIGIN + '/api/welcome/drive-status', {
+        credentials: 'include',
+        cache: 'no-store'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.authenticated && (data.revoked || !data.valid)) {
+          showDriveToast('Google Drive access has expired or been revoked. Click to reconnect.');
+        }
+      }
+    } catch (_) {}
+  }
+
   function showLauncher(user) {
     document.body.classList.remove('auth-checking');
     document.body.classList.add('is-authenticated');
@@ -178,6 +261,7 @@ document.addEventListener('DOMContentLoaded', () => {
       launcherAvatar.hidden = false;
     }
     renderAppLinks();
+    checkDriveTokenStatus();
   }
 
   async function checkGoogleSession() {

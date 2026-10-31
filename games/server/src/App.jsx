@@ -105,6 +105,22 @@ export default function App() {
   const [drivePickerOpen, setDrivePickerOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [activeGameToPlay, setActiveGameToPlay] = useState(null);
+  const [toastMessage, setToastMessage] = useState(null);
+
+  const checkDriveStatus = useCallback(async () => {
+    try {
+      const data = await fetchJson('/api/auth/drive-status');
+      if (data.authenticated && (data.revoked || !data.valid)) {
+        setToastMessage({
+          text: 'Google Drive access has expired or been revoked. Click to reconnect.',
+          action: 'Reconnect',
+          onClick: () => setAuthModalOpen(true)
+        });
+      }
+    } catch (err) {
+      console.warn('[App] Could not verify Google Drive token status:', err);
+    }
+  }, []);
 
   // Check URL params for auth errors or successful redirects
   useEffect(() => {
@@ -127,7 +143,10 @@ export default function App() {
     try {
       const data = await fetchJson('/api/auth/user');
       setUser(data.user || null);
-      if (data.user) saveOfflineLibrary(data.user, null);
+      if (data.user) {
+        saveOfflineLibrary(data.user, null);
+        checkDriveStatus();
+      }
       return data.user;
     } catch (err) {
       if (err.code === 'VIP_ONLY') setAuthError(err.message || 'This suite is for VIPs only.');
@@ -373,6 +392,36 @@ export default function App() {
         onFolderSelected={handleFolderSelected}
         currentFolderId={user?.gamesFolderId}
       />
+
+      {/* Google Drive Token Warning Toast */}
+      {toastMessage && (
+        <div
+          role="alert"
+          onClick={() => {
+            if (toastMessage.onClick) toastMessage.onClick();
+          }}
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 p-3.5 px-4 rounded-xl bg-slate-900/95 text-slate-100 border border-amber-500/50 shadow-2xl backdrop-blur-md cursor-pointer max-w-md animate-in fade-in slide-in-from-bottom-4 duration-200"
+        >
+          <span className="text-xl text-amber-400 shrink-0">⚠️</span>
+          <span className="text-xs font-medium leading-relaxed flex-1">{toastMessage.text}</span>
+          {toastMessage.action && (
+            <span className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-purple-600 hover:bg-purple-500 text-white shrink-0">
+              {toastMessage.action}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setToastMessage(null);
+            }}
+            className="text-slate-400 hover:text-white p-1 shrink-0"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Auth Modal */}
       <AuthModal

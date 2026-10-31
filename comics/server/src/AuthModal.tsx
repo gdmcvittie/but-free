@@ -178,7 +178,17 @@ export default function AuthModal({
                 )}
               </div>
 
-              <div className="auth-actions">
+              <div className="auth-actions" style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-block"
+                  onClick={handleSignIn}
+                  disabled={loading}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
+                >
+                  <RefreshCw size={15} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+                  <span>{loading ? 'Connecting to Google...' : 'Reconnect Google Account'}</span>
+                </button>
                 <button
                   type="button"
                   className="btn btn-danger btn-block"
