@@ -7,7 +7,7 @@ A simplified Roku channel for the FREEVEE server, designed for streaming from th
 - **Home Screen**: Browse popular movies and TV shows from What's On
 - **Services**: Browse streaming service catalogs (Netflix, Prime, Disney, etc.)
 - **Search**: Search for torrents across multiple sources
-- **Free TV**: Watch live FAST channels (Pluto TV, Tubi, Roku Channel)
+- **Free TV**: TiVo-style live channel guide with a video preview, now-playing info, and source filters for Pluto TV, Tubi, Roku Channel, and Plex TV
 
 ## Server Configuration
 

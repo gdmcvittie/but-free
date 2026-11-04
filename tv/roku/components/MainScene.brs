@@ -6,6 +6,7 @@ sub init()
     m.torrentServerUrl = "http://download.butfree.online:4000"
     m.state = "grid"
     m.isLiveChannel = false
+    m.playerFromGuide = false
     m.savedGridBreadcrumb = "Home"
 
     m.gridScreen = m.top.findNode("gridScreen")
@@ -38,10 +39,35 @@ sub init()
     m.heroGroup = m.top.findNode("heroGroup")
     m.homeBg = m.top.findNode("homeBg")
     m.homeOverlay = m.top.findNode("homeOverlay")
+    m.homeDarkOverlay = m.top.findNode("homeDarkOverlay")
     m.heroTitle = m.top.findNode("heroTitle")
     m.heroDesc = m.top.findNode("heroDesc")
     m.heroMeta = m.top.findNode("heroMeta")
     m.headerDivider = m.top.findNode("headerDivider")
+
+    ' Free TV guide nodes
+    m.guideBackdrop = m.top.findNode("guideBackdrop")
+    m.guideScreen = m.top.findNode("guideScreen")
+    m.guideInfoProvider = m.top.findNode("guideInfoProvider")
+    m.guideInfoChannel = m.top.findNode("guideInfoChannel")
+    m.guideInfoNow = m.top.findNode("guideInfoNow")
+    m.guideInfoTime = m.top.findNode("guideInfoTime")
+    m.guideInfoDesc = m.top.findNode("guideInfoDesc")
+    m.guideInfoHint = m.top.findNode("guideInfoHint")
+    m.guideProgressFill = m.top.findNode("guideProgressFill")
+    m.guideFilterLabel = m.top.findNode("guideFilterLabel")
+    m.guideListTitle = m.top.findNode("guideListTitle")
+    m.guideListCount = m.top.findNode("guideListCount")
+    m.guideListGroup = m.top.findNode("guideListGroup")
+    m.guideRows = []
+    m.guideItems = []
+    m.guideFilters = []
+    m.guideFilterIndex = 0
+    m.guideIndex = 0
+    m.guideScrollTop = 0
+    m.guideTuneTimer = invalid
+    m.guideRefreshTimer = invalid
+    m.allFreeTvChannels = invalid
 
     m.sidebar = m.top.findNode("sidebar")
     m.sidebarBg = m.top.findNode("sidebarBg")
@@ -487,6 +513,7 @@ end sub
 ' ---- Home Screen ----
 
 sub showHomeScreen()
+    if m.state = "guide" then exitFreeTvGuide(false)
     stopBackgroundPlayback()
     updateHomeBackdrop(invalid)
     m.navStack = []
@@ -2785,7 +2812,9 @@ sub openFreeTvGrid()
     m.activeSidebar = ftvIdx
     updateSidebarNav()
     pushCurrentState("Home > Free TV")
-    m.folderBreadcrumb.text = "Loading Free TV..."
+    m.folderBreadcrumb.text = "Loading Free TV Guide..."
+    if m.guideScreen <> invalid then m.guideScreen.visible = false
+    if m.guideBackdrop <> invalid then m.guideBackdrop.visible = false
 
     m.freeTvTask = CreateObject("roSGNode", "HttpTask")
     m.freeTvTask.url = m.serverUrl + "/api/freetv/channels"
@@ -2796,6 +2825,7 @@ end sub
 
 sub onFreeTvFetchResult()
     if m.freeTvTask = invalid return
+    if m.folderBreadcrumb = invalid or InStr(1, m.folderBreadcrumb.text, "Free TV") <= 0 return
     result = m.freeTvTask.result
     if result = invalid or result = ""
         m.folderBreadcrumb.text = "Failed to load Free TV channels"
@@ -2803,59 +2833,13 @@ sub onFreeTvFetchResult()
     end if
 
     data = ParseJSON(result)
-    if data = invalid or data.channels = invalid
-        m.folderBreadcrumb.text = "Invalid Free TV response"
+    if data = invalid or data.channels = invalid or data.channels.count() = 0
+        m.folderBreadcrumb.text = "No Free TV channels available"
         return
     end if
 
     m.allFreeTvChannels = data.channels
-    rokuCount = 0
-    plutoCount = 0
-    tubiCount = 0
-    plexCount = 0
-
-    for each ch in data.channels
-        p = ""
-        if ch.provider <> invalid then p = LCase(ch.provider)
-        if InStr(1, p, "roku") > 0
-            rokuCount = rokuCount + 1
-        else if InStr(1, p, "pluto") > 0
-            plutoCount = plutoCount + 1
-        else if InStr(1, p, "tubi") > 0
-            tubiCount = tubiCount + 1
-        else if InStr(1, p, "plex") > 0
-            plexCount = plexCount + 1
-        end if
-    end for
-
-    gridContent = CreateObject("roSGNode", "ContentNode")
-    m.gridItems = []
-
-    providers = []
-    if rokuCount > 0
-        providers.push({ id: "Roku Channel", title: "Roku Channel", count: rokuCount, img: "pkg:/images/roku.jpg", desc: "Live streaming FAST channels from The Roku Channel" })
-    end if
-    if plutoCount > 0
-        providers.push({ id: "Pluto TV", title: "Pluto TV", count: plutoCount, img: "pkg:/images/pluto.jpg", desc: "Live streaming FAST channels from Pluto TV" })
-    end if
-    if tubiCount > 0
-        providers.push({ id: "Tubi", title: "Tubi TV", count: tubiCount, img: "pkg:/images/tubi.jpg", desc: "Live streaming FAST channels from Tubi" })
-    end if
-
-    for each prov in providers
-        node = CreateObject("roSGNode", "ContentNode")
-        node.title = prov.title
-        setPosterUrl(node, prov.img)
-        node.shortDescriptionLine1 = Stri(prov.count).trim() + " Channels"
-        node.description = prov.desc
-        node.addFields({ targetType: "freetv_provider", providerName: prov.id, itemTitle: prov.title })
-        gridContent.appendChild(node)
-        m.gridItems.push(node)
-    end for
-
-    m.folderBreadcrumb.text = "Home > Free TV (Select Provider)"
-    m.posterGrid.content = gridContent
-    m.posterGrid.setFocus(true)
+    showFreeTvGuide()
 end sub
 
 sub openFreeTvProviderGrid(providerName as String)
@@ -2941,7 +2925,658 @@ sub openFreeTvProviderGrid(providerName as String)
 end sub
 
 sub onFreeTvFetchError()
+    if m.folderBreadcrumb = invalid or InStr(1, m.folderBreadcrumb.text, "Free TV") <= 0 return
     m.folderBreadcrumb.text = "Error fetching Free TV channels from server"
+end sub
+
+' ---- TiVo-style Free TV Guide ----
+
+sub showFreeTvGuide()
+    if m.allFreeTvChannels = invalid or m.allFreeTvChannels.count() = 0
+        m.folderBreadcrumb.text = "No Free TV channels available"
+        return
+    end if
+
+    buildGuideRows()
+    buildGuideFilters()
+
+    m.state = "guide"
+    m.playerFromGuide = false
+    m.isLiveChannel = true
+    m.currentStreamUrl = ""
+    m.currentStreamTitle = ""
+    m.guideIndex = 0
+    m.guideScrollTop = 0
+    m.folderBreadcrumb.text = "Home > Free TV Guide"
+    m.savedGridBreadcrumb = "Home > Free TV Guide"
+    setBreadcrumbVisible(true)
+    if m.headerDivider <> invalid then m.headerDivider.visible = true
+    if m.heroGroup <> invalid then m.heroGroup.visible = false
+    if m.cwGrid <> invalid then m.cwGrid.visible = false
+    if m.cwLabel <> invalid then m.cwLabel.visible = false
+    if m.cwInfoBar <> invalid then m.cwInfoBar.visible = false
+    if m.cwInfoTitle <> invalid then m.cwInfoTitle.visible = false
+    if m.cwInfoDesc <> invalid then m.cwInfoDesc.visible = false
+    if m.posterGrid <> invalid then m.posterGrid.visible = false
+    if m.homeBg <> invalid then m.homeBg.visible = false
+    if m.homeDarkOverlay <> invalid then m.homeDarkOverlay.visible = false
+    if m.guideBackdrop <> invalid then m.guideBackdrop.visible = true
+    if m.guideScreen <> invalid
+        m.guideScreen.visible = true
+    end if
+    ' Scene has focus while the guide is open so guide keys are handled
+    ' directly by onKeyEvent. A plain Group cannot take focus on Roku.
+    m.top.setFocus(true)
+
+    applyGuideFilter(true)
+    startGuideRefreshTimer()
+end sub
+
+sub buildGuideRows()
+    if m.guideListGroup = invalid return
+    if m.guideRows <> invalid and m.guideRows.count() > 0 return
+    m.guideRows = []
+
+    for i = 0 to 4
+        rowGroup = CreateObject("roSGNode", "Group")
+        rowGroup.translation = [0, i * 40]
+
+        bg = CreateObject("roSGNode", "Rectangle")
+        bg.width = 1136
+        bg.height = 38
+        bg.color = "0x11141FFF"
+        bg.opacity = 0.82
+        rowGroup.appendChild(bg)
+
+        highlight = CreateObject("roSGNode", "Rectangle")
+        highlight.width = 1136
+        highlight.height = 38
+        highlight.color = "0x1D2335FF"
+        highlight.visible = false
+        rowGroup.appendChild(highlight)
+
+        accent = CreateObject("roSGNode", "Rectangle")
+        accent.translation = [0, 0]
+        accent.width = 4
+        accent.height = 38
+        accent.color = "0xE50914FF"
+        accent.visible = false
+        rowGroup.appendChild(accent)
+
+        num = CreateObject("roSGNode", "Label")
+        num.translation = [12, 8]
+        num.width = 44
+        num.height = 22
+        num.font = "font:SmallBoldSystemFont"
+        num.color = "0x8E95A5FF"
+        num.vertAlign = "center"
+        rowGroup.appendChild(num)
+
+        logo = CreateObject("roSGNode", "Poster")
+        logo.translation = [62, 4]
+        logo.width = 54
+        logo.height = 30
+        logo.uri = "pkg:/images/no-poster.jpg"
+        logo.loadDisplayMode = "scaleToFit"
+        rowGroup.appendChild(logo)
+
+        name = CreateObject("roSGNode", "Label")
+        name.translation = [126, 8]
+        name.width = 250
+        name.height = 22
+        name.font = "font:MediumBoldSystemFont"
+        name.color = "0xFFFFFFFF"
+        name.vertAlign = "center"
+        rowGroup.appendChild(name)
+
+        now = CreateObject("roSGNode", "Label")
+        now.translation = [384, 8]
+        now.width = 520
+        now.height = 22
+        now.font = "font:SmallSystemFont"
+        now.color = "0xA3A8B8FF"
+        now.vertAlign = "center"
+        rowGroup.appendChild(now)
+
+        time = CreateObject("roSGNode", "Label")
+        time.translation = [912, 8]
+        time.width = 104
+        time.height = 22
+        time.font = "font:SmallBoldSystemFont"
+        time.color = "0x8E95A5FF"
+        time.vertAlign = "center"
+        rowGroup.appendChild(time)
+
+        barBg = CreateObject("roSGNode", "Rectangle")
+        barBg.translation = [1024, 17]
+        barBg.width = 100
+        barBg.height = 4
+        barBg.color = "0x232838FF"
+        rowGroup.appendChild(barBg)
+
+        barFill = CreateObject("roSGNode", "Rectangle")
+        barFill.translation = [1024, 17]
+        barFill.width = 0
+        barFill.height = 4
+        barFill.color = "0xE50914FF"
+        rowGroup.appendChild(barFill)
+
+        m.guideListGroup.appendChild(rowGroup)
+        m.guideRows.push({
+            group: rowGroup
+            bg: bg
+            highlight: highlight
+            accent: accent
+            num: num
+            logo: logo
+            name: name
+            now: now
+            time: time
+            barBg: barBg
+            barFill: barFill
+        })
+    end for
+end sub
+
+sub buildGuideFilters()
+    m.guideFilters = []
+    total = m.allFreeTvChannels.count()
+    m.guideFilters.push({ label: "ALL", key: "All", count: total })
+
+    providerKeys = ["Roku", "Pluto", "Tubi", "Plex"]
+    providerLabels = ["ROKU", "PLUTO", "TUBI", "PLEX"]
+    for i = 0 to providerKeys.count() - 1
+        c = 0
+        for each ch in m.allFreeTvChannels
+            p = LCase(safeStr(ch.provider))
+            if InStr(1, p, LCase(providerKeys[i])) > 0 then c = c + 1
+        end for
+        if c > 0
+            m.guideFilters.push({ label: providerLabels[i], key: providerKeys[i], count: c })
+        end if
+    end for
+    m.guideFilterIndex = 0
+end sub
+
+sub applyGuideFilter(resetIndex as Boolean)
+    if m.guideFilters = invalid or m.guideFilters.count() = 0 return
+    if m.guideFilterIndex < 0 then m.guideFilterIndex = 0
+    if m.guideFilterIndex >= m.guideFilters.count() then m.guideFilterIndex = 0
+
+    filter = m.guideFilters[m.guideFilterIndex]
+    m.guideItems = []
+    for each ch in m.allFreeTvChannels
+        include = false
+        if filter.key = "All"
+            include = true
+        else
+            p = LCase(safeStr(ch.provider))
+            if InStr(1, p, LCase(filter.key)) > 0 then include = true
+        end if
+        if include then m.guideItems.push(ch)
+    end for
+
+    if resetIndex
+        m.guideIndex = 0
+        m.guideScrollTop = 0
+    end if
+    if m.guideIndex >= m.guideItems.count() then m.guideIndex = m.guideItems.count() - 1
+    if m.guideIndex < 0 then m.guideIndex = 0
+
+    if m.guideFilterLabel <> invalid
+        m.guideFilterLabel.text = "SOURCE: " + filter.label + " (" + Stri(m.guideItems.count()).trim() + ")  ◀ ▶"
+    end if
+    if m.guideListCount <> invalid
+        m.guideListCount.text = Stri(m.guideItems.count()).trim() + " CHANNELS"
+    end if
+
+    refreshGuideList()
+    if m.guideItems.count() > 0
+        updateGuideInfo(m.guideItems[m.guideIndex])
+        scheduleGuidePreviewTune()
+    else
+        clearGuideInfo()
+    end if
+end sub
+
+sub cycleGuideFilter(direction as Integer)
+    if m.guideFilters = invalid or m.guideFilters.count() = 0 return
+    idx = m.guideFilterIndex + direction
+    if idx < 0 then idx = m.guideFilters.count() - 1
+    if idx >= m.guideFilters.count() then idx = 0
+    m.guideFilterIndex = idx
+    applyGuideFilter(true)
+end sub
+
+sub moveGuideSelection(delta as Integer)
+    if m.guideItems = invalid or m.guideItems.count() = 0 return
+    newIndex = m.guideIndex + delta
+    if newIndex < 0 then newIndex = 0
+    if newIndex >= m.guideItems.count() then newIndex = m.guideItems.count() - 1
+    if newIndex = m.guideIndex return
+    m.guideIndex = newIndex
+    refreshGuideList()
+    updateGuideInfo(m.guideItems[m.guideIndex])
+    scheduleGuidePreviewTune()
+end sub
+
+sub refreshGuideList()
+    if m.guideRows = invalid or m.guideRows.count() = 0 return
+    count = 0
+    if m.guideItems <> invalid then count = m.guideItems.count()
+
+    if count = 0
+        for each row in m.guideRows
+            row.group.visible = false
+        end for
+        return
+    end if
+
+    if m.guideIndex < 0 then m.guideIndex = 0
+    if m.guideIndex >= count then m.guideIndex = count - 1
+
+    visibleRows = m.guideRows.count()
+    if m.guideIndex < m.guideScrollTop then m.guideScrollTop = m.guideIndex
+    if m.guideIndex >= m.guideScrollTop + visibleRows then m.guideScrollTop = m.guideIndex - visibleRows + 1
+    if m.guideScrollTop < 0 then m.guideScrollTop = 0
+    maxTop = count - visibleRows
+    if maxTop < 0 then maxTop = 0
+    if m.guideScrollTop > maxTop then m.guideScrollTop = maxTop
+
+    for i = 0 to visibleRows - 1
+        row = m.guideRows[i]
+        itemIndex = m.guideScrollTop + i
+        if itemIndex < count
+            row.group.visible = true
+            row.group.translation = [0, i * 40]
+            fillGuideRow(row, m.guideItems[itemIndex], itemIndex)
+            isFocused = (itemIndex = m.guideIndex)
+            row.highlight.visible = isFocused
+            row.accent.visible = isFocused
+            if isFocused
+                row.bg.color = "0x1A2030FF"
+            else
+                row.bg.color = "0x11141FFF"
+            end if
+        else
+            row.group.visible = false
+        end if
+    end for
+end sub
+
+sub fillGuideRow(row as Object, ch as Object, idx as Integer)
+    row.num.text = guideChannelNumber(ch, idx)
+    posterUrl = safeStr(getItemField(ch, "logo"))
+    if posterUrl = "" then posterUrl = safeStr(getItemField(ch, "featuredImage"))
+    if posterUrl = "" then posterUrl = "pkg:/images/no-poster.jpg"
+    if row.logo.uri <> posterUrl then row.logo.uri = posterUrl
+
+    channelName = safeStr(getItemField(ch, "name"))
+    if channelName = "" then channelName = "Live Channel"
+    row.name.text = channelName
+
+    row.now.text = guideNowTitle(ch)
+    row.time.text = guideProgramShortTime(ch)
+
+    progress = guideProgramProgress(ch)
+    fillWidth = Int(100 * progress)
+    if fillWidth < 0 then fillWidth = 0
+    if fillWidth > 100 then fillWidth = 100
+    row.barFill.width = fillWidth
+    row.barBg.visible = (progress > 0)
+    row.barFill.visible = (progress > 0)
+end sub
+
+sub updateGuideInfo(ch as Object)
+    if ch = invalid return
+    provider = safeStr(getItemField(ch, "provider"))
+    category = safeStr(getItemField(ch, "category"))
+    channelName = safeStr(getItemField(ch, "name"))
+    if channelName = "" then channelName = "Live Channel"
+
+    meta = provider
+    if category <> ""
+        if meta <> "" then meta = meta + " · "
+        meta = meta + category
+    end if
+    if m.guideInfoProvider <> invalid then m.guideInfoProvider.text = UCase(meta)
+    if m.guideInfoChannel <> invalid then m.guideInfoChannel.text = channelName
+    if m.guideInfoNow <> invalid then m.guideInfoNow.text = guideNowTitle(ch)
+
+    timeText = guideProgramLongTime(ch)
+    if m.guideInfoTime <> invalid then m.guideInfoTime.text = timeText
+
+    desc = guideNowDescription(ch)
+    if m.guideInfoDesc <> invalid then m.guideInfoDesc.text = desc
+
+    progress = guideProgramProgress(ch)
+    if m.guideProgressFill <> invalid then m.guideProgressFill.width = Int(360 * progress)
+    if m.guideInfoHint <> invalid then m.guideInfoHint.text = "▲▼ Browse   OK Full Screen   ◀▶ Source"
+end sub
+
+sub clearGuideInfo()
+    if m.guideInfoProvider <> invalid then m.guideInfoProvider.text = ""
+    if m.guideInfoChannel <> invalid then m.guideInfoChannel.text = "No channels"
+    if m.guideInfoNow <> invalid then m.guideInfoNow.text = ""
+    if m.guideInfoTime <> invalid then m.guideInfoTime.text = ""
+    if m.guideInfoDesc <> invalid then m.guideInfoDesc.text = "No channels are available for this source."
+    if m.guideProgressFill <> invalid then m.guideProgressFill.width = 0
+    if m.guideInfoHint <> invalid then m.guideInfoHint.text = "◀▶ Change source"
+end sub
+
+function guideChannelNumber(ch as Object, idx as Integer) as String
+    n = safeInt(getItemField(ch, "number"))
+    if n > 0 then return Stri(n).trim()
+    ' Plex/Tubi do not provide channel numbers, so use a stable row number.
+    return Right("0000" + Stri(idx + 1).trim(), 4)
+end function
+
+function guideCurrentProgram(ch as Object) as Dynamic
+    return getItemField(ch, "currentProgram")
+end function
+
+function guideNowTitle(ch as Object) as String
+    prog = guideCurrentProgram(ch)
+    if prog <> invalid
+        t = safeStr(getItemField(prog, "title"))
+        if t <> "" then return t
+    end if
+    cat = safeStr(getItemField(ch, "category"))
+    if cat <> "" then return cat + " · Live"
+    return "Live Stream"
+end function
+
+function guideNowDescription(ch as Object) as String
+    prog = guideCurrentProgram(ch)
+    if prog <> invalid
+        d = safeStr(getItemField(prog, "description"))
+        if d <> "" then return d
+    end if
+    d = safeStr(getItemField(ch, "summary"))
+    if d <> "" then return d
+    return "Live streaming now on Free TV."
+end function
+
+function guideProgramStart(ch as Object) as Integer
+    prog = guideCurrentProgram(ch)
+    if prog = invalid return 0
+    return guideIsoToSeconds(safeStr(getItemField(prog, "start")))
+end function
+
+function guideProgramStop(ch as Object) as Integer
+    prog = guideCurrentProgram(ch)
+    if prog = invalid return 0
+    return guideIsoToSeconds(safeStr(getItemField(prog, "stop")))
+end function
+
+function guideProgramProgress(ch as Object) as Float
+    startSec = guideProgramStart(ch)
+    stopSec = guideProgramStop(ch)
+    if startSec <= 0 or stopSec <= startSec return 0.0
+    nowSec = CreateObject("roDateTime").AsSeconds()
+    value = (nowSec - startSec) / (stopSec - startSec)
+    if value < 0 then value = 0.0
+    if value > 1 then value = 1.0
+    return value
+end function
+
+function guideProgramShortTime(ch as Object) as String
+    startSec = guideProgramStart(ch)
+    stopSec = guideProgramStop(ch)
+    if startSec <= 0 or stopSec <= startSec return "LIVE"
+    return formatGuideClock(startSec, true) + "-" + formatGuideClock(stopSec, true)
+end function
+
+function guideProgramLongTime(ch as Object) as String
+    startSec = guideProgramStart(ch)
+    stopSec = guideProgramStop(ch)
+    if startSec <= 0 or stopSec <= startSec return "Live now"
+    return formatGuideClock(startSec, false) + " - " + formatGuideClock(stopSec, false)
+end function
+
+function guideIsoToSeconds(iso as String) as Integer
+    iso = iso.trim()
+    if iso = "" return 0
+
+    ' roDateTime.FromISO8601String only accepts "YYYY-MM-DDTHH:MM:SS[.mmm]"
+    ' and treats the value as UTC. Strip the trailing Z that the API sends.
+    if Right(iso, 1) = "Z" or Right(iso, 1) = "z" then iso = Left(iso, Len(iso) - 1)
+    if Len(iso) < 19 return 0
+
+    dt = CreateObject("roDateTime")
+    dt.FromISO8601String(iso)
+
+    ' Guard against a failed parse leaving the object at the current time.
+    year = Val(Mid(iso, 1, 4))
+    month = Val(Mid(iso, 6, 2))
+    day = Val(Mid(iso, 9, 2))
+    if dt.GetYear() <> year or dt.GetMonth() <> month or dt.GetDayOfMonth() <> day return 0
+
+    return dt.AsSeconds()
+end function
+
+function formatGuideClock(seconds as Integer, shortForm as Boolean) as String
+    dt = CreateObject("roDateTime")
+    dt.FromSeconds(seconds)
+    dt.ToLocalTime()
+    h = dt.GetHours()
+    mins = dt.GetMinutes()
+    suffix = "AM"
+    if h >= 12 then suffix = "PM"
+    if h = 0 then h = 12
+    if h > 12 then h = h - 12
+    minStr = Right("0" + Stri(mins).trim(), 2)
+    if shortForm
+        s = "a"
+        if suffix = "PM" then s = "p"
+        return Stri(h).trim() + ":" + minStr + s
+    end if
+    return Stri(h).trim() + ":" + minStr + " " + suffix
+end function
+
+sub scheduleGuidePreviewTune()
+    if m.state <> "guide" return
+    if m.guideTuneTimer <> invalid
+        m.guideTuneTimer.control = "stop"
+        m.top.removeChild(m.guideTuneTimer)
+        m.guideTuneTimer = invalid
+    end if
+    m.guideTuneTimer = CreateObject("roSGNode", "Timer")
+    m.guideTuneTimer.duration = 0.45
+    m.guideTuneTimer.repeat = false
+    m.guideTuneTimer.observeField("fire", "onGuideTuneTimerFired")
+    m.top.appendChild(m.guideTuneTimer)
+    m.guideTuneTimer.control = "start"
+end sub
+
+sub onGuideTuneTimerFired()
+    timer = m.guideTuneTimer
+    m.guideTuneTimer = invalid
+    if timer <> invalid
+        timer.control = "stop"
+        m.top.removeChild(timer)
+    end if
+    if m.state <> "guide" return
+    if m.guideItems = invalid or m.guideItems.count() = 0 return
+    tuneGuidePreview(m.guideItems[m.guideIndex])
+end sub
+
+sub tuneGuidePreview(ch as Object)
+    if ch = invalid or m.video = invalid return
+    streamUrl = buildFreeTvStreamUrl(ch)
+    if streamUrl = "" return
+
+    m.video.translation = [116, 64]
+    m.video.width = 720
+    m.video.height = 405
+    m.video.visible = true
+    if m.homeBg <> invalid then m.homeBg.visible = false
+    if m.homeDarkOverlay <> invalid then m.homeDarkOverlay.visible = false
+
+    if m.currentStreamUrl = streamUrl and m.video.state <> "stopped" and m.video.state <> "error"
+        if m.video.state <> "playing" and m.video.state <> "buffering" then m.video.control = "play"
+        return
+    end if
+
+    title = safeStr(getItemField(ch, "name"))
+    if title = "" then title = "Free TV"
+    m.isLiveChannel = true
+    m.currentStreamUrl = streamUrl
+    m.currentStreamTitle = title
+    if m.guideInfoHint <> invalid then m.guideInfoHint.text = "Tuning " + title + "..."
+
+    m.video.control = "stop"
+    content = CreateObject("roSGNode", "ContentNode")
+    content.url = streamUrl
+    content.title = title
+    content.streamFormat = "hls"
+    content.bufferingTargetSeconds = 8
+    content.PlayStart = 0
+    m.video.content = content
+    m.video.control = "play"
+end sub
+
+function buildFreeTvStreamUrl(ch as Object) as String
+    if ch = invalid return ""
+    streamKey = safeStr(getItemField(ch, "plutoId"))
+    if streamKey = ""
+        streamKey = safeStr(getItemField(ch, "id"))
+        if Left(streamKey, 7) = "freetv_" then streamKey = Mid(streamKey, 8)
+    end if
+
+    stream = m.serverUrl + "/api/freetv/stream/" + streamKey + ".m3u8"
+    directUrl = safeStr(getItemField(ch, "streamUrl"))
+    if directUrl <> ""
+        if Left(directUrl, 4) = "http"
+            stream = directUrl
+        else
+            stream = m.serverUrl + directUrl
+        end if
+    end if
+    return stream
+end function
+
+sub enterFullscreenFromGuide()
+    if m.guideItems = invalid or m.guideItems.count() = 0 return
+    ch = m.guideItems[m.guideIndex]
+    streamUrl = buildFreeTvStreamUrl(ch)
+    if streamUrl = "" return
+    title = safeStr(getItemField(ch, "name"))
+    if title = "" then title = "Free TV"
+
+    stopGuideRefreshTimer()
+    if m.guideTuneTimer <> invalid
+        m.guideTuneTimer.control = "stop"
+        m.top.removeChild(m.guideTuneTimer)
+        m.guideTuneTimer = invalid
+    end if
+
+    m.state = "player"
+    m.playerFromGuide = true
+    m.isLiveChannel = true
+    m.savedGridBreadcrumb = "Home > Free TV Guide"
+    m.folderBreadcrumb.text = "Free TV: " + title
+    m.video.translation = [0, 0]
+    m.video.width = 1280
+    m.video.height = 720
+    m.video.visible = true
+    m.video.setFocus(true)
+    if m.gridScreen <> invalid then m.gridScreen.visible = false
+    if m.guideBackdrop <> invalid then m.guideBackdrop.visible = false
+    if m.playerScreen <> invalid then m.playerScreen.visible = true
+
+    if m.currentStreamUrl <> streamUrl
+        m.currentStreamUrl = streamUrl
+        m.currentStreamTitle = title
+        content = CreateObject("roSGNode", "ContentNode")
+        content.url = streamUrl
+        content.title = title
+        content.streamFormat = "hls"
+        content.bufferingTargetSeconds = 8
+        content.PlayStart = 0
+        m.video.content = content
+    end if
+    m.video.control = "play"
+end sub
+
+sub returnToGuideFromPlayer(resumePlayback = true as Boolean)
+    stopGuideRefreshTimer()
+    m.state = "guide"
+    m.playerFromGuide = false
+    m.isLiveChannel = true
+    m.video.translation = [116, 64]
+    m.video.width = 720
+    m.video.height = 405
+    m.video.visible = true
+    if m.gridScreen <> invalid then m.gridScreen.visible = true
+    if m.playerScreen <> invalid then m.playerScreen.visible = false
+    if m.guideBackdrop <> invalid then m.guideBackdrop.visible = true
+    if m.guideScreen <> invalid
+        m.guideScreen.visible = true
+    end if
+    m.top.setFocus(true)
+    if m.homeBg <> invalid then m.homeBg.visible = false
+    if m.homeDarkOverlay <> invalid then m.homeDarkOverlay.visible = false
+    if m.posterGrid <> invalid then m.posterGrid.visible = false
+    m.folderBreadcrumb.text = "Home > Free TV Guide"
+    if m.guideInfoHint <> invalid then m.guideInfoHint.text = "▲▼ Browse   OK Full Screen   ◀▶ Source"
+    if resumePlayback
+        if m.video.state <> "playing" and m.video.state <> "buffering" then m.video.control = "play"
+    end if
+    startGuideRefreshTimer()
+end sub
+
+sub exitFreeTvGuide(popStateAfter as Boolean)
+    stopGuideRefreshTimer()
+    if m.guideTuneTimer <> invalid
+        m.guideTuneTimer.control = "stop"
+        m.top.removeChild(m.guideTuneTimer)
+        m.guideTuneTimer = invalid
+    end if
+    m.playerFromGuide = false
+    m.isLiveChannel = false
+    m.currentStreamUrl = ""
+    m.currentStreamTitle = ""
+    if m.video <> invalid
+        m.video.control = "stop"
+        m.video.visible = false
+        m.video.translation = [0, 0]
+        m.video.width = 1280
+        m.video.height = 720
+    end if
+    m.state = "grid"
+    if m.guideScreen <> invalid then m.guideScreen.visible = false
+    if m.guideBackdrop <> invalid then m.guideBackdrop.visible = false
+    if m.homeBg <> invalid then m.homeBg.visible = true
+    if m.homeDarkOverlay <> invalid then m.homeDarkOverlay.visible = true
+    if popStateAfter
+        if not popState() then showHomeScreen()
+    end if
+end sub
+
+sub startGuideRefreshTimer()
+    stopGuideRefreshTimer()
+    m.guideRefreshTimer = CreateObject("roSGNode", "Timer")
+    m.guideRefreshTimer.duration = 30
+    m.guideRefreshTimer.repeat = true
+    m.guideRefreshTimer.observeField("fire", "onGuideRefreshTimer")
+    m.top.appendChild(m.guideRefreshTimer)
+    m.guideRefreshTimer.control = "start"
+end sub
+
+sub stopGuideRefreshTimer()
+    if m.guideRefreshTimer <> invalid
+        m.guideRefreshTimer.control = "stop"
+        m.top.removeChild(m.guideRefreshTimer)
+        m.guideRefreshTimer = invalid
+    end if
+end sub
+
+sub onGuideRefreshTimer()
+    if m.state <> "guide" return
+    if m.guideItems = invalid or m.guideItems.count() = 0 return
+    refreshGuideList()
+    updateGuideInfo(m.guideItems[m.guideIndex])
 end sub
 
 sub stopBackgroundPlayback()
@@ -3455,10 +4090,14 @@ end sub
 
 sub playFreeTvStream(streamUrl as String, title as String)
     m.isLiveChannel = true
+    m.playerFromGuide = false
     m.bgTunedTitle = title
     m.justExitedPlayer = false
     m.currentEpisodeList = invalid
     m.currentEpisodeIndex = -1
+    m.video.translation = [0, 0]
+    m.video.width = 1280
+    m.video.height = 720
     m.gridScreen.visible = false
     if m.playerScreen <> invalid then m.playerScreen.visible = true
     m.state = "player"
@@ -3488,6 +4127,12 @@ end sub
 
 sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, filePath = "" as String, forceHls = false as Boolean, subtitleUrl = "" as String)
     stopBackgroundPlayback()
+    m.playerFromGuide = false
+    if m.video <> invalid
+        m.video.translation = [0, 0]
+        m.video.width = 1280
+        m.video.height = 720
+    end if
     if m.state = "grid" and m.folderBreadcrumb <> invalid and m.folderBreadcrumb.text <> invalid
         if Left(m.folderBreadcrumb.text, 10) <> "Searching " and Left(m.folderBreadcrumb.text, 13) <> "Initializing "
             m.savedGridBreadcrumb = m.folderBreadcrumb.text
@@ -3884,6 +4529,10 @@ sub onVideoStateChange()
         m.lastBufferingPercent = 0
         m.hasPlayedContent = true
         if m.homeBg <> invalid then m.homeBg.visible = false
+        if m.state = "guide"
+            if m.guideInfoHint <> invalid then m.guideInfoHint.text = "▲▼ Browse   OK Full Screen   ◀▶ Source"
+            return
+        end if
         if m.state = "player"
             m.gridScreen.visible = false
             if m.playerScreen <> invalid then m.playerScreen.visible = true
@@ -3893,6 +4542,14 @@ sub onVideoStateChange()
 
     if st = "buffering"
         startBufferingWatchdog()
+        return
+    end if
+
+    if m.state = "guide"
+        if st = "error"
+            if m.guideInfoHint <> invalid then m.guideInfoHint.text = "Channel unavailable. Try another."
+            if m.guideInfoNow <> invalid then m.guideInfoNow.text = "Unable to tune this channel"
+        end if
         return
     end if
 
@@ -3947,6 +4604,11 @@ sub onVideoStateChange()
         if m.progressTimer <> invalid then m.progressTimer.control = "stop"
 
         if st = "finished" and playNextDriveEpisode()
+            return
+        end if
+
+        if m.playerFromGuide
+            returnToGuideFromPlayer(true)
             return
         end if
 
@@ -4078,6 +4740,12 @@ sub onVideoStateChange()
 
         m.triedTranscodeFallback = false
         m.triedStreamRetry = false
+        if m.playerFromGuide
+            returnToGuideFromPlayer(false)
+            if m.guideInfoHint <> invalid then m.guideInfoHint.text = "Channel unavailable. Try another."
+            if m.guideInfoNow <> invalid then m.guideInfoNow.text = "Unable to tune this channel"
+            return
+        end if
         stopAllActiveStreams()
         m.video.control = "stop"
         m.video.visible = false
@@ -4093,9 +4761,13 @@ end sub
 function onKeyEvent(key as String, press as Boolean) as Boolean
     k = LCase(key)
 
-    if m.state = "player" or (m.video <> invalid and m.video.visible = true)
+    if m.state = "player"
         if k = "back"
             if press
+                if m.playerFromGuide
+                    returnToGuideFromPlayer()
+                    return true
+                end if
                 stopAllActiveStreams()
                 m.video.control = "stop"
                 m.video.visible = false
@@ -4150,6 +4822,29 @@ function onKeyEvent(key as String, press as Boolean) as Boolean
     end if
 
     if not press return false
+
+    if m.state = "guide"
+        if k = "up"
+            moveGuideSelection(-1)
+            return true
+        else if k = "down"
+            moveGuideSelection(1)
+            return true
+        else if k = "left"
+            cycleGuideFilter(-1)
+            return true
+        else if k = "right"
+            cycleGuideFilter(1)
+            return true
+        else if k = "ok" or k = "play"
+            enterFullscreenFromGuide()
+            return true
+        else if k = "back"
+            exitFreeTvGuide(true)
+            return true
+        end if
+        return true
+    end if
 
     if (k = "play" or k = "pause" or k = "playpause") and m.state = "grid" and m.sidebarFocused = false
         if isLoggedIn()
