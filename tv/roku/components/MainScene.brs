@@ -5,7 +5,6 @@ sub init()
     m.serverUrl = "https://tv.butfree.online"
     m.torrentServerUrl = "http://download.butfree.online:4000"
     m.state = "grid"
-    m.isIpFocused = false
     m.isLiveChannel = false
     m.savedGridBreadcrumb = "Home"
 
@@ -40,10 +39,8 @@ sub init()
     m.homeOverlay = m.top.findNode("homeOverlay")
     m.heroTitle = m.top.findNode("heroTitle")
     m.heroDesc = m.top.findNode("heroDesc")
-
-    m.ipLabel = m.top.findNode("ipLabel")
-    m.ipContainer = m.top.findNode("ipContainer")
-    m.ipFrame = m.top.findNode("ipFrame")
+    m.heroMeta = m.top.findNode("heroMeta")
+    m.headerDivider = m.top.findNode("headerDivider")
 
     m.sidebar = m.top.findNode("sidebar")
     m.sidebarBg = m.top.findNode("sidebarBg")
@@ -60,6 +57,9 @@ sub init()
 
     m.authToken = ""
     m.authUserName = ""
+    m.authUserEmail = ""
+    m.authIsAdmin = false
+    m.driveProgress = {}
     loadAuthToken()
     buildSidebar(navGroup)
 
@@ -130,7 +130,6 @@ sub init()
 end sub
 
 sub onStartup()
-    m.ipLabel.text = "Cloud"
     showHomeScreen()
 end sub
 
@@ -144,25 +143,150 @@ sub loadAuthToken()
     if reg.Exists("userName")
         m.authUserName = reg.Read("userName")
     end if
+    if reg.Exists("userEmail")
+        m.authUserEmail = reg.Read("userEmail")
+    end if
+    if reg.Exists("isAdmin") and reg.Read("isAdmin") = "true"
+        m.authIsAdmin = true
+    end if
+    if LCase(safeStr(m.authUserEmail)).trim() = "gdmcvittie@gmail.com"
+        m.authIsAdmin = true
+    end if
+    if isLoggedIn()
+        fetchUserMe()
+        loadPlaybackProgress()
+    end if
 end sub
 
-sub saveAuthToken(token as String, userName as String)
+sub saveAuthToken(token as String, userName as String, email = "" as String)
     reg = CreateObject("roRegistrySection", "FREEVEE")
     reg.Write("authToken", token)
     reg.Write("userName", userName)
+    if email <> ""
+        reg.Write("userEmail", email)
+        m.authUserEmail = email
+        if LCase(safeStr(email)).trim() = "gdmcvittie@gmail.com"
+            m.authIsAdmin = true
+            reg.Write("isAdmin", "true")
+        end if
+    end if
     reg.Flush()
     m.authToken = token
     m.authUserName = userName
+    fetchUserMe()
+    loadPlaybackProgress()
 end sub
 
 sub clearAuthToken()
     reg = CreateObject("roRegistrySection", "FREEVEE")
     if reg.Exists("authToken") then reg.Delete("authToken")
     if reg.Exists("userName") then reg.Delete("userName")
+    if reg.Exists("userEmail") then reg.Delete("userEmail")
+    if reg.Exists("isAdmin") then reg.Delete("isAdmin")
     reg.Flush()
     m.authToken = ""
     m.authUserName = ""
+    m.authUserEmail = ""
+    m.authIsAdmin = false
+    m.driveProgress = {}
 end sub
+
+sub fetchUserMe()
+    if not isLoggedIn() return
+    m.userMeTask = CreateAuthHttpTask()
+    ' /auth/me is served by both current and older server builds; /api/auth/me
+    ' is only present on newer builds and would return 404 on older deployments.
+    m.userMeTask.url = m.serverUrl + "/auth/me"
+    m.userMeTask.observeField("result", "onUserMeResult")
+    m.userMeTask.observeField("error", "onUserMeResult")
+    m.userMeTask.control = "run"
+end sub
+
+sub onUserMeResult()
+    if m.userMeTask = invalid return
+    res = m.userMeTask.result
+    if res = invalid or res = "" return
+    data = ParseJSON(res)
+    if data <> invalid and data.authenticated = true and data.user <> invalid
+        reg = CreateObject("roRegistrySection", "FREEVEE")
+        if data.user.email <> invalid
+            m.authUserEmail = safeStr(data.user.email)
+            reg.Write("userEmail", m.authUserEmail)
+        end if
+        isAdminFlag = (data.user.isAdmin <> invalid and data.user.isAdmin = true)
+        if LCase(safeStr(m.authUserEmail)).trim() = "gdmcvittie@gmail.com"
+            isAdminFlag = true
+        end if
+        m.authIsAdmin = isAdminFlag
+        if isAdminFlag
+            reg.Write("isAdmin", "true")
+        else if reg.Exists("isAdmin")
+            reg.Delete("isAdmin")
+        end if
+        reg.Flush()
+        navGroup = m.top.findNode("navItems")
+        if navGroup <> invalid then buildSidebar(navGroup)
+    end if
+end sub
+
+sub loadPlaybackProgress()
+    if not isLoggedIn() return
+    m.loadProgTask = CreateAuthHttpTask()
+    m.loadProgTask.url = m.serverUrl + "/api/playback/progress"
+    m.loadProgTask.observeField("result", "onPlaybackProgressResult")
+    m.loadProgTask.observeField("error", "onPlaybackProgressResult")
+    m.loadProgTask.control = "run"
+end sub
+
+sub onPlaybackProgressResult()
+    if m.loadProgTask = invalid return
+    res = m.loadProgTask.result
+    if res = invalid or res = "" return
+    data = ParseJSON(res)
+    if data <> invalid and type(data) = "roAssociativeArray"
+        if m.driveProgress = invalid then m.driveProgress = {}
+        for each k in data
+            m.driveProgress[k] = data[k]
+        end for
+    end if
+end sub
+
+function getItemField(item as Object, key as String) as Dynamic
+    if item = invalid return invalid
+    ' Drive library entries are plain associative arrays, which do not have a
+    ' hasField() method. ContentNode items do, so check the type first.
+    if type(item) = "roAssociativeArray"
+        if item.DoesExist(key) then return item[key]
+        return invalid
+    end if
+    if item.hasField(key) then return item[key]
+    return invalid
+end function
+
+function getItemProgress(item as Object) as Object
+    if m.driveProgress = invalid or item = invalid return invalid
+    p = invalid
+    mediaPath = safeStr(getItemField(item, "mediaPath"))
+    if mediaPath <> ""
+        p = m.driveProgress[mediaPath]
+    end if
+    if p = invalid
+        driveId = safeStr(getItemField(item, "driveId"))
+        if driveId <> ""
+            p = m.driveProgress["drive://" + driveId]
+            if p = invalid then p = m.driveProgress[driveId]
+        end if
+    end if
+    if p = invalid
+        pathVal = safeStr(getItemField(item, "path"))
+        if pathVal <> "" then p = m.driveProgress[pathVal]
+    end if
+    if p = invalid
+        filenameVal = safeStr(getItemField(item, "filename"))
+        if filenameVal <> "" then p = m.driveProgress[filenameVal]
+    end if
+    return p
+end function
 
 function isLoggedIn() as Boolean
     return m.authToken <> "" and m.authToken <> invalid
@@ -193,6 +317,17 @@ sub buildSidebar(navGroup as Object)
     end if
     navDefs.push({ label: "Services", icon: "pkg:/images/icon-services.png" })
     navDefs.push({ label: "Free TV", icon: "pkg:/images/icon-live.png" })
+    effectiveEmail = m.authUserEmail
+    if effectiveEmail = "" or effectiveEmail = invalid
+        reg = CreateObject("roRegistrySection", "FREEVEE")
+        if reg.Exists("userEmail") then effectiveEmail = reg.Read("userEmail")
+    end if
+    effectiveEmail = LCase(safeStr(effectiveEmail)).trim()
+    isSuper = (effectiveEmail = "gdmcvittie@gmail.com") or (m.authIsAdmin = true)
+
+    if isLoggedIn() and isSuper
+        navDefs.push({ label: "Restart", icon: "pkg:/images/icon-restart.png" })
+    end if
     if isLoggedIn()
         navDefs.push({ label: "Sign Out", icon: "pkg:/images/icon-person.png" })
     else
@@ -308,7 +443,11 @@ sub onPairingPollResult()
         token = data.token
         if token <> invalid and token <> ""
             if m.pairingGroup <> invalid then m.pairingGroup.visible = false
-            saveAuthToken(token, "")
+            email = ""
+            if data.email <> invalid then email = safeStr(data.email)
+            if data.isAdmin <> invalid and data.isAdmin = true then m.authIsAdmin = true
+            if email <> "" then m.authUserEmail = email
+            saveAuthToken(token, "", email)
             m.folderBreadcrumb.text = "Signed in successfully!"
             navGroup = m.top.findNode("navItems")
             buildSidebar(navGroup)
@@ -346,8 +485,11 @@ sub showHomeScreen()
     stopBackgroundPlayback()
     m.navStack = []
     m.folderBreadcrumb.text = "Home"
-    m.isIpFocused = false
-    updateIpHighlight()
+    m.folderBreadcrumb.visible = false
+    if m.headerDivider <> invalid then m.headerDivider.visible = false
+    if m.cwInfoBar <> invalid then m.cwInfoBar.visible = false
+    if m.cwInfoTitle <> invalid then m.cwInfoTitle.visible = false
+    if m.cwInfoDesc <> invalid then m.cwInfoDesc.visible = false
     m.activeSidebar = 0
     updateSidebarNav()
     m.heroGroup.visible = true
@@ -426,7 +568,8 @@ sub updateContinueWatchingGrid()
     end if
 
     showRail = (m.cwItems.count() > 0) and (m.navStack.count() = 0) and (m.state = "grid")
-    m.cwLabel.visible = false
+    m.cwLabel.visible = showRail
+    m.cwLabel.text = "WHAT'S ON & TRENDING"
     m.cwGrid.visible = showRail
     if m.cwItems.count() > 0
         m.cwGrid.content = railContent
@@ -436,7 +579,7 @@ sub updateContinueWatchingGrid()
     ' Fresh home data commonly arrives after showHomeScreen already tried to
     ' focus an empty (invisible) grid, so nothing has focus and the D-pad is
     ' dead until the user opens/closes the sidebar. Claim focus on the rail.
-    if showRail and m.top.dialog = invalid and not m.sidebarFocused and not m.isIpFocused and not m.cwGrid.hasFocus()
+    if showRail and m.top.dialog = invalid and not m.sidebarFocused and not m.cwGrid.hasFocus()
         m.cwGrid.setFocus(true)
     end if
 end sub
@@ -509,30 +652,22 @@ sub onCwFocused()
     focusedIdx = m.cwGrid.itemFocused
     if focusedIdx >= 0 and focusedIdx < m.cwItems.count()
         item = m.cwItems[focusedIdx]
-        if m.detailTitle <> invalid and item.title <> invalid then m.detailTitle.text = item.title
-        if m.detailDesc <> invalid and item.description <> invalid then m.detailDesc.text = item.description
         if m.heroTitle <> invalid and item.title <> invalid and item.title <> "" then m.heroTitle.text = item.title
         if m.heroDesc <> invalid and item.description <> invalid and item.description <> "" then m.heroDesc.text = item.description
-        if m.homeBg <> invalid and item.HDPosterUrl <> invalid and item.HDPosterUrl <> ""
-            m.homeBg.loadDisplayMode = "zoomToFill"
-            m.homeBg.uri = item.HDPosterUrl
-        end if
-        if m.cwInfoBar <> invalid and item.targetType <> "section_header"
-            m.cwInfoBar.visible = true
-            m.cwInfoTitle.visible = true
-            m.cwInfoDesc.visible = true
-            if item.title <> invalid then m.cwInfoTitle.text = item.title
-            if item.description <> invalid and item.description <> ""
-                m.cwInfoDesc.text = item.description
-            else
-                m.cwInfoDesc.text = ""
+        if m.heroMeta <> invalid
+            metaText = ""
+            if item.shortDescriptionLine1 <> invalid and item.shortDescriptionLine1 <> ""
+                metaText = item.shortDescriptionLine1
             end if
-        else if m.cwInfoBar <> invalid
-            m.cwInfoBar.visible = false
-            m.cwInfoTitle.visible = false
-            m.cwInfoDesc.visible = false
+            if item.hasField("itemType") and item.itemType <> invalid and item.itemType <> ""
+                if metaText <> ""
+                    metaText = UCase(item.itemType.toStr()) + " • " + metaText
+                else
+                    metaText = UCase(item.itemType.toStr())
+                end if
+            end if
+            if metaText <> "" then m.heroMeta.text = metaText
         end if
-
         stopBackgroundPlayback()
     end if
 end sub
@@ -605,6 +740,19 @@ sub onDriveLibraryResult()
     if data.movieFolderList <> invalid then m.driveMovieFolderList = data.movieFolderList
     if data.hlsChunkSeconds <> invalid and data.hlsChunkSeconds > 0
         m.serverChunkSeconds = data.hlsChunkSeconds
+    end if
+    if m.driveProgress = invalid then m.driveProgress = {}
+    if data.progress <> invalid and type(data.progress) = "roAssociativeArray"
+        for each pk in data.progress
+            m.driveProgress[pk] = data.progress[pk]
+        end for
+    end if
+    if data.continueWatching <> invalid
+        for each cw in data.continueWatching
+            if cw <> invalid and cw.path <> invalid
+                if m.driveProgress[cw.path] = invalid then m.driveProgress[cw.path] = cw
+            end if
+        end for
     end if
 
     ' Fallback: group movies by folder if not grouped by server
@@ -894,6 +1042,41 @@ function buildDriveEpisodeNode(showName as String, seasonNum as String, ep as Ob
     node.shortDescriptionLine1 = "Episode " + Stri(eNum).trim()
     node.description = showName + " - " + fullTitle
 
+    prog = getItemProgress(ep)
+    isWatched = false
+    currentTime = 0
+    if prog <> invalid
+        dur = safeInt(prog.duration)
+        cur = safeInt(prog.currentTime)
+        if (dur > 0 and cur >= dur * 0.9) or prog.watched = true
+            isWatched = true
+        else if cur > 5
+            currentTime = cur
+        end if
+    end if
+
+    if isWatched
+        node.title = "✓ " + fullTitle
+        node.shortDescriptionLine1 = "✓ Watched"
+    else if currentTime > 0
+        remMin = 0
+        if prog.duration <> invalid and prog.duration > currentTime
+            remMin = Int((prog.duration - currentTime) / 60)
+        end if
+        if remMin > 0
+            node.shortDescriptionLine1 = Stri(remMin).trim() + "m left"
+        else
+            node.shortDescriptionLine1 = "In Progress"
+        end if
+    end if
+
+    subUrl = ""
+    if ep.subtitleUrl <> invalid and ep.subtitleUrl <> ""
+        subUrl = ep.subtitleUrl
+    else if ep.driveId <> invalid and ep.driveId <> ""
+        subUrl = "/api/stream/drive-subtitle/" + ep.driveId
+    end if
+
     node.addFields({
         targetType: "drive_episode"
         showName: showName
@@ -903,6 +1086,8 @@ function buildDriveEpisodeNode(showName as String, seasonNum as String, ep as Ob
         mediaPath: safeStr(ep.path)
         driveId: safeStr(ep.driveId)
         filename: safeStr(ep.filename)
+        currentTime: currentTime
+        subtitleUrl: subUrl
     })
     return node
 end function
@@ -1142,13 +1327,47 @@ sub openDriveMovieFolderGrid(folderName as String, movies as Object)
         if yStr <> "" and yStr <> "0" then yearStr = " (" + yStr + ")"
         node.shortDescriptionLine1 = "Movie" + yearStr
         node.description = safeStr(movie.title) + yearStr
+        prog = getItemProgress(movie)
+        isWatched = false
+        currentTime = 0
+        if prog <> invalid
+            dur = safeInt(prog.duration)
+            cur = safeInt(prog.currentTime)
+            if (dur > 0 and cur >= dur * 0.9) or prog.watched = true
+                isWatched = true
+            else if cur > 5
+                currentTime = cur
+            end if
+        end if
+        if isWatched
+            node.title = "✓ " + safeStr(movie.title)
+            node.shortDescriptionLine1 = "✓ Watched"
+        else if currentTime > 0
+            remMin = 0
+            if prog.duration <> invalid and prog.duration > currentTime
+                remMin = Int((prog.duration - currentTime) / 60)
+            end if
+            if remMin > 0
+                node.shortDescriptionLine1 = Stri(remMin).trim() + "m left"
+            else
+                node.shortDescriptionLine1 = "In Progress"
+            end if
+        end if
+        subUrl = ""
+        if movie.subtitleUrl <> invalid and movie.subtitleUrl <> ""
+            subUrl = movie.subtitleUrl
+        else if movie.driveId <> invalid and movie.driveId <> ""
+            subUrl = "/api/stream/drive-subtitle/" + movie.driveId
+        end if
         node.addFields({
             targetType: "drive_movie",
             itemTitle: safeStr(movie.title),
             mediaPath: safeStr(movie.path),
             driveId: safeStr(movie.driveId),
             filename: safeStr(movie.filename),
-            posterUrl: posterUrl
+            posterUrl: posterUrl,
+            currentTime: currentTime,
+            subtitleUrl: subUrl
         })
         m.gridItems.push(node)
     end for
@@ -1179,13 +1398,47 @@ sub openDriveAllMoviesGrid()
         if yStr <> "" and yStr <> "0" then yearStr = " (" + yStr + ")"
         node.shortDescriptionLine1 = "Movie" + yearStr
         node.description = safeStr(movie.title) + yearStr
+        prog = getItemProgress(movie)
+        isWatched = false
+        currentTime = 0
+        if prog <> invalid
+            dur = safeInt(prog.duration)
+            cur = safeInt(prog.currentTime)
+            if (dur > 0 and cur >= dur * 0.9) or prog.watched = true
+                isWatched = true
+            else if cur > 5
+                currentTime = cur
+            end if
+        end if
+        if isWatched
+            node.title = "✓ " + safeStr(movie.title)
+            node.shortDescriptionLine1 = "✓ Watched"
+        else if currentTime > 0
+            remMin = 0
+            if prog.duration <> invalid and prog.duration > currentTime
+                remMin = Int((prog.duration - currentTime) / 60)
+            end if
+            if remMin > 0
+                node.shortDescriptionLine1 = Stri(remMin).trim() + "m left"
+            else
+                node.shortDescriptionLine1 = "In Progress"
+            end if
+        end if
+        subUrl = ""
+        if movie.subtitleUrl <> invalid and movie.subtitleUrl <> ""
+            subUrl = movie.subtitleUrl
+        else if movie.driveId <> invalid and movie.driveId <> ""
+            subUrl = "/api/stream/drive-subtitle/" + movie.driveId
+        end if
         node.addFields({
             targetType: "drive_movie",
             itemTitle: safeStr(movie.title),
             mediaPath: safeStr(movie.path),
             driveId: safeStr(movie.driveId),
             filename: safeStr(movie.filename),
-            posterUrl: posterUrl
+            posterUrl: posterUrl,
+            currentTime: currentTime,
+            subtitleUrl: subUrl
         })
         m.gridItems.push(node)
     end for
@@ -1223,16 +1476,42 @@ sub playDriveItem(item as Object)
         driveId = Mid(mediaPath, 9)
     end if
 
+    if offset = 0
+        prog = getItemProgress(item)
+        if prog <> invalid and prog.currentTime <> invalid
+            cur = safeInt(prog.currentTime)
+            dur = safeInt(prog.duration)
+            if cur > 5 and (dur = 0 or cur < dur * 0.9)
+                offset = cur
+            end if
+        end if
+    end if
+
     if driveId <> ""
         dt = CreateObject("roDateTime")
         m.playStartWallClock = dt.asSeconds().toStr()
         m.currentPlayFilePath = mediaPath
         m.currentPlayFilename = filename
 
+        ' Subtitle URL resolution
+        subUrl = ""
+        if item.hasField("subtitleUrl") and item.subtitleUrl <> invalid and item.subtitleUrl <> ""
+            subUrl = item.subtitleUrl.toStr()
+        else
+            subUrl = "/api/stream/drive-subtitle/" + driveId
+        end if
+        if subUrl <> "" and Left(subUrl, 4) <> "http"
+            subUrl = m.serverUrl + subUrl
+            if isLoggedIn()
+                if Instr(1, subUrl, "?") > 0
+                    subUrl = subUrl + "&token=" + m.authToken
+                else
+                    subUrl = subUrl + "?token=" + m.authToken
+                end if
+            end if
+        end if
+
         ' Always transcode Drive content to HLS via the cloud server.
-        ' Direct /api/stream/drive/ progressive playback fails on many Roku
-        ' devices (aborted connections), so every Drive video is sent through
-        ' the drive-hls transcode pipeline that every Roku can decode.
         streamUrl = m.serverUrl + "/api/stream/drive-hls/" + driveId + ".m3u8"
         if isLoggedIn()
             streamUrl = streamUrl + "?token=" + m.authToken
@@ -1244,7 +1523,7 @@ sub playDriveItem(item as Object)
                 streamUrl = streamUrl + "?offset=" + Stri(Fix(offset)).trim()
             end if
         end if
-        playVideoUrl(streamUrl, title, offset, filename, true)
+        playVideoUrl(streamUrl, title, offset, filename, true, subUrl)
     end if
 end sub
 
@@ -1643,18 +1922,6 @@ end sub
 
 ' ---- Sidebar Navigation Helpers ----
 
-sub updateIpHighlight()
-    if m.isIpFocused
-        m.ipFrame.visible = true
-        m.ipLabel.color = "#FFFFFF"
-        m.ipContainer.color = "#2A2E3F"
-    else
-        m.ipFrame.visible = false
-        m.ipLabel.color = "#A3A8B8"
-        m.ipContainer.color = "#14161F"
-    end if
-end sub
-
 sub pushCurrentState(newBreadcrumb as String)
     isChannelSection = (InStr(1, newBreadcrumb, "Free TV > ") > 0)
     if not isChannelSection
@@ -1672,11 +1939,18 @@ sub pushCurrentState(newBreadcrumb as String)
         translation: m.posterGrid.translation
     })
     m.folderBreadcrumb.text = newBreadcrumb
+    m.folderBreadcrumb.visible = true
+    if m.headerDivider <> invalid then m.headerDivider.visible = true
+    if m.heroGroup <> invalid then m.heroGroup.visible = false
+    if m.cwLabel <> invalid then m.cwLabel.visible = false
+    if m.cwGrid <> invalid then m.cwGrid.visible = false
+    if m.cwInfoBar <> invalid then m.cwInfoBar.visible = false
+    m.posterGrid.visible = true
     m.savedGridBreadcrumb = newBreadcrumb
-    m.posterGrid.translation = [20, 76]
-    m.posterGrid.basePosterSize = [165, 270]
-    m.posterGrid.itemSpacing = [20, 14]
-    m.posterGrid.numColumns = 6
+    m.posterGrid.translation = [20, 70]
+    m.posterGrid.basePosterSize = [148, 222]
+    m.posterGrid.itemSpacing = [18, 14]
+    m.posterGrid.numColumns = 7
     m.posterGrid.numRows = 2
     m.posterGrid.visible = true
     m.heroGroup.visible = false
@@ -1721,6 +1995,9 @@ function popState() as Boolean
     if m.navStack.count() = 0
         m.heroGroup.visible = true
         m.posterGrid.visible = false
+        m.folderBreadcrumb.visible = false
+        if m.headerDivider <> invalid then m.headerDivider.visible = false
+        if m.cwInfoBar <> invalid then m.cwInfoBar.visible = false
         if m.homeOverlay <> invalid then m.homeOverlay.opacity = 0.65
         updateContinueWatchingGrid()
         if m.cwItems.count() > 0
@@ -2784,10 +3061,6 @@ sub onPosterFocused()
 end sub
 
 sub onPosterSelected()
-    if m.isIpFocused
-        return
-    end if
-
     selectedIdx = m.posterGrid.itemSelected
     if selectedIdx < 0 or selectedIdx >= m.gridItems.count() then return
     item = m.gridItems[selectedIdx]
@@ -3193,7 +3466,7 @@ sub playFreeTvStream(streamUrl as String, title as String)
     m.video.control = "play"
 end sub
 
-sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, filePath = "" as String, forceHls = false as Boolean)
+sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, filePath = "" as String, forceHls = false as Boolean, subtitleUrl = "" as String)
     stopBackgroundPlayback()
     if m.state = "grid" and m.folderBreadcrumb <> invalid and m.folderBreadcrumb.text <> invalid
         if Left(m.folderBreadcrumb.text, 10) <> "Searching " and Left(m.folderBreadcrumb.text, 13) <> "Initializing "
@@ -3234,6 +3507,18 @@ sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, file
     vidContent.url = playUrl
     vidContent.title = title
     vidContent.bufferingTargetSeconds = 12
+
+    ' Subtitle & Caption Setup
+    m.video.captionMode = "On"
+    if subtitleUrl <> "" and subtitleUrl <> invalid
+        subTracks = []
+        subTracks.push({
+            Language: "en",
+            TrackName: subtitleUrl,
+            Description: "English"
+        })
+        vidContent.subtitleTracks = subTracks
+    end if
     if forceHls
         vidContent.streamFormat = "hls"
         vidContent.live = false
@@ -3615,7 +3900,29 @@ sub onVideoStateChange()
         if isLoggedIn() and m.currentPlayFilePath <> "" and m.currentPlayFilePath <> invalid
             vidDur = m.video.duration
             if vidDur = invalid then vidDur = 0
-            submitPlaybackProgress(m.currentPlayFilePath, vidDur, vidDur, m.currentStreamTitle, m.currentPlayingItemType, m.currentPlayingShow, m.currentPlayingSeason, m.currentPlayingEpisode, m.currentPlayingPoster)
+            if st = "finished"
+                effectivePos = vidDur
+            else
+                vidPos = m.video.position
+                if vidPos = invalid then vidPos = 0
+                startOffset = 0
+                if m.initialPlayOffset <> invalid and m.initialPlayOffset > 0 then startOffset = m.initialPlayOffset
+                effectivePos = startOffset + vidPos
+                if m.maxPlaybackPosition <> invalid and m.maxPlaybackPosition > effectivePos
+                    effectivePos = m.maxPlaybackPosition
+                end if
+                if vidDur > 0 and effectivePos >= vidDur * 0.9
+                    effectivePos = vidDur
+                end if
+            end if
+            submitPlaybackProgress(m.currentPlayFilePath, effectivePos, vidDur, m.currentStreamTitle, m.currentPlayingItemType, m.currentPlayingShow, m.currentPlayingSeason, m.currentPlayingEpisode, m.currentPlayingPoster)
+            if m.driveProgress = invalid then m.driveProgress = {}
+            m.driveProgress[m.currentPlayFilePath] = {
+                path: m.currentPlayFilePath,
+                currentTime: effectivePos,
+                duration: vidDur,
+                watched: (vidDur > 0 and effectivePos >= vidDur * 0.9)
+            }
         end if
         if m.progressTimer <> invalid then m.progressTimer.control = "stop"
 
@@ -3793,14 +4100,13 @@ function onKeyEvent(key as String, press as Boolean) as Boolean
             return true
         else if k = "options" or k = "star"
             if press
-                stopAllActiveStreams()
-                m.video.control = "stop"
-                m.video.visible = false
-                if m.homeBg <> invalid then m.homeBg.visible = true
-                if m.playerScreen <> invalid then m.playerScreen.visible = false
-                m.gridScreen.visible = true
-                m.state = "grid"
-                restoreGridFocus()
+                if m.video.captionMode = "On"
+                    m.video.captionMode = "Off"
+                    showNotification("Subtitles", "Subtitles / Closed Captions: OFF")
+                else
+                    m.video.captionMode = "On"
+                    showNotification("Subtitles", "Subtitles / Closed Captions: ON")
+                end if
             end if
             return true
         end if
@@ -3825,7 +4131,7 @@ function onKeyEvent(key as String, press as Boolean) as Boolean
 
     if not press return false
 
-    if (k = "play" or k = "pause" or k = "playpause") and m.state = "grid" and m.sidebarFocused = false and m.isIpFocused = false
+    if (k = "play" or k = "pause" or k = "playpause") and m.state = "grid" and m.sidebarFocused = false
         if isLoggedIn()
             toggleFocusedFavorite()
             return true
@@ -3837,20 +4143,6 @@ function onKeyEvent(key as String, press as Boolean) as Boolean
 
     if (k = "options" or k = "star") and m.state = "grid" and m.top.dialog = invalid
         startUnifiedSearchEdit()
-        return true
-    end if
-
-    if m.isIpFocused
-        if key = "down"
-            m.isIpFocused = false
-            updateIpHighlight()
-            if m.navStack.count() = 0 and m.cwGrid.visible
-                m.cwGrid.setFocus(true)
-            else
-                m.posterGrid.setFocus(true)
-            end if
-            return true
-        end if
         return true
     end if
 
@@ -3890,19 +4182,6 @@ function onKeyEvent(key as String, press as Boolean) as Boolean
                 openSidebarNav()
                 return true
             end if
-        end if
-    else if key = "up"
-        if m.state = "grid" and m.navStack.count() = 0
-            if m.cwGrid.hasFocus()
-                m.isIpFocused = true
-                updateIpHighlight()
-                return true
-            end if
-        end if
-        if m.state = "grid" and m.navStack.count() > 0 and m.posterGrid.hasFocus()
-            m.isIpFocused = true
-            updateIpHighlight()
-            return true
         end if
     else if key = "down"
         if m.state = "grid" and m.navStack.count() = 0
@@ -4026,6 +4305,63 @@ sub activateSidebarItem(idx as Integer)
         handleSignOut()
     else if action = "Sign In"
         showLoginScreen()
+    else if action = "Restart"
+        restartServersAndClearCache()
+    end if
+end sub
+
+sub restartServersAndClearCache()
+    showNotification("Server Maintenance", "Restarting servers and clearing torrent cache...")
+    m.restartClearTask = CreateAuthHttpTask()
+    m.restartClearTask.url = m.serverUrl + "/api/admin/restart-and-clear"
+    m.restartClearTask.method = "POST"
+    m.restartClearTask.observeField("result", "onRestartAndClearResult")
+    m.restartClearTask.observeField("error", "onRestartAndClearResult")
+    m.restartClearTask.control = "run"
+end sub
+
+sub onRestartAndClearResult()
+    if m.restartClearTask = invalid return
+    err = m.restartClearTask.error
+    if err <> "" and err <> invalid
+        ' Older server builds do not have the combined endpoint. Fall back to
+        ' the separate admin restart endpoints they do expose.
+        if Instr(1, err, "404") > 0
+            restartLegacyServers()
+        else
+            showNotification("Server Maintenance", "Restart failed: " + err)
+        end if
+        return
+    end if
+    showNotification("Server Maintenance", "Restart dispatched. Servers are rebooting...")
+end sub
+
+sub restartLegacyServers()
+    showNotification("Server Maintenance", "Restarting server and torrent node...")
+    m.restartTorrentTask = CreateAuthHttpTask()
+    m.restartTorrentTask.url = m.serverUrl + "/api/torrent/restart"
+    m.restartTorrentTask.method = "POST"
+    m.restartTorrentTask.observeField("result", "onLegacyRestartResult")
+    m.restartTorrentTask.observeField("error", "onLegacyRestartResult")
+    m.restartTorrentTask.control = "run"
+
+    m.restartServerTask = CreateAuthHttpTask()
+    m.restartServerTask.url = m.serverUrl + "/api/server/restart"
+    m.restartServerTask.method = "POST"
+    m.restartServerTask.observeField("result", "onLegacyRestartResult")
+    m.restartServerTask.observeField("error", "onLegacyRestartResult")
+    m.restartServerTask.control = "run"
+end sub
+
+sub onLegacyRestartResult()
+    torrentErr = ""
+    serverErr = ""
+    if m.restartTorrentTask <> invalid then torrentErr = safeStr(m.restartTorrentTask.error)
+    if m.restartServerTask <> invalid then serverErr = safeStr(m.restartServerTask.error)
+    if torrentErr <> "" and serverErr <> ""
+        showNotification("Server Maintenance", "Restart failed: " + serverErr)
+    else
+        showNotification("Server Maintenance", "Restart dispatched. Servers are rebooting...")
     end if
 end sub
 

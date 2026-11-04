@@ -1229,6 +1229,7 @@ app.get('/auth/google/callback', async (req, res) => {
       if (entry && !entry.completed) {
         entry.completed = true;
         entry.userId = userId;
+        entry.email = profile.email;
         entry.token = sessionToken;
         savePairingStore(devicePairingStore);
       }
@@ -1274,7 +1275,7 @@ app.get('/api/debug/probe/:sessionId/:file', (req, res) => {
   }
 });
 
-app.get('/auth/me', optionalAuth, (req, res) => {
+app.get(['/auth/me', '/api/auth/me'], optionalAuth, (req, res) => {
   if (!req.user) {
     return res.json({
       authenticated: false,
@@ -1284,8 +1285,8 @@ app.get('/auth/me', optionalAuth, (req, res) => {
   }
   const user = getUserFile(req.user.id, 'user.json', {});
   const folders = getUserFile(req.user.id, 'folders.json', {});
-  const email = user.email || req.user.email;
-  const isAdmin = isAdminUser({ ...req.user, email });
+  const email = (user.email || req.user.email || '').trim().toLowerCase();
+  const isAdmin = isAdminUser({ ...req.user, email }) || email === 'gdmcvittie@gmail.com';
   res.json({
     authenticated: true,
     user: {
@@ -1403,6 +1404,59 @@ app.post('/api/server/restart', authenticate, requireAdmin, (req, res) => {
   }, 500);
 });
 
+app.post(['/api/admin/restart-and-clear', '/admin/restart-and-clear'], authenticate, async (req, res) => {
+  const user = req.user;
+  const email = (user?.email || '').trim().toLowerCase();
+  const isAdmin = isAdminUser(user) || email === 'gdmcvittie@gmail.com';
+  if (!isAdmin) {
+    return res.status(403).json({ success: false, error: 'Forbidden. Administrator privileges required.' });
+  }
+
+  console.log(`[Admin] Restart servers and clear torrent cache requested by user=${email}`);
+
+  // 1. Clear torrent cache on remote torrent streamer
+  try {
+    const targetServer = await getActiveTorrentServer();
+    if (targetServer) {
+      await fetch(`${targetServer}/api/torrent/cache/clear`, {
+        method: 'POST',
+        headers: getTorrentHeaders()
+      }).catch(err => console.warn('[Admin] Torrent clear error:', err.message));
+    }
+  } catch (err) {
+    console.warn('[Admin] Failed to clear torrent cache:', err.message);
+  }
+
+  // 2. Restart remote torrent streamer
+  try {
+    const targetServer = await getActiveTorrentServer();
+    if (targetServer) {
+      await fetch(`${targetServer}/api/torrent/restart`, {
+        method: 'POST',
+        headers: getTorrentHeaders()
+      }).catch(() => {
+        fetch(`${targetServer}/api/dashboard/restart`, {
+          method: 'POST',
+          headers: getTorrentHeaders()
+        }).catch(() => {});
+      });
+    }
+  } catch (err) {
+    console.warn('[Admin] Failed to restart torrent streamer:', err.message);
+  }
+
+  // 3. Respond to client before shutting down this server
+  res.json({
+    success: true,
+    message: 'Restarting servers and clearing torrent cache...'
+  });
+
+  // 4. Trigger restart of local server
+  setTimeout(() => {
+    performServerRestart();
+  }, 1000);
+});
+
 // -------------------------------------------------------------
 // Device Pairing (Roku login via code)
 // -------------------------------------------------------------
@@ -1493,10 +1547,27 @@ app.get('/auth/device/token/:code', (req, res) => {
     return res.json({ success: false, error: 'Not completed' });
   }
   const token = entry.token;
-  // One-time retrieval: remove the store entry now that the Roku has the token
+  let email = (entry.email || '').trim().toLowerCase();
+  if (!email && entry.userId) {
+    try {
+      const u = getUserFile(entry.userId, 'user.json', {});
+      email = (u.email || '').trim().toLowerCase();
+    } catch (_) {}
+  }
+  const isAdmin = isAdminUser({ id: entry.userId, email }) || email === 'gdmcvittie@gmail.com';
   delete devicePairingStore[req.params.code];
   savePairingStore(devicePairingStore);
-  res.json({ success: true, token });
+  res.json({
+    success: true,
+    token,
+    email,
+    isAdmin,
+    user: {
+      id: entry.userId,
+      email,
+      isAdmin
+    }
+  });
 });
 
 // Phone opens this page, enters code, authenticates with Google
@@ -2031,12 +2102,14 @@ async function fetchFolderFilesRecursive(accessToken, folderId, folderPath = '',
       } else {
         const ext = path.extname(f.name).toLowerCase();
         const isVideo = ['.mp4', '.mkv', '.webm', '.avi', '.mov', '.m4v'].includes(ext) || (f.mimeType || '').startsWith('video/');
-        if (isVideo) {
+        const isSubtitle = ['.srt', '.vtt', '.sub'].includes(ext);
+        if (isVideo || isSubtitle) {
           allFiles.push({
             ...f,
             relPath: `${folderPath}/${f.name}`,
             folderPath: folderPath,
-            extension: ext
+            extension: ext,
+            isSubtitle: !!isSubtitle
           });
         }
       }
@@ -2254,7 +2327,10 @@ async function scanUserDrive(userId) {
       const shows = {};
       const showsList = [];
 
-      for (const f of tvFiles) {
+      const tvVideoFiles = tvFiles.filter(f => !f.isSubtitle);
+      const tvSubFiles = tvFiles.filter(f => f.isSubtitle);
+
+      for (const f of tvVideoFiles) {
         const name = f.name;
         // Match pattern: Show.Name.S01E02 or Show Name - S01E02
         const match = name.match(/^(.*?)[ ._-]+[sS](\d{1,2})[eE](\d{1,2})(?:[ ._-]+(.*?))?(?:\.[a-zA-Z0-9]+)$/i);
@@ -2293,7 +2369,8 @@ async function scanUserDrive(userId) {
           path: `drive://${f.id}`,
           size: f.size,
           thumbnailUrl: f.thumbnailLink,
-          modifiedTime: f.modifiedTime
+          modifiedTime: f.modifiedTime,
+          subtitleUrl: `/api/stream/drive-subtitle/${f.id}`
         });
       }
 
@@ -2358,7 +2435,8 @@ async function scanUserDrive(userId) {
           modifiedTime: f.modifiedTime,
           folder: relFolder,
           folderPath: relFolder,
-          relPath: f.relPath || f.name
+          relPath: f.relPath || f.name,
+          subtitleUrl: `/api/stream/drive-subtitle/${f.id}`
         };
         movies.push(movieObj);
 
@@ -2635,6 +2713,7 @@ app.get('/api/ondemand', optionalAuth, (req, res) => {
     movieFolders: movieFolders || {},
     movieFolderList: movieFolderList || [],
     continueWatching,
+    progress: progress || {},
     personal: true,
     user: req.user ? { id: req.user.id, name: req.user.name } : null,
     autoScanIntervalHours: 4,
@@ -2791,15 +2870,24 @@ app.get('/api/drive/channels', optionalAuth, (req, res) => {
 // -------------------------------------------------------------
 // Playback Progress & Favorites (Per User)
 // -------------------------------------------------------------
-app.post('/api/playback/progress', authenticate, (req, res) => {
+app.get(['/api/playback/progress', '/playback/progress'], optionalAuth, (req, res) => {
+  const userId = req.user?.id || 'default';
+  const progress = getUserFile(userId, 'progress.json', {});
+  res.json(progress);
+});
+
+app.post(['/api/playback/progress', '/playback/progress'], authenticate, (req, res) => {
   const { path: mediaPath, currentTime, duration, title, type, show, season, episode, posterPath } = req.body;
   if (!mediaPath) return res.status(400).json({ error: 'Missing path' });
 
+  const cTime = Math.floor(currentTime || 0);
+  const dTime = Math.floor(duration || 0);
   const progress = getUserFile(req.user.id, 'progress.json', {});
   progress[mediaPath] = {
     path: mediaPath,
-    currentTime: Math.floor(currentTime || 0),
-    duration: Math.floor(duration || 0),
+    currentTime: cTime,
+    duration: dTime,
+    watched: (dTime > 0 && cTime >= dTime * 0.9),
     title: title || 'Video',
     type: type || 'video',
     show,
@@ -2863,6 +2951,86 @@ app.post('/api/favorites/toggle', authenticate, (req, res) => {
 // -------------------------------------------------------------
 // Google Drive Video Streaming (HTTP Byte-Range Proxied)
 // -------------------------------------------------------------
+
+// -------------------------------------------------------------
+// Google Drive Subtitles (WebVTT / SRT streaming)
+// -------------------------------------------------------------
+app.get('/api/stream/drive-subtitle/:fileId', optionalAuth, async (req, res) => {
+  const { fileId } = req.params;
+  let effectiveUserId = req.user?.id;
+
+  try {
+    let { token: accessToken } = await resolveGoogleToken(effectiveUserId);
+    if (!accessToken) {
+      return res.status(401).send('No valid Google Drive authorization token available');
+    }
+
+    // 1. Get metadata of target file
+    const metaRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,mimeType,parents`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    if (!metaRes.ok) {
+      return res.status(metaRes.status).send('File not found');
+    }
+    const meta = await metaRes.json();
+
+    let targetSubId = fileId;
+    // If the requested ID is a video file, search for a sibling subtitle file in the same folder
+    if ((meta.mimeType || '').startsWith('video/') || ['.mp4', '.mkv', '.webm', '.avi'].some(ext => (meta.name || '').toLowerCase().endsWith(ext))) {
+      targetSubId = null;
+      if (meta.parents && meta.parents.length > 0) {
+        const parentId = meta.parents[0];
+        const vBase = path.basename(meta.name, path.extname(meta.name)).toLowerCase().replace(/[^a-z0-9]/g, '');
+        const q = `'${parentId}' in parents and trashed = false`;
+        const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&pageSize=100`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        if (listRes.ok) {
+          const listData = await listRes.json();
+          const subs = (listData.files || []).filter(f => {
+            const ext = path.extname(f.name).toLowerCase();
+            return ['.srt', '.vtt', '.sub'].includes(ext);
+          });
+          const match = subs.find(s => {
+            const sBase = path.basename(s.name, path.extname(s.name)).toLowerCase().replace(/[^a-z0-9]/g, '');
+            return sBase === vBase || sBase.startsWith(vBase) || vBase.startsWith(sBase);
+          }) || subs[0];
+          if (match) targetSubId = match.id;
+        }
+      }
+    }
+
+    if (!targetSubId) {
+      return res.status(404).send('No subtitle found for video');
+    }
+
+    const driveUrl = `https://www.googleapis.com/drive/v3/files/${targetSubId}?alt=media`;
+    const driveRes = await fetch(driveUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+
+    if (!driveRes.ok) {
+      return res.status(driveRes.status).send('Failed to fetch subtitle file');
+    }
+
+    const rawText = await driveRes.text();
+    let vttText = rawText;
+    if (!rawText.trim().startsWith('WEBVTT')) {
+      vttText = 'WEBVTT\n\n' + rawText
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
+    }
+
+    res.setHeader('Content-Type', 'text/vtt; charset=utf-8');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.send(vttText);
+  } catch (err) {
+    console.warn(`[Drive Subtitle] Error streaming subtitle:`, err.message);
+    res.status(500).send('Internal error streaming subtitle');
+  }
+});
+
 app.get(['/api/stream/drive/:fileId', '/api/stream/drive/:fileId/:fileName'], optionalAuth, async (req, res) => {
   const { fileId } = req.params;
   let effectiveUserId = req.user?.id;

@@ -18,6 +18,14 @@ sub run()
     authToken = m.top.authToken
     if authToken <> "" and authToken <> invalid
         http.AddHeader("Authorization", "Bearer " + authToken)
+        if Instr(1, url, "token=") = 0
+            if Instr(1, url, "?") > 0
+                url = url + "&token=" + authToken
+            else
+                url = url + "?token=" + authToken
+            end if
+            http.setUrl(url)
+        end if
     end if
 
     method = m.top.method

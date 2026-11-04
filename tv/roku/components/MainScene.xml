@@ -1,7 +1,5 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <component name="MainScene" extends="Scene">
-  <interface>
-  </interface>
   <children>
     <!-- Background & Fullscreen Video Component -->
     <Video id="video" translation="[0, 0]" width="1280" height="720" visible="false" />
@@ -10,52 +8,49 @@
     <Group id="gridScreen" layoutMode="none" visible="true">
       <!-- Background Image & Dark Overlay -->
       <Poster id="homeBg" translation="[0, 0]" width="1280" height="720" uri="pkg:/images/bg.jpg" loadDisplayMode="zoomToFill" />
-      <Rectangle id="homeOverlay" translation="[0, 0]" width="1280" height="720" color="#07080D" opacity="0.65" />
+      <Rectangle id="homeDarkOverlay" translation="[0, 0]" width="1280" height="720" color="#000000" opacity="0.65" />
 
       <!-- Content Area (shifted right of the sidebar) -->
       <Group id="contentArea" translation="[96, 0]">
-        <!-- Top Header: breadcrumb + server IP chip -->
-        <Label id="folderBreadcrumb" translation="[20, 18]" width="800" height="28" text="Home" font="font:SmallSystemFont" color="#A3A8B8" vertAlign="center" />
-        <Rectangle id="ipFrame" translation="[884, 9]" width="262" height="42" color="#FFFFFF" visible="false" />
-        <Rectangle id="ipContainer" translation="[885, 10]" width="260" height="40" color="#14161F" />
-        <Label id="ipLabel" translation="[885, 10]" width="260" height="40" text="" font="font:SmallSystemFont" color="#A3A8B8" horizAlign="center" vertAlign="center" />
-        <Rectangle id="headerDivider" translation="[20, 60]" width="1140" height="1" color="#161926" />
+        <!-- Top Header: breadcrumb (shown on sub-screens, hidden on Home billboard) -->
+        <Label id="folderBreadcrumb" translation="[20, 18]" width="800" height="28" text="Home" font="font:SmallSystemFont" color="#A3A8B8" vertAlign="center" visible="false" />
+        <Rectangle id="headerDivider" translation="[20, 56]" width="1140" height="1" color="#161926" visible="false" />
 
-        <!-- Hero Spotlight Billboard (home screen only) -->
-        <Group id="heroGroup" translation="[20, 72]" visible="true">
-          <Label id="heroTitle" translation="[24, 30]" width="720" height="40" text="FREEVEE" font="font:LargeBoldSystemFont" color="#FFFFFF" />
-          <Label id="heroDesc" translation="[24, 80]" width="660" height="50" text="Select any movie or TV show below to start streaming immediately." font="font:SmallSystemFont" color="#A3A8B8" wrap="true" />
-          <Rectangle id="heroPlayBtn" translation="[24, 260]" width="120" height="32" color="#FFFFFF" />
-          <Label id="heroPlayLabel" translation="[24, 260]" width="120" height="32" text="Play Now" font="font:SmallSystemFont" color="#000000" horizAlign="center" vertAlign="center" />
+        <!-- Hero Spotlight Billboard (Crave Style) -->
+        <Group id="heroGroup" translation="[20, 36]" visible="true">
+          <Label id="heroBadge" translation="[24, 0]" width="400" height="20" text="FEATURED SPOTLIGHT" font="font:SmallBoldSystemFont" color="#E50914" />
+          <Label id="heroTitle" translation="[24, 24]" width="780" height="42" text="FREEVEE" font="font:LargeBoldSystemFont" color="#FFFFFF" />
+          <Label id="heroMeta" translation="[24, 72]" width="780" height="22" text="Trending Movies &amp; Shows • Full HD" font="font:SmallBoldSystemFont" color="#8E95A5" />
+          <Label id="heroDesc" translation="[24, 100]" width="760" height="66" text="Select any movie or TV show below to start streaming immediately." font="font:SmallSystemFont" color="#C2C7D6" wrap="true" />
         </Group>
 
-        <!-- Home Section Buttons (icon+text tiles, built at runtime) -->
-        <Group id="homeSectionGroup" translation="[20, 300]" visible="true" />
-
-        <!-- Poster Grid (used for sub-screens only) -->
+        <!-- Poster Grid (used for sub-screens: Movies, Shows, Episodes, Faves, Search) -->
         <PosterGrid
           id="posterGrid"
-          translation="[20, 300]"
-          basePosterSize="[150, 160]"
-          itemSpacing="[20, 14]"
-          numColumns="5"
-          numRows="1"
-          captionHeight="22"
+          translation="[20, 70]"
+          basePosterSize="[148, 222]"
+          itemSpacing="[18, 14]"
+          numColumns="7"
+          numRows="2"
+          captionHeight="24"
           posterDisplayMode="zoomToFill"
           drawFocusFeedback="true"
           drawFocusFeedbackOnTop="true"
           focusBitmapUri="pkg:/images/focus-ring.png"
           focusFootprintBlendColor="0xFFFFFF00"
         />
-        <!-- Fresh label + rail (home screen only) -->
-        <Label id="cwLabel" translation="[20, 250]" width="600" height="20" text="What's On" font="font:MediumBoldSystemFont" color="#FFFFFF" visible="false" />
+
+        <!-- What's On / Trending Section Header -->
+        <Label id="cwLabel" translation="[20, 375]" width="600" height="24" text="WHAT'S ON &amp; TRENDING" font="font:MediumBoldSystemFont" color="#FFFFFF" visible="false" />
+
+        <!-- Crave Rail: Single horizontal scrolling row of 2:3 vertical posters -->
         <PosterGrid
           id="cwGrid"
-          translation="[20, 274]"
-          basePosterSize="[150, 150]"
-          itemSpacing="[16, 12]"
+          translation="[20, 408]"
+          basePosterSize="[150, 225]"
+          itemSpacing="[16, 0]"
           numColumns="7"
-          numRows="2"
+          numRows="1"
           captionHeight="0"
           posterDisplayMode="zoomToFill"
           drawFocusFeedback="true"
@@ -64,10 +59,11 @@
           focusFootprintBlendColor="0xFFFFFF00"
           visible="false"
         />
-        <!-- Info bar at the very bottom, shows focused item title on all screens -->
-        <Rectangle id="cwInfoBar" translation="[20, 670]" width="1140" height="50" color="#08090F" opacity="0.92" visible="false" />
-        <Label id="cwInfoTitle" translation="[30, 674]" width="1100" height="24" text="" font="font:MediumBoldSystemFont" color="#FFFFFF" vertAlign="center" visible="false" />
-        <Label id="cwInfoDesc" translation="[30, 698]" width="1100" height="20" text="" font="font:SmallSystemFont" color="#A3A8B8" vertAlign="center" visible="false" />
+
+        <!-- Info bar (hidden on home screen to keep clean Crave look) -->
+        <Rectangle id="cwInfoBar" translation="[20, 668]" width="1140" height="48" color="#08090F" opacity="0.94" visible="false" />
+        <Label id="cwInfoTitle" translation="[30, 672]" width="1100" height="22" text="" font="font:MediumBoldSystemFont" color="#FFFFFF" vertAlign="center" visible="false" />
+        <Label id="cwInfoDesc" translation="[30, 694]" width="1100" height="18" text="" font="font:SmallSystemFont" color="#A3A8B8" vertAlign="center" visible="false" />
         <Group id="cwRailGroup" translation="[20, 388]" visible="false" />
 
         <!-- Pairing / Sign In Screen -->

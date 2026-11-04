@@ -37,7 +37,24 @@ sub run()
                     if tokenResult.error = ""
                         tokenJson = ParseJSON(tokenResult.body)
                         if tokenJson <> invalid and tokenJson.success = true and tokenJson.token <> invalid and tokenJson.token <> ""
-                            m.top.result = FormatJson({ status: "complete", token: tokenJson.token })
+                            userEmail = ""
+                            if tokenJson.email <> invalid
+                                userEmail = tokenJson.email
+                            else if tokenJson.user <> invalid and tokenJson.user.email <> invalid
+                                userEmail = tokenJson.user.email
+                            end if
+                            isAdminFlag = false
+                            if tokenJson.isAdmin <> invalid and tokenJson.isAdmin = true
+                                isAdminFlag = true
+                            else if tokenJson.user <> invalid and tokenJson.user.isAdmin <> invalid and tokenJson.user.isAdmin = true
+                                isAdminFlag = true
+                            end if
+                            m.top.result = FormatJson({
+                                status: "complete",
+                                token: tokenJson.token,
+                                email: userEmail,
+                                isAdmin: isAdminFlag
+                            })
                             return
                         else
                             m.top.result = FormatJson({ status: "error", error: "token_fetch_failed" })
