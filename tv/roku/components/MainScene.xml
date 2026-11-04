@@ -7,13 +7,14 @@
     <!-- Main Grid Screen -->
     <Group id="gridScreen" layoutMode="none" visible="true">
       <!-- Background Image & Dark Overlay -->
-      <Poster id="homeBg" translation="[0, 0]" width="1280" height="720" uri="pkg:/images/bg.jpg" loadDisplayMode="zoomToFill" />
-      <Rectangle id="homeDarkOverlay" translation="[0, 0]" width="1280" height="720" color="#000000" opacity="0.65" />
+      <Poster id="homeBg" translation="[0, 0]" width="1280" height="720" loadDisplayMode="scaleToZoom" opacity="0.5" uri="pkg:/images/bg.jpg" />
+      <Rectangle id="homeDarkOverlay" translation="[0, 0]" width="1280" height="720" color="#000000" opacity="0.6" />
 
       <!-- Content Area (shifted right of the sidebar) -->
       <Group id="contentArea" translation="[96, 0]">
         <!-- Top Header: breadcrumb (shown on sub-screens, hidden on Home billboard) -->
-        <Label id="folderBreadcrumb" translation="[20, 18]" width="800" height="28" text="Home" font="font:SmallSystemFont" color="#A3A8B8" vertAlign="center" visible="false" />
+        <Rectangle id="breadcrumbBg" translation="[0, 0]" width="1184" height="56" color="#000000" opacity="0.7" visible="false" />
+        <Label id="folderBreadcrumb" translation="[20, 18]" width="800" height="28" text="Home" font="font:SmallSystemFont" color="#EEE8AA" vertAlign="center" visible="false" />
         <Rectangle id="headerDivider" translation="[20, 56]" width="1140" height="1" color="#161926" visible="false" />
 
         <!-- Hero Spotlight Billboard (Crave Style) -->
@@ -80,9 +81,7 @@
       <Group id="sidebar" translation="[0, 0]" clippingRect="[0, 0, 76, 720]">
         <Rectangle id="sidebarBg" translation="[0, 0]" width="76" height="720" color="#08090F" opacity="0.97" />
         <Rectangle id="sidebarEdge" translation="[75, 0]" width="1" height="720" color="#1A1E2C" />
-        <Poster id="sidebarLogo" translation="[17, 16]" width="42" height="42" uri="pkg:/images/192.png" loadDisplayMode="scaleToFit" />
-        <Label id="sidebarLogoText" translation="[68, 22]" width="140" height="30" text="FREEVEE" font="font:MediumBoldSystemFont" color="#E50914" vertAlign="center" visible="false" />
-        <Group id="navItems" translation="[0, 84]" />
+        <Group id="navItems" translation="[0, 16]" />
       </Group>
     </Group>
 

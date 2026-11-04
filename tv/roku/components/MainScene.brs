@@ -10,6 +10,7 @@ sub init()
 
     m.gridScreen = m.top.findNode("gridScreen")
     m.folderBreadcrumb = m.top.findNode("folderBreadcrumb")
+    m.breadcrumbBg = m.top.findNode("breadcrumbBg")
     m.posterGrid = m.top.findNode("posterGrid")
     m.posterGrid.observeField("itemFocused", "onPosterFocused")
     m.posterGrid.observeField("itemSelected", "onPosterSelected")
@@ -45,7 +46,6 @@ sub init()
     m.sidebar = m.top.findNode("sidebar")
     m.sidebarBg = m.top.findNode("sidebarBg")
     m.sidebarEdge = m.top.findNode("sidebarEdge")
-    m.sidebarLogoText = m.top.findNode("sidebarLogoText")
     m.sidebar.focusable = true
     navGroup = m.top.findNode("navItems")
     m.navHighlights = []
@@ -479,13 +479,19 @@ sub handleSignOut()
     showHomeScreen()
 end sub
 
+sub setBreadcrumbVisible(show as Boolean)
+    if m.folderBreadcrumb <> invalid then m.folderBreadcrumb.visible = show
+    if m.breadcrumbBg <> invalid then m.breadcrumbBg.visible = show
+end sub
+
 ' ---- Home Screen ----
 
 sub showHomeScreen()
     stopBackgroundPlayback()
+    updateHomeBackdrop(invalid)
     m.navStack = []
     m.folderBreadcrumb.text = "Home"
-    m.folderBreadcrumb.visible = false
+    setBreadcrumbVisible(false)
     if m.headerDivider <> invalid then m.headerDivider.visible = false
     if m.cwInfoBar <> invalid then m.cwInfoBar.visible = false
     if m.cwInfoTitle <> invalid then m.cwInfoTitle.visible = false
@@ -574,6 +580,7 @@ sub updateContinueWatchingGrid()
     if m.cwItems.count() > 0
         m.cwGrid.content = railContent
         m.cwGrid.jumpToItem = 0
+        if showRail then updateHomeBackdrop(m.cwItems[0])
     end if
 
     ' Fresh home data commonly arrives after showHomeScreen already tried to
@@ -668,6 +675,7 @@ sub onCwFocused()
             end if
             if metaText <> "" then m.heroMeta.text = metaText
         end if
+        updateHomeBackdrop(item)
         stopBackgroundPlayback()
     end if
 end sub
@@ -1939,7 +1947,7 @@ sub pushCurrentState(newBreadcrumb as String)
         translation: m.posterGrid.translation
     })
     m.folderBreadcrumb.text = newBreadcrumb
-    m.folderBreadcrumb.visible = true
+    setBreadcrumbVisible(true)
     if m.headerDivider <> invalid then m.headerDivider.visible = true
     if m.heroGroup <> invalid then m.heroGroup.visible = false
     if m.cwLabel <> invalid then m.cwLabel.visible = false
@@ -1995,7 +2003,7 @@ function popState() as Boolean
     if m.navStack.count() = 0
         m.heroGroup.visible = true
         m.posterGrid.visible = false
-        m.folderBreadcrumb.visible = false
+        setBreadcrumbVisible(false)
         if m.headerDivider <> invalid then m.headerDivider.visible = false
         if m.cwInfoBar <> invalid then m.cwInfoBar.visible = false
         if m.homeOverlay <> invalid then m.homeOverlay.opacity = 0.65
@@ -3037,8 +3045,7 @@ sub onPosterFocused()
             m.heroMeta.text = item.shortDescriptionLine1
         end if
         if m.homeBg <> invalid and item.HDPosterUrl <> invalid and item.HDPosterUrl <> ""
-            m.homeBg.loadDisplayMode = "zoomToFill"
-            m.homeBg.uri = item.HDPosterUrl
+            updateHomeBackdrop(item)
         end if
         if m.cwInfoBar <> invalid and item.targetType <> "section_header"
             m.cwInfoBar.visible = true
@@ -3058,6 +3065,19 @@ sub onPosterFocused()
 
         stopBackgroundPlayback()
     end if
+end sub
+
+' Show a poster as the full-bleed home backdrop. scaleToZoom must be set
+' before the uri so the 2:3 poster fills the 1280px width and the excess
+' height is cropped instead of letterboxed or stretched.
+sub updateHomeBackdrop(item as Dynamic)
+    if m.homeBg = invalid then return
+    posterUrl = "pkg:/images/bg.jpg"
+    if item <> invalid and item.HDPosterUrl <> invalid and item.HDPosterUrl <> ""
+        posterUrl = item.HDPosterUrl
+    end if
+    m.homeBg.loadDisplayMode = "scaleToZoom"
+    if m.homeBg.uri <> posterUrl then m.homeBg.uri = posterUrl
 end sub
 
 sub onPosterSelected()
@@ -4241,7 +4261,6 @@ sub setSidebarExpanded(expanded as Boolean)
         m.sidebarBg.width = 220
         m.sidebarEdge.translation = [219, 0]
         m.sidebar.clippingRect = [0, 0, 220, 720]
-        m.sidebarLogoText.visible = true
         for each hi in m.navHighlights
             hi.width = 204
         end for
@@ -4252,7 +4271,6 @@ sub setSidebarExpanded(expanded as Boolean)
         m.sidebarBg.width = 76
         m.sidebarEdge.translation = [75, 0]
         m.sidebar.clippingRect = [0, 0, 76, 720]
-        m.sidebarLogoText.visible = false
         for each hi in m.navHighlights
             hi.width = 60
         end for
