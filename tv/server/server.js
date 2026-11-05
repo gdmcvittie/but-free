@@ -2704,36 +2704,6 @@ app.get('/api/ondemand', optionalAuth, (req, res) => {
     movieFolderList.sort((a, b) => a.localeCompare(b));
   }
 
-  // Attach stream and transcode metadata
-  function getMediaStreamInfo(driveId, filename) {
-    if (!driveId) return { needsTranscode: false, streamUrl: '' };
-    const ext = filename ? path.extname(filename).toLowerCase() : '';
-    const cached = driveProbeCache.get(driveId);
-    const needsTranscode = NON_NATIVE_VIDEO_EXTS.has(ext) || (cached ? cached.needsTranscode : false);
-    return {
-      needsTranscode,
-      streamUrl: needsTranscode ? `/api/stream/drive-hls/${driveId}.m3u8` : `/api/stream/drive/${driveId}`
-    };
-  }
-
-  const enrichedMovies = Array.isArray(library.movies) ? library.movies.map(m => {
-    const info = getMediaStreamInfo(m.driveId || m.id, m.filename);
-    return { ...m, needsTranscode: info.needsTranscode, streamUrl: info.streamUrl };
-  }) : [];
-
-  const enrichedShows = {};
-  if (library.shows) {
-    for (const [showName, seasons] of Object.entries(library.shows)) {
-      enrichedShows[showName] = {};
-      for (const [season, episodes] of Object.entries(seasons)) {
-        enrichedShows[showName][season] = Array.isArray(episodes) ? episodes.map(ep => {
-          const info = getMediaStreamInfo(ep.driveId || ep.id, ep.filename);
-          return { ...ep, needsTranscode: info.needsTranscode, streamUrl: info.streamUrl };
-        }) : [];
-      }
-    }
-  }
-
   // Attach progress
   const continueWatching = Object.values(progress).filter(p => p.currentTime > 5 && (p.duration <= 0 || p.currentTime < p.duration * 0.95));
 
@@ -2744,8 +2714,6 @@ app.get('/api/ondemand', optionalAuth, (req, res) => {
 
   sendCachedJson(req, res, {
     ...library,
-    movies: enrichedMovies,
-    shows: enrichedShows,
     moviesPosters,
     movieFolders: movieFolders || {},
     movieFolderList: movieFolderList || [],

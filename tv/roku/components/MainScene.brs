@@ -1593,20 +1593,18 @@ sub playDriveItem(item as Object)
             end if
         end if
 
-        ' Transcode ALL Drive video files on Roku using the dedicated high-performance VPS
-        vpsHost = getTranscoderUrl()
-        streamUrl = vpsHost + "/api/stream/drive-hls/" + driveId + ".m3u8"
-        sep = "?"
+        ' Always transcode Drive content to HLS via dedicated VPS (offloaded by cloud server)
+        streamUrl = m.serverUrl + "/api/stream/drive-hls/" + driveId + ".m3u8"
         if isLoggedIn()
-            streamUrl = streamUrl + sep + "token=" + m.authToken
-            sep = "&"
+            streamUrl = streamUrl + "?token=" + m.authToken
         end if
-        streamUrl = streamUrl + sep + "inputOrigin=" + m.serverUrl
         if offset > 0
-            streamUrl = streamUrl + "&offset=" + Stri(Fix(offset)).trim()
+            if Instr(1, streamUrl, "?") > 0
+                streamUrl = streamUrl + "&offset=" + Stri(Fix(offset)).trim()
+            else
+                streamUrl = streamUrl + "?offset=" + Stri(Fix(offset)).trim()
+            end if
         end if
-        ' New title: discard any high-water mark from the previous video so a
-        ' quick exit cannot save a stale position for this one.
         m.maxPlaybackPosition = offset
         playVideoUrl(streamUrl, title, offset, filename, true, subUrl)
     end if
@@ -4877,13 +4875,8 @@ sub onVideoStateChange()
                     driveId = Mid(m.currentPlayFilePath, 9)
                 end if
                 if driveId <> ""
-                    fallbackUrl = getTranscoderUrl() + "/api/stream/drive-hls/" + driveId + ".m3u8"
-                    sep = "?"
-                    if isLoggedIn()
-                        fallbackUrl = fallbackUrl + sep + "token=" + m.authToken
-                        sep = "&"
-                    end if
-                    fallbackUrl = fallbackUrl + sep + "inputOrigin=" + m.serverUrl
+                    fallbackUrl = m.serverUrl + "/api/stream/drive-hls/" + driveId + ".m3u8"
+                    if isLoggedIn() then fallbackUrl = fallbackUrl + "?token=" + m.authToken
                     vidPos = m.video.position
                     if vidPos = invalid then vidPos = 0
                     startOffset = 0
@@ -4891,7 +4884,11 @@ sub onVideoStateChange()
                     curOffset = startOffset + vidPos
                     if m.maxPlaybackPosition <> invalid and m.maxPlaybackPosition > curOffset then curOffset = m.maxPlaybackPosition
                     if curOffset > 5
-                        fallbackUrl = fallbackUrl + "&offset=" + Stri(Fix(curOffset)).trim()
+                        if Instr(1, fallbackUrl, "?") > 0
+                            fallbackUrl = fallbackUrl + "&offset=" + Stri(Fix(curOffset)).trim()
+                        else
+                            fallbackUrl = fallbackUrl + "?offset=" + Stri(Fix(curOffset)).trim()
+                        end if
                     end if
                 end if
             else if Instr(1, LCase(fallbackUrl), "/api/torrent/serve/") > 0
