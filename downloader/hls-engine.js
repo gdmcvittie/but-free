@@ -608,6 +608,73 @@ export function handleTorrentHlsStop(req, res) {
 }
 
 // -------------------------------------------------------------
+// Media Probe for Native Playability vs Transcode Detection
+// -------------------------------------------------------------
+export async function probeMediaCodecs(inputUrl) {
+  return new Promise((resolve) => {
+    const cmd = resolveFfmpeg();
+    const probe = spawn(cmd, [
+      '-reconnect', '1',
+      '-reconnect_streamed', '1',
+      '-reconnect_delay_max', '2',
+      '-analyzeduration', '2M',
+      '-probesize', '2M',
+      '-i', inputUrl
+    ]);
+    let stderr = '';
+    const timer = setTimeout(() => {
+      try { probe.kill('SIGKILL'); } catch (_) {}
+      resolve({ videoCodec: '', audioCodec: '', nativelyPlayable: false, needsTranscode: true, reason: 'timeout' });
+    }, 6000);
+
+    probe.stderr.on('data', d => { stderr += d.toString(); });
+    probe.on('close', () => {
+      clearTimeout(timer);
+      const vMatch = stderr.match(/Stream #\d+:\d+(?:\[.*?\])?(?:\(.*?\))?: Video: ([a-zA-Z0-9_-]+)/i);
+      const aMatch = stderr.match(/Stream #\d+:\d+(?:\[.*?\])?(?:\(.*?\))?: Audio: ([a-zA-Z0-9_-]+)/i);
+      const is10Bit = /yuv420p10|10-bit|high 10/i.test(stderr);
+
+      const videoCodec = vMatch ? vMatch[1].toLowerCase() : '';
+      const audioCodec = aMatch ? aMatch[1].toLowerCase() : '';
+
+      const isNativeVideo = (videoCodec === 'h264' && !is10Bit);
+      const isNativeAudio = ['aac', 'mp3'].includes(audioCodec);
+
+      const nativelyPlayable = isNativeVideo && isNativeAudio;
+      const needsTranscode = !nativelyPlayable;
+
+      resolve({
+        videoCodec,
+        audioCodec,
+        is10Bit,
+        nativelyPlayable,
+        needsTranscode,
+        reason: nativelyPlayable ? 'native' : (!isNativeVideo ? `video_${videoCodec || 'unknown'}` : `audio_${audioCodec || 'unknown'}`)
+      });
+    });
+    probe.on('error', () => {
+      clearTimeout(timer);
+      resolve({ videoCodec: '', audioCodec: '', nativelyPlayable: false, needsTranscode: true, reason: 'spawn_error' });
+    });
+  });
+}
+
+export async function handleStreamProbe(req, res) {
+  const fileId = req.query.fileId || req.params.fileId;
+  if (!fileId) return res.status(400).json({ success: false, error: 'Missing fileId' });
+  const token = req.query.token || req.headers.authorization?.replace('Bearer ', '') || '';
+  const user = req.query.user || '';
+  const inputOrigin = (req.query.inputOrigin || 'https://tv.butfree.online').replace(/\/+$/, '');
+  const queryParts = ['raw=1'];
+  if (token) queryParts.push(`token=${encodeURIComponent(token)}`);
+  if (user) queryParts.push(`user=${encodeURIComponent(user)}`);
+  const inputUrl = `${inputOrigin}/api/stream/drive/${fileId}?${queryParts.join('&')}`;
+
+  const result = await probeMediaCodecs(inputUrl);
+  return res.json({ success: true, fileId, ...result });
+}
+
+// -------------------------------------------------------------
 // Status Helper for Node Dashboard
 // -------------------------------------------------------------
 export function getHlsStatus() {

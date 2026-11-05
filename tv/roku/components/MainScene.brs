@@ -1586,8 +1586,27 @@ sub playDriveItem(item as Object)
             end if
         end if
 
-        ' Always transcode Drive content to HLS via the cloud server (offloaded to VPS in backend).
-        streamUrl = m.serverUrl + "/api/stream/drive-hls/" + driveId + ".m3u8"
+        ' Check whether video is natively playable or needs transcoding
+        needsTranscode = true
+        fileExt = ""
+        if filename <> "" and Len(filename) > 4
+            fileExt = LCase(Right(filename, 4))
+        end if
+        if fileExt = ".mp4" or fileExt = ".m4v"
+            needsTranscode = false
+        end if
+        transVal = getItemField(item, "needsTranscode")
+        if transVal <> invalid
+            if type(transVal) = "roBoolean" or type(transVal) = "Boolean"
+                needsTranscode = transVal
+            end if
+        end if
+
+        if needsTranscode
+            streamUrl = m.serverUrl + "/api/stream/drive-hls/" + driveId + ".m3u8"
+        else
+            streamUrl = m.serverUrl + "/api/stream/drive/" + driveId
+        end if
         if isLoggedIn()
             streamUrl = streamUrl + "?token=" + m.authToken
         end if

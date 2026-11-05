@@ -86,13 +86,13 @@ export default function TvPlayer({ currentVideo, offset = 0, onStop, onTimeUpdat
   // Compute stream URL (prefers offline cached blob if saved)
   let videoSrc = offlineSrc || '';
   if (!videoSrc && currentVideo) {
-    if (currentVideo.driveId) {
-      videoSrc = `/api/stream/drive/${currentVideo.driveId}`;
-    } else if (currentVideo.path && currentVideo.path.startsWith('drive://')) {
-      const fileId = currentVideo.path.replace('drive://', '');
-      videoSrc = `/api/stream/drive/${fileId}`;
-    } else if (currentVideo.streamUrl) {
+    if (currentVideo.streamUrl) {
       videoSrc = currentVideo.streamUrl;
+    } else if (currentVideo.driveId || (currentVideo.path && currentVideo.path.startsWith('drive://'))) {
+      const fileId = currentVideo.driveId || currentVideo.path.replace('drive://', '');
+      const ext = (currentVideo.filename || '').toLowerCase();
+      const needsTranscode = currentVideo.needsTranscode ?? ['.mkv', '.avi', '.wmv', '.flv', '.ts', '.m2ts', '.mov', '.vob', '.divx', '.xvid', '.rmvb', '.iso', '.mpg', '.mpeg'].some(e => ext.endsWith(e));
+      videoSrc = needsTranscode ? `/api/stream/drive-hls/${fileId}.m3u8` : `/api/stream/drive/${fileId}`;
     } else if (currentVideo.path) {
       videoSrc = currentVideo.path.startsWith('http') || currentVideo.path.startsWith('/api/')
         ? currentVideo.path

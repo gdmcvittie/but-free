@@ -65,6 +65,7 @@ import {
   handleServeHlsFile,
   handleDriveHlsStop,
   handleTorrentHlsStop,
+  handleStreamProbe,
   getHlsStatus
 } from './hls-engine.js';
 
@@ -894,6 +895,7 @@ app.delete('/api/torrent/stream/:streamId', stopStreamRoute);
 // -------------------------------------------------------------
 // High-Performance HLS Video Transcoding (Google Drive & Torrents)
 // -------------------------------------------------------------
+app.get('/api/stream/probe', handleStreamProbe);
 app.get('/api/stream/drive-hls/status', (req, res) => res.json(getHlsStatus()));
 app.all('/api/stream/drive-hls/stop', handleDriveHlsStop);
 app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'], handleDriveHls);

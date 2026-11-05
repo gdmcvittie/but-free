@@ -2704,6 +2704,36 @@ app.get('/api/ondemand', optionalAuth, (req, res) => {
     movieFolderList.sort((a, b) => a.localeCompare(b));
   }
 
+  // Attach stream and transcode metadata
+  function getMediaStreamInfo(driveId, filename) {
+    if (!driveId) return { needsTranscode: false, streamUrl: '' };
+    const ext = filename ? path.extname(filename).toLowerCase() : '';
+    const cached = driveProbeCache.get(driveId);
+    const needsTranscode = NON_NATIVE_VIDEO_EXTS.has(ext) || (cached ? cached.needsTranscode : false);
+    return {
+      needsTranscode,
+      streamUrl: needsTranscode ? `/api/stream/drive-hls/${driveId}.m3u8` : `/api/stream/drive/${driveId}`
+    };
+  }
+
+  const enrichedMovies = Array.isArray(library.movies) ? library.movies.map(m => {
+    const info = getMediaStreamInfo(m.driveId || m.id, m.filename);
+    return { ...m, needsTranscode: info.needsTranscode, streamUrl: info.streamUrl };
+  }) : [];
+
+  const enrichedShows = {};
+  if (library.shows) {
+    for (const [showName, seasons] of Object.entries(library.shows)) {
+      enrichedShows[showName] = {};
+      for (const [season, episodes] of Object.entries(seasons)) {
+        enrichedShows[showName][season] = Array.isArray(episodes) ? episodes.map(ep => {
+          const info = getMediaStreamInfo(ep.driveId || ep.id, ep.filename);
+          return { ...ep, needsTranscode: info.needsTranscode, streamUrl: info.streamUrl };
+        }) : [];
+      }
+    }
+  }
+
   // Attach progress
   const continueWatching = Object.values(progress).filter(p => p.currentTime > 5 && (p.duration <= 0 || p.currentTime < p.duration * 0.95));
 
@@ -2714,6 +2744,8 @@ app.get('/api/ondemand', optionalAuth, (req, res) => {
 
   sendCachedJson(req, res, {
     ...library,
+    movies: enrichedMovies,
+    shows: enrichedShows,
     moviesPosters,
     movieFolders: movieFolders || {},
     movieFolderList: movieFolderList || [],
@@ -3051,6 +3083,18 @@ app.get(['/api/stream/drive/:fileId', '/api/stream/drive/:fileId/:fileName'], op
     const driveUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
     const initialRange = req.headers.range || null;
     const forceDownload = req.query.download === '1' || req.query.dl === '1';
+    const isRawRequest = req.query.raw === '1' || (req.headers['user-agent'] && req.headers['user-agent'].startsWith('Lavf'));
+
+    // If client requested auto-transcoding and video is not natively playable, redirect to drive-hls
+    if (!forceDownload && !isRawRequest && (req.query.autoTranscode === '1' || req.query.transcode === 'auto')) {
+      const playability = await checkMediaPlayability(fileId, req.params.fileName || '', effectiveUserId);
+      if (playability.needsTranscode) {
+        const origin = getHostOrigin(req);
+        const token = getAuthToken(req) || '';
+        const offset = req.query.offset || '0';
+        return res.redirect(302, `${origin}/api/stream/drive-hls/${fileId}.m3u8?offset=${offset}${token ? `&token=${encodeURIComponent(token)}` : ''}`);
+      }
+    }
 
     let bytesSent = 0;
     let headersSent = false;
@@ -3282,7 +3326,133 @@ app.get(['/api/stream/drive/:fileId', '/api/stream/drive/:fileId/:fileName'], op
 });
 
 // -------------------------------------------------------------
-// Google Drive HLS Transcode (Roku-friendly playback)
+// Playability Detection & Automatic Transcode Engine
+// Checks if videos are natively playable (e.g. H.264/AAC MP4) or
+// need transcoding (e.g. MKV, AVI, HEVC/H.265, AC3, DTS).
+// Transcoding is offloaded automatically to download.butfree.online.
+// -------------------------------------------------------------
+const driveProbeCache = new Map();
+const NON_NATIVE_VIDEO_EXTS = new Set(['.mkv', '.avi', '.wmv', '.flv', '.ts', '.m2ts', '.mov', '.vob', '.divx', '.xvid', '.rmvb', '.iso', '.mpg', '.mpeg']);
+
+async function checkMediaPlayability(fileId, filenameHint = '', userId = null) {
+  if (!fileId) return { nativelyPlayable: false, needsTranscode: true, reason: 'missing_id' };
+
+  // 1. In-memory cache
+  if (driveProbeCache.has(fileId)) {
+    return driveProbeCache.get(fileId);
+  }
+
+  // 2. Disk cache under CACHE_DIR/hls/probe_<fileId>.json
+  const probeFile = path.join(CACHE_DIR, 'hls', `probe_${fileId}.json`);
+  if (fs.existsSync(probeFile)) {
+    try {
+      const cached = JSON.parse(fs.readFileSync(probeFile, 'utf-8'));
+      if (cached && typeof cached.needsTranscode === 'boolean') {
+        driveProbeCache.set(fileId, cached);
+        return cached;
+      }
+    } catch (_) {}
+  }
+
+  let filename = filenameHint || '';
+  let mimeType = '';
+
+  // 3. If filename is missing, retrieve basic metadata from Google Drive
+  if (!filename) {
+    try {
+      const { token } = await resolveGoogleToken(userId);
+      if (token) {
+        const metaRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,mimeType`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(4000)
+        });
+        if (metaRes.ok) {
+          const meta = await metaRes.json();
+          filename = meta.name || '';
+          mimeType = meta.mimeType || '';
+        }
+      }
+    } catch (_) {}
+  }
+
+  const ext = (filename ? path.extname(filename) : '').toLowerCase();
+
+  // 4. Formats that are NEVER natively playable in standard web browsers or Roku direct stream
+  if (NON_NATIVE_VIDEO_EXTS.has(ext) || mimeType === 'video/x-matroska' || mimeType === 'video/x-msvideo') {
+    const result = {
+      fileId,
+      filename,
+      ext,
+      nativelyPlayable: false,
+      needsTranscode: true,
+      reason: 'unsupported_container',
+      streamUrl: `/api/stream/drive-hls/${fileId}.m3u8`,
+      directUrl: `/api/stream/drive/${fileId}`
+    };
+    driveProbeCache.set(fileId, result);
+    try { fs.writeFileSync(probeFile, JSON.stringify(result)); } catch (_) {}
+    return result;
+  }
+
+  // 5. For MP4/WebM files: probe codecs via dedicated VPS ffprobe endpoint if available
+  if (ext === '.mp4' || ext === '.m4v' || ext === '.webm') {
+    try {
+      const torrentServer = await getActiveTorrentServer();
+      if (torrentServer) {
+        const { token } = await resolveGoogleToken(userId);
+        const origin = getHostOrigin();
+        const probeUrl = `${torrentServer}/api/stream/probe?fileId=${fileId}&token=${encodeURIComponent(token || '')}&user=${encodeURIComponent(userId || '')}&inputOrigin=${encodeURIComponent(origin)}`;
+        const pRes = await fetch(probeUrl, { signal: AbortSignal.timeout(5000) });
+        if (pRes.ok) {
+          const pData = await pRes.json();
+          if (pData && pData.success) {
+            const result = {
+              fileId,
+              filename,
+              ext,
+              nativelyPlayable: pData.nativelyPlayable,
+              needsTranscode: pData.needsTranscode,
+              videoCodec: pData.videoCodec,
+              audioCodec: pData.audioCodec,
+              is10Bit: pData.is10Bit,
+              reason: pData.reason || (pData.needsTranscode ? 'unsupported_codec' : 'native'),
+              streamUrl: pData.needsTranscode ? `/api/stream/drive-hls/${fileId}.m3u8` : `/api/stream/drive/${fileId}`,
+              directUrl: `/api/stream/drive/${fileId}`
+            };
+            driveProbeCache.set(fileId, result);
+            try { fs.writeFileSync(probeFile, JSON.stringify(result)); } catch (_) {}
+            return result;
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  // 6. Default assumption for MP4/M4V
+  const isLikelyNative = (ext === '.mp4' || ext === '.m4v');
+  const result = {
+    fileId,
+    filename,
+    ext,
+    nativelyPlayable: isLikelyNative,
+    needsTranscode: !isLikelyNative,
+    reason: isLikelyNative ? 'assumed_native_mp4' : 'unknown_format',
+    streamUrl: isLikelyNative ? `/api/stream/drive/${fileId}` : `/api/stream/drive-hls/${fileId}.m3u8`,
+    directUrl: `/api/stream/drive/${fileId}`
+  };
+  driveProbeCache.set(fileId, result);
+  try { fs.writeFileSync(probeFile, JSON.stringify(result)); } catch (_) {}
+  return result;
+}
+
+// Endpoint to inspect video playability & get recommended stream route
+app.get('/api/stream/check/:fileId', optionalAuth, async (req, res) => {
+  const { fileId } = req.params;
+  const filename = req.query.filename || '';
+  const userId = req.user?.id || req.query.user;
+  const playability = await checkMediaPlayability(fileId, filename, userId);
+  res.json({ success: true, ...playability });
+});
 // The server spawns ffmpeg with an input URL pointing at its own
 // byte-range proxy for the Drive file, so ffmpeg can seek (Range) and the
 // Google token stays server-side. ffmpeg transcodes to H.264/AAC HLS that
