@@ -105,6 +105,28 @@ export function touchHlsSession(sessionId) {
 export async function handleDriveHls(req, res) {
   let { fileId } = req.params;
   if (fileId && fileId.endsWith('.m3u8')) fileId = fileId.replace(/\.m3u8$/, '');
+
+  // Guard against relative segment requests (e.g. seg_00000.ts) mistakenly hitting this route
+  if (!fileId || /^seg_\d+\.ts$/.test(fileId)) {
+    if (fileId) {
+      for (const [sid, s] of activeHlsSessions) {
+        if (s && s.dir) {
+          const segPath = path.join(s.dir, fileId);
+          if (fs.existsSync(segPath)) {
+            touchHlsSession(sid);
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+            res.setHeader('Access-Control-Allow-Headers', '*');
+            res.setHeader('Content-Type', 'video/mp2t');
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+            return fs.createReadStream(segPath).pipe(res);
+          }
+        }
+      }
+    }
+    return res.status(404).send('Invalid fileId or segment not found');
+  }
+
   const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
   const token = req.query.token || req.headers.authorization?.replace('Bearer ', '') || req.headers['x-auth-token'] || '';
   const user = req.query.user || req.query.userId || '';
@@ -358,6 +380,26 @@ export async function handleDriveHls(req, res) {
 export async function handleTorrentHls(req, res, activeStreams) {
   let { streamId, fileIndex } = req.params;
   if (fileIndex && fileIndex.endsWith('.m3u8')) fileIndex = fileIndex.replace(/\.m3u8$/, '');
+
+  // Guard against relative segment requests mistakenly hitting torrent-hls
+  if (streamId && /^seg_\d+\.ts$/.test(streamId)) {
+    for (const [sid, s] of activeHlsSessions) {
+      if (s && s.dir) {
+        const segPath = path.join(s.dir, streamId);
+        if (fs.existsSync(segPath)) {
+          touchHlsSession(sid);
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+          res.setHeader('Access-Control-Allow-Headers', '*');
+          res.setHeader('Content-Type', 'video/mp2t');
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          return fs.createReadStream(segPath).pipe(res);
+        }
+      }
+    }
+    return res.status(404).send('Invalid streamId or segment not found');
+  }
+
   const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
   const origin = getHostOrigin(req);
   const sessionKey = `torrent:${streamId}:${fileIndex || '0'}`;
@@ -588,9 +630,13 @@ export function handleServeHlsFile(req, res) {
       playlist = playlist.trimEnd() + '\n#EXT-X-ENDLIST\n';
       try { fs.writeFileSync(filePath, playlist); } catch (_) {}
     }
+    const origin = getHostOrigin(req);
+    // Rewrite all segment references to fully-qualified absolute URLs so clients (especially Roku)
+    // resolve segments directly to this VPS and never misroute relative paths
+    const rewritten = playlist.replace(/(seg_\d+\.ts)/g, `${origin}/api/stream/hls/${sessionId}/$1`);
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    return res.send(playlist);
+    return res.send(rewritten);
   } else if (targetFile.endsWith('.ts')) {
     res.setHeader('Content-Type', 'video/mp2t');
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');

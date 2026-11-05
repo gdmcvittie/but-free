@@ -541,16 +541,13 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(USERS_DIR)) fs.mkdirSync(USERS_DIR, { recursive: true });
 if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
 
-// Purge any stale HLS transcode sessions and active files left from previous runs on startup
+// Purge any stale legacy HLS transcode directories left from previous runs on startup.
+// Dedicated transcoding is handled exclusively by download.butfree.online:4000.
+// Do NOT recreate cache/hls on tv.butfree.online!
 try {
   const hlsBaseDir = path.join(CACHE_DIR, 'hls');
   if (fs.existsSync(hlsBaseDir)) {
-    const entries = fs.readdirSync(hlsBaseDir);
-    for (const e of entries) {
-      try { fs.rmSync(path.join(hlsBaseDir, e), { recursive: true, force: true }); } catch (_) {}
-    }
-  } else {
-    fs.mkdirSync(hlsBaseDir, { recursive: true });
+    fs.rmSync(hlsBaseDir, { recursive: true, force: true });
   }
 } catch (_) {}
 
@@ -3437,8 +3434,9 @@ async function checkMediaPlayability(fileId, filenameHint = '', userId = null) {
     return driveProbeCache.get(fileId);
   }
 
-  // 2. Disk cache under CACHE_DIR/hls/probe_<fileId>.json
-  const probeFile = path.join(CACHE_DIR, 'hls', `probe_${fileId}.json`);
+  // 2. Disk cache under CACHE_DIR/probes/probe_<fileId>.json
+  const probeDir = path.join(CACHE_DIR, 'probes');
+  const probeFile = path.join(probeDir, `probe_${fileId}.json`);
   if (fs.existsSync(probeFile)) {
     try {
       const cached = JSON.parse(fs.readFileSync(probeFile, 'utf-8'));
@@ -3515,7 +3513,10 @@ async function checkMediaPlayability(fileId, filenameHint = '', userId = null) {
               directUrl: `/api/stream/drive/${fileId}`
             };
             driveProbeCache.set(fileId, result);
-            try { fs.writeFileSync(probeFile, JSON.stringify(result)); } catch (_) {}
+            try {
+              if (!fs.existsSync(probeDir)) fs.mkdirSync(probeDir, { recursive: true });
+              fs.writeFileSync(probeFile, JSON.stringify(result));
+            } catch (_) {}
             return result;
           }
         }
@@ -3744,7 +3745,7 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Access-Control-Allow-Origin', '*');
         let text = await remoteRes.text();
-        text = text.replace(/^(?:.*[\\/])?(seg_\\d+\\.ts)\\r?$/gm, (m, p1) => `${origin}/api/stream/hls/${fileId}/${p1}`);
+        text = text.replace(/^(?:.*[\\/])?(seg_\d+\.ts)\r?$/gm, (m, p1) => `${origin}/api/stream/hls/${fileId}/${p1}`);
         return res.send(text);
       }
     } catch (vpsErr) {
@@ -4415,7 +4416,7 @@ app.get('/api/stream/hls/:sessionId/:file', async (req, res) => {
             if (cacheControl) res.setHeader('Cache-Control', cacheControl);
             if (safeFile.endsWith('.m3u8')) {
               let text = await remoteRes.text();
-              text = text.replace(/^(?:.*[\\/])?(seg_\\d+\\.ts)\\r?$/gm, (m, p1) => `/api/stream/hls/${sessionId}/${p1}`);
+              text = text.replace(/^(?:.*[\\/])?(seg_\d+\.ts)\r?$/gm, (m, p1) => `/api/stream/hls/${sessionId}/${p1}`);
               return res.send(text);
             }
             const { Readable } = await import('node:stream');
