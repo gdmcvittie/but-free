@@ -389,25 +389,31 @@ class ComicCompressor {
 
   /**
    * Asynchronously extracts an archive to a temp directory using the system
-   * extractor (7z/tar). Runs as a child process so it never blocks the event
+   * extractor (7z/tar/unzip). Runs as a child process so it never blocks the event
    * loop, and writes pages to disk so memory stays flat.
    * Resolves with { dir, files: [{ name, path }] }.
    */
-  static extractToDirWithSystemToolAsync(archivePath, ext = '.cbz') {
+  static extractToDirWithSystemToolAsync(archivePath, ext = '.cbz', targetDir = null) {
     const tool = this.findExtractorTool();
     if (!tool) return Promise.reject(new Error('no system extractor available'));
 
-    const tmpDir = path.join(os.tmpdir(), `cmx_ext_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
+    const tmpDir = targetDir || path.join(os.tmpdir(), `cmx_ext_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
     fs.mkdirSync(tmpDir, { recursive: true });
 
-    const args = tool.toLowerCase().includes('7z')
-      ? ['x', '-y', `-o${tmpDir}`, archivePath]
-      : ['-xf', archivePath, '-C', tmpDir];
+    let args;
+    const lower = tool.toLowerCase();
+    if (lower.includes('7z')) {
+      args = ['x', '-y', `-o${tmpDir}`, archivePath];
+    } else if (lower.includes('unzip')) {
+      args = ['-q', '-o', archivePath, '-d', tmpDir];
+    } else {
+      args = ['-xf', archivePath, '-C', tmpDir];
+    }
 
     return new Promise((resolve, reject) => {
-      execFile(tool, args, { maxBuffer: 16 * 1024 * 1024, windowsHide: true }, (err) => {
+      execFile(tool, args, { maxBuffer: 32 * 1024 * 1024, windowsHide: true }, (err) => {
         if (err) {
-          try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}
+          if (!targetDir) { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {} }
           return reject(err);
         }
         const files = [];
@@ -427,12 +433,90 @@ class ComicCompressor {
         try {
           walk(tmpDir);
         } catch (walkErr) {
-          try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}
+          if (!targetDir) { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {} }
           return reject(walkErr);
         }
         resolve({ dir: tmpDir, files });
       });
     });
+  }
+
+  /**
+   * Extracts any archive (.zip, .cbz, .cbr, .rar, .7z) into targetDir.
+   * Uses system extractor if available, in-process unrar for RAR if needed, or pure-JS
+   * unpack for ZIP archives.
+   * Resolves with { dir, files: [{ name, path }] }.
+   */
+  static async extractArchiveToDir(archivePath, targetDir = null) {
+    const tmpDir = targetDir || path.join(os.tmpdir(), `cmx_coll_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+
+    const type = this.detectArchiveType(archivePath);
+    const isRar = type === 'rar';
+    const is7z = type === '7z';
+    const extractorTool = this.findExtractorTool();
+
+    if (isRar) {
+      if (getUnrarJs()) {
+        try {
+          const res = await this.extractRarToDirWithUnrarJs(archivePath);
+          for (const f of res.files) {
+            const rel = path.relative(res.dir, f.path);
+            const dst = path.join(tmpDir, rel);
+            fs.mkdirSync(path.dirname(dst), { recursive: true });
+            fs.copyFileSync(f.path, dst);
+          }
+          try { fs.rmSync(res.dir, { recursive: true, force: true }); } catch (e) {}
+          const files = [];
+          const walk = (dir, relPrefix = '') => {
+            for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
+              const full = path.join(dir, item.name);
+              const rel = relPrefix ? `${relPrefix}/${item.name}` : item.name;
+              if (item.isDirectory()) walk(full, rel);
+              else if (item.isFile()) {
+                const isHidden = rel.includes('__MACOSX') || path.basename(rel).startsWith('.');
+                if (!isHidden) files.push({ name: rel.replace(/\\/g, '/'), path: full });
+              }
+            }
+          };
+          walk(tmpDir);
+          return { dir: tmpDir, files };
+        } catch (e) {
+          console.warn('[ComicCompressor] node-unrar-js extraction failed:', e.message);
+        }
+      }
+      if (extractorTool && !/7za|7zr/i.test(extractorTool)) {
+        return await this.extractToDirWithSystemToolAsync(archivePath, '.cbr', tmpDir);
+      }
+      throw new Error('No compatible RAR extractor available on this host.');
+    }
+
+    if (extractorTool) {
+      try {
+        return await this.extractToDirWithSystemToolAsync(archivePath, is7z ? '.7z' : '.cbz', tmpDir);
+      } catch (err) {
+        console.warn('[ComicCompressor] System extraction tool failed, falling back to pure-JS:', err.message);
+      }
+    }
+
+    // Pure-JS streaming fallback (ZIP archives)
+    if (!isRar && !is7z) {
+      const buf = fs.readFileSync(archivePath);
+      const fileEntries = [];
+      let count = 0;
+      for await (const entry of this.iterUnpackCBZ(buf)) {
+        const safeRel = String(entry.name).replace(/\.\.+/g, '').replace(/^[\\/]+/, '');
+        const full = path.join(tmpDir, safeRel);
+        fs.mkdirSync(path.dirname(full), { recursive: true });
+        fs.writeFileSync(full, entry.data);
+        entry.data = null;
+        fileEntries.push({ name: entry.name, path: full });
+        if ((count++ % 4) === 0) await new Promise((r) => setImmediate(r));
+      }
+      return { dir: tmpDir, files: fileEntries };
+    }
+
+    throw new Error(`Could not extract archive of type ${type}`);
   }
 
   /**

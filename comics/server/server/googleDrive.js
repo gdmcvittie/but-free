@@ -1080,14 +1080,17 @@ const GoogleDrive = {
     let coverJpeg = providedCoverJpeg;
     let page1Data = null;
     let totalPages = 0;
-    const tempInspectPath = path.join(os.tmpdir(), `inspect_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.cbz`);
+    const tempInspectPath = sourceIsPath ? null : path.join(os.tmpdir(), `inspect_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.cbz`);
+    const inspectPath = sourceIsPath ? fileBuffer : tempInspectPath;
 
     try {
-      fs.writeFileSync(tempInspectPath, fileBuffer);
-      const pageList = CBZReader.getPageList(tempInspectPath);
+      if (!sourceIsPath) {
+        fs.writeFileSync(tempInspectPath, fileBuffer);
+      }
+      const pageList = CBZReader.getPageList(inspectPath);
       totalPages = pageList.totalPages || 0;
       if (!coverJpeg) {
-        const page1 = CBZReader.extractPage(tempInspectPath, 1);
+        const page1 = CBZReader.extractPage(inspectPath, 1);
         if (page1 && page1.data) {
           page1Data = page1.data;
           coverJpeg = await ComicCompressor.makeCoverJpeg(page1.data, { maxHeight: 512, quality: 85 });
@@ -1096,9 +1099,11 @@ const GoogleDrive = {
     } catch (e) {
       console.warn('[Upload] Page inspection note:', e.message);
     } finally {
-      try {
-        if (fs.existsSync(tempInspectPath)) fs.unlinkSync(tempInspectPath);
-      } catch {}
+      if (!sourceIsPath && tempInspectPath) {
+        try {
+          if (fs.existsSync(tempInspectPath)) fs.unlinkSync(tempInspectPath);
+        } catch {}
+      }
     }
 
     if (!coverJpeg) {

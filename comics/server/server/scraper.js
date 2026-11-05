@@ -268,6 +268,49 @@ class ComicScraper {
   static async inspectChapter(chapterUrl) {
     if (!chapterUrl) throw new Error('No comic URL provided');
 
+    const trimmedUrl = chapterUrl.trim();
+
+    // If the URL is already a direct download link, mirror, or file (e.g. /dls/, comicfiles, pixeldrain, .zip/.cbz)
+    const isDirect =
+      trimmedUrl.includes('/dls/') ||
+      trimmedUrl.includes('comicfiles.ru') ||
+      trimmedUrl.includes('pixeldrain.com/api/file/') ||
+      trimmedUrl.includes('datanodes.to') ||
+      /\.(zip|cbz|cbr|7z)(\?.*)?$/i.test(trimmedUrl);
+
+    if (isDirect) {
+      let resolvedUrl = trimmedUrl;
+      if (trimmedUrl.includes('/dls/')) {
+        resolvedUrl = await this.resolveDownloadRedirect(trimmedUrl);
+      }
+
+      let directDownloadUrl = resolvedUrl;
+      if (resolvedUrl.includes('pixeldrain.com')) {
+        directDownloadUrl = this.toDirectPixeldrainUrl(resolvedUrl);
+      }
+
+      let title = 'Comic Issue';
+      let year = '';
+      try {
+        const parsedPath = new URL(resolvedUrl).pathname;
+        const decoded = decodeURIComponent(path.basename(parsedPath));
+        if (decoded && !/^(dls|index|download)/i.test(decoded)) {
+          title = decoded.replace(/\.(zip|cbz|cbr|7z)$/i, '').trim();
+          const yMatch = title.match(/\b(19\d\d|20\d\d)\b/);
+          if (yMatch) year = yMatch[1];
+        }
+      } catch (e) {}
+
+      return {
+        title,
+        coverUrl: null,
+        downloadUrl: directDownloadUrl,
+        size: '',
+        year,
+        chapterUrl: trimmedUrl
+      };
+    }
+
     const html = await this.fetchHtml(chapterUrl);
 
     const titleMatch = html.match(/<h1 class=["']search-title["'][^>]*>([\s\S]*?)<\/h1>/i) ||
@@ -418,7 +461,9 @@ class ComicScraper {
     if (onProgress) onProgress({ status: 'Download completed! Preparing upload...', percent: 40 });
 
     const safeTitle = info.title.replace(/[\\/:*?"<>|]/g, '_').trim();
-    const fileName = `${safeTitle}.cbz`;
+    const extMatch = info.downloadUrl ? info.downloadUrl.split('?')[0].match(/\.(zip|cbz|cbr|7z)$/i) : null;
+    const ext = extMatch ? extMatch[0].toLowerCase() : '.cbz';
+    const fileName = `${safeTitle}${ext}`;
 
     return {
       filePath: destPath,
@@ -459,7 +504,9 @@ class ComicScraper {
 
     // Clean file name
     const safeTitle = info.title.replace(/[\\/:*?"<>|]/g, '_').trim();
-    const fileName = `${safeTitle}.cbz`;
+    const extMatch = info.downloadUrl ? info.downloadUrl.split('?')[0].match(/\.(zip|cbz|cbr|7z)$/i) : null;
+    const ext = extMatch ? extMatch[0].toLowerCase() : '.cbz';
+    const fileName = `${safeTitle}${ext}`;
 
     return {
       buffer,

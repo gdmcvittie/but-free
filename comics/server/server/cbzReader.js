@@ -83,6 +83,48 @@ class CBZReader {
   }
 
   /**
+   * Parses Central Directory buffer into all file entries (not just images),
+   * ignoring __MACOSX and directory entries.
+   */
+  static parseAllCentralDirectory(cdBuf) {
+    const entries = [];
+    let offset = 0;
+    const totalLen = cdBuf.length;
+
+    while (offset < totalLen) {
+      if (offset + 46 > totalLen) break;
+      if (cdBuf.readUInt32LE(offset) !== 0x02014b50) break;
+
+      const compressionMethod = cdBuf.readUInt16LE(offset + 10);
+      const compressedSize = cdBuf.readUInt32LE(offset + 20);
+      const uncompressedSize = cdBuf.readUInt32LE(offset + 24);
+      const fileNameLength = cdBuf.readUInt16LE(offset + 28);
+      const extraFieldLength = cdBuf.readUInt16LE(offset + 30);
+      const fileCommentLength = cdBuf.readUInt16LE(offset + 32);
+      const localHeaderOffset = cdBuf.readUInt32LE(offset + 42);
+
+      const fileName = cdBuf.toString('utf8', offset + 46, offset + 46 + fileNameLength);
+      offset += 46 + fileNameLength + extraFieldLength + fileCommentLength;
+
+      if (fileName.includes('__MACOSX') || fileName.endsWith('/')) continue;
+
+      entries.push({
+        fileName: fileName.replace(/\\/g, '/'),
+        compressionMethod,
+        compressedSize,
+        uncompressedSize,
+        localHeaderOffset
+      });
+    }
+
+    entries.sort((a, b) =>
+      a.fileName.localeCompare(b.fileName, undefined, { numeric: true, sensitivity: 'base' })
+    );
+
+    return entries;
+  }
+
+  /**
    * Decompresses an image entry directly from a buffer starting at its local header offset.
    */
   static extractPageFromLocalHeader(buf, compressionMethod, compressedSize, fileName = 'page.jpg', pageIndex = 1, totalPages = 1) {
@@ -153,6 +195,29 @@ class CBZReader {
       return entries;
     } finally {
       fs.closeSync(fd);
+    }
+  }
+
+  /**
+   * Fast entry inspector: reads the Central Directory of a ZIP file on disk to extract
+   * ALL non-hidden file entries (including nested .cbz, .cbr, and .zip files).
+   */
+  static getAllArchiveEntries(filePath) {
+    if (!fs.existsSync(filePath)) return [];
+    try {
+      const stat = fs.statSync(filePath);
+      const fd = fs.openSync(filePath, 'r');
+      try {
+        const eocd = this.findEOCD(fd, stat.size);
+        if (!eocd) return [];
+        const cdBuf = Buffer.alloc(eocd.centralDirSize);
+        fs.readSync(fd, cdBuf, 0, eocd.centralDirSize, eocd.centralDirOffset);
+        return this.parseAllCentralDirectory(cdBuf);
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch (e) {
+      return [];
     }
   }
 

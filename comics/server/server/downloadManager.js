@@ -5,6 +5,7 @@ const ComicScraper = require('./scraper');
 const GoogleDrive = require('./googleDrive');
 const Database = require('./database');
 const ComicCompressor = require('./comicCompressor');
+const CBZReader = require('./cbzReader');
 
 /**
  * DownloadManager:
@@ -443,6 +444,240 @@ async function runJob(job) {
       });
     });
     logMemory(`downloaded ${(downloadResult.size / (1024 * 1024)).toFixed(1)}MB`);
+
+    // 2. Check if the downloaded archive is a collection of comic files (.cbz, .cbr, .zip)
+    let isCollection = false;
+    let collectionEntries = [];
+
+    try {
+      const allEntries = CBZReader.getAllArchiveEntries(tempArchive);
+      const nestedComics = allEntries.filter((e) =>
+        /\.(cbz|cbr)$/i.test(e.fileName) ||
+        (/\.zip$/i.test(e.fileName) && !e.fileName.endsWith('.archive'))
+      );
+      if (nestedComics.length > 0) {
+        isCollection = true;
+        collectionEntries = nestedComics;
+      }
+    } catch (e) {
+      console.warn('[DownloadJob] Quick ZIP central directory check note:', e.message);
+    }
+
+    if (isCollection) {
+      console.log(`[DownloadJob] Collection archive detected (${collectionEntries.length} comic archive(s)). Unzipping collection...`);
+      DownloadManager._update(id, {
+        status: 'compressing',
+        phase: 'Extracting collection',
+        percent: 42,
+        message: `Unzipping collection (${collectionEntries.length} comic issues found)...`
+      });
+
+      const tempExtractDir = path.join(os.tmpdir(), `cmx_coll_ext_${id}_${stamp}`);
+      fs.mkdirSync(tempExtractDir, { recursive: true });
+
+      try {
+        await ComicCompressor.extractArchiveToDir(tempArchive, tempExtractDir);
+
+        // Find all comic files in tempExtractDir recursively
+        const comicFiles = [];
+        const walk = (dir) => {
+          for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
+            const full = path.join(dir, item.name);
+            if (item.isDirectory()) {
+              walk(full);
+            } else if (item.isFile()) {
+              const rel = path.relative(tempExtractDir, full).replace(/\\/g, '/');
+              const isHidden = rel.includes('__MACOSX') || path.basename(rel).startsWith('.');
+              if (!isHidden && /\.(cbz|cbr)$/i.test(item.name)) {
+                comicFiles.push({ name: item.name, rel, path: full, size: fs.statSync(full).size });
+              }
+            }
+          }
+        };
+        walk(tempExtractDir);
+
+        // If no .cbz/.cbr was extracted directly, check for nested .zip comic files
+        if (comicFiles.length === 0) {
+          const walkZip = (dir) => {
+            for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
+              const full = path.join(dir, item.name);
+              if (item.isDirectory()) {
+                walkZip(full);
+              } else if (item.isFile()) {
+                const rel = path.relative(tempExtractDir, full).replace(/\\/g, '/');
+                const isHidden = rel.includes('__MACOSX') || path.basename(rel).startsWith('.');
+                if (!isHidden && /\.zip$/i.test(item.name)) {
+                  comicFiles.push({ name: item.name, rel, path: full, size: fs.statSync(full).size });
+                }
+              }
+            }
+          };
+          walkZip(tempExtractDir);
+        }
+
+        // Sort naturally: Issue 1, Issue 2, Issue 10
+        comicFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+
+        console.log(`[DownloadJob] Found ${comicFiles.length} extracted comic file(s) in collection.`);
+
+        if (comicFiles.length === 0) {
+          throw new Error('Collection archive did not contain any readable comic files (.cbz/.cbr).');
+        }
+
+        const userSettings = Database.getUserSettings(user.id);
+        const shouldCompress = userSettings.compressLibrary !== false;
+        const quality = userSettings.compressionQuality || 75;
+
+        const uploadedComics = [];
+        const totalComics = comicFiles.length;
+
+        for (let i = 0; i < totalComics; i++) {
+          const comic = comicFiles[i];
+          const comicName = comic.name;
+          const comicTitle = comicName.replace(/\.(cbz|cbr|zip)$/i, '').trim();
+
+          const basePercent = 43 + Math.round((i / totalComics) * 52);
+          const nextPercent = 43 + Math.round(((i + 1) / totalComics) * 52);
+
+          DownloadManager._update(id, {
+            status: 'compressing',
+            phase: `Processing issue ${i + 1} of ${totalComics}`,
+            percent: basePercent,
+            message: `Processing issue ${i + 1}/${totalComics}: "${comicTitle}"...`
+          });
+
+          let comicSource = comic.path;
+          let coverJpeg = null;
+          let tempCompressedIssue = null;
+
+          if (shouldCompress) {
+            tempCompressedIssue = path.join(os.tmpdir(), `cmx_coll_out_${id}_${i}_${stamp}.cbz`);
+            try {
+              const compResult = await ComicCompressor.compressArchiveFileToFile(comic.path, tempCompressedIssue, {
+                quality,
+                onProgress: (p) => {
+                  const pagesPercent = Math.max(0, Math.min(100, p && typeof p.percent === 'number' ? p.percent : 0));
+                  const progressWithinSlice = Math.round((pagesPercent / 100) * (nextPercent - basePercent) * 0.6);
+                  DownloadManager._update(id, {
+                    status: 'compressing',
+                    phase: `Processing issue ${i + 1} of ${totalComics}`,
+                    percent: basePercent + progressWithinSlice,
+                    message: `Compressing ${i + 1}/${totalComics} "${comicTitle}": ${(p && p.step) || 'pages...'}`
+                  });
+                }
+              });
+
+              if (compResult.compressedSize > 0 && compResult.compressedSize < comic.size) {
+                comicSource = tempCompressedIssue;
+              }
+              if (compResult.coverJpeg) {
+                coverJpeg = compResult.coverJpeg;
+              }
+            } catch (compErr) {
+              console.warn(`[DownloadJob] Compression failed for "${comicName}" - keeping uncompressed:`, compErr.message);
+            }
+          }
+
+          // Extract cover if not yet extracted
+          if (!coverJpeg) {
+            try {
+              const extracted = await ComicCompressor.extractCoverThumbnail(comicSource, { maxHeight: 512, quality: 85 });
+              if (extracted && extracted.coverJpeg) {
+                coverJpeg = extracted.coverJpeg;
+              }
+            } catch (covErr) {
+              console.warn(`[DownloadJob] Could not extract cover for "${comicName}":`, covErr.message);
+            }
+          }
+
+          // Upload this comic to Google Drive
+          const uploadPercent = Math.round(basePercent + (nextPercent - basePercent) * 0.65);
+          DownloadManager._update(id, {
+            status: 'uploading',
+            phase: `Uploading issue ${i + 1} of ${totalComics}`,
+            percent: uploadPercent,
+            message: `Uploading ${i + 1}/${totalComics}: "${comicTitle}" to Google Drive...`
+          });
+
+          const targetSeriesName = job.seriesName || '';
+
+          const savedComic = await GoogleDrive.uploadComicFile(
+            user,
+            comicSource,
+            comicName,
+            targetSeriesName,
+            null, // coverUrl
+            null, // targetFolderIdOverride
+            null, // metadataOverride
+            (progress) => {
+              if (progress.total > 0) {
+                const fraction = progress.uploaded / progress.total;
+                const uploadPct = Math.round(uploadPercent + fraction * ((nextPercent - basePercent) * 0.35));
+                DownloadManager._update(id, {
+                  status: 'uploading',
+                  phase: `Uploading issue ${i + 1} of ${totalComics}`,
+                  percent: Math.min(nextPercent, uploadPct),
+                  message: `Uploading ${i + 1}/${totalComics}: "${comicTitle}" (${((progress.uploaded) / (1024 * 1024)).toFixed(1)} / ${((progress.total) / (1024 * 1024)).toFixed(1)} MB)...`
+                });
+              }
+            },
+            coverJpeg
+          );
+
+          uploadedComics.push(savedComic);
+
+          if (tempCompressedIssue) {
+            try { if (fs.existsSync(tempCompressedIssue)) fs.unlinkSync(tempCompressedIssue); } catch (e) {}
+          }
+        }
+
+        // Library scan after all issues in collection uploaded
+        let libraryCount = null;
+        try {
+          DownloadManager._update(id, {
+            status: 'uploading',
+            phase: 'Updating library',
+            percent: 98,
+            message: 'Scanning Google Drive for newly added comics...'
+          });
+          const protectIds = uploadedComics.map((c) => c.googleFileId).filter(Boolean);
+          const scan = await GoogleDrive.syncLibrary(user, { protectFileIds: protectIds });
+          libraryCount = scan.count;
+          console.log(`[DownloadJob] Post-collection library scan complete: ${libraryCount} comics.`);
+        } catch (scanErr) {
+          console.warn('[DownloadJob] Post-collection library scan failed:', scanErr.message);
+        }
+
+        const doneMessage = `Collection downloaded! Successfully saved ${uploadedComics.length} comic issue${uploadedComics.length === 1 ? '' : 's'} to Google Drive.`;
+        DownloadManager._update(id, {
+          status: 'done',
+          phase: 'Complete',
+          percent: 100,
+          message: doneMessage,
+          result: {
+            success: true,
+            isCollection: true,
+            count: uploadedComics.length,
+            title: job.seriesName || downloadResult.title || 'Comic Collection',
+            comics: uploadedComics,
+            firstComic: uploadedComics[0],
+            id: uploadedComics[0]?.id,
+            googleFileId: uploadedComics[0]?.googleFileId,
+            coverImage: uploadedComics[0]?.coverImage,
+            libraryCount,
+            message: doneMessage
+          }
+        });
+
+        return; // Finished collection processing!
+      } finally {
+        try {
+          if (fs.existsSync(tempExtractDir)) {
+            fs.rmSync(tempExtractDir, { recursive: true, force: true });
+          }
+        } catch (e) {}
+      }
+    }
 
     DownloadManager._update(id, {
       status: 'compressing',
