@@ -182,14 +182,25 @@ export async function handleDriveHls(req, res) {
   let sessionTotalDurationSec = null;
   const ffmpegCmd = resolveFfmpeg();
 
-  // Input URL streams directly from the TV server's authenticated Google Drive proxy
-  const queryParts = [];
-  if (token) queryParts.push(`token=${encodeURIComponent(token)}`);
-  if (user) queryParts.push(`user=${encodeURIComponent(user)}`);
-  const tokenQuery = queryParts.length > 0 ? `?${queryParts.join('&')}` : '';
-  const inputUrl = `${inputOrigin}/api/stream/drive/${fileId}${tokenQuery}`;
-  console.log(`[VPS Drive HLS] Starting transcode session=${sessionId} fileId=${fileId} offset=${offset}s inputUrl=${inputOrigin}/api/stream/drive/${fileId}`);
+  let googleToken = req.query.googleToken || '';
+  if (!googleToken) {
+    try {
+      const qParts = [];
+      if (token) qParts.push(`token=${encodeURIComponent(token)}`);
+      if (user) qParts.push(`user=${encodeURIComponent(user)}`);
+      const q = qParts.length > 0 ? `?${qParts.join('&')}` : '';
+      const tRes = await fetch(`${inputOrigin}/api/drive/token${q}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        signal: AbortSignal.timeout(4000)
+      });
+      if (tRes.ok) {
+        const tData = await tRes.json();
+        if (tData?.googleToken) googleToken = tData.googleToken;
+      }
+    } catch (_) {}
+  }
 
+  let inputUrl;
   const ffmpegArgs = [
     '-reconnect', '1',
     '-reconnect_streamed', '1',
@@ -199,6 +210,19 @@ export async function handleDriveHls(req, res) {
     '-analyzeduration', '5M',
     '-probesize', '5M'
   ];
+
+  if (googleToken) {
+    inputUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+    ffmpegArgs.push('-headers', `Authorization: Bearer ${googleToken}\r\n`);
+    console.log(`[VPS Drive HLS] Starting DIRECT Google Drive transcode session=${sessionId} fileId=${fileId} offset=${offset}s`);
+  } else {
+    const queryParts = [];
+    if (token) queryParts.push(`token=${encodeURIComponent(token)}`);
+    if (user) queryParts.push(`user=${encodeURIComponent(user)}`);
+    const tokenQuery = queryParts.length > 0 ? `?${queryParts.join('&')}` : '';
+    inputUrl = `${inputOrigin}/api/stream/drive/${fileId}${tokenQuery}`;
+    console.log(`[VPS Drive HLS] Starting transcode session=${sessionId} fileId=${fileId} offset=${offset}s inputUrl=${inputOrigin}/api/stream/drive/${fileId}`);
+  }
 
   if (offset > 0) {
     ffmpegArgs.push('-ss', offset.toString());
@@ -610,17 +634,21 @@ export function handleTorrentHlsStop(req, res) {
 // -------------------------------------------------------------
 // Media Probe for Native Playability vs Transcode Detection
 // -------------------------------------------------------------
-export async function probeMediaCodecs(inputUrl) {
+export async function probeMediaCodecs(inputUrl, googleToken = '') {
   return new Promise((resolve) => {
     const cmd = resolveFfmpeg();
-    const probe = spawn(cmd, [
+    const args = [
       '-reconnect', '1',
       '-reconnect_streamed', '1',
       '-reconnect_delay_max', '2',
       '-analyzeduration', '2M',
-      '-probesize', '2M',
-      '-i', inputUrl
-    ]);
+      '-probesize', '2M'
+    ];
+    if (googleToken) {
+      args.push('-headers', `Authorization: Bearer ${googleToken}\r\n`);
+    }
+    args.push('-i', inputUrl);
+    const probe = spawn(cmd, args);
     let stderr = '';
     const timer = setTimeout(() => {
       try { probe.kill('SIGKILL'); } catch (_) {}

@@ -3206,7 +3206,12 @@ app.get(['/api/stream/drive/:fileId', '/api/stream/drive/:fileId/:fileName'], op
 
       if (!headersSent) {
         res.status(driveResponse.status);
-        const forwardHeaders = ['content-length', 'content-range', 'accept-ranges', 'content-disposition'];
+        const forwardHeaders = ['content-range', 'accept-ranges', 'content-disposition'];
+        // Do NOT send giant content-length on unbounded streams through LiteSpeed (causes 413 Request Entity Too Large)
+        const cl = driveResponse.headers.get('content-length');
+        if (cl && rangeEnd !== null) {
+          res.setHeader('content-length', cl);
+        }
         forwardHeaders.forEach(h => {
           const val = driveResponse.headers.get(h);
           if (val) res.setHeader(h, val);
@@ -3593,6 +3598,15 @@ app.get('/api/stream/drive-hls/status', optionalAuth, (req, res) => {
   });
 });
 
+app.get(['/api/drive/token', '/api/stream/drive-token'], optionalAuth, async (req, res) => {
+  const userId = req.user?.id || req.query.user || req.query.userId;
+  const { token, userId: resolvedUserId } = await resolveGoogleToken(userId);
+  if (!token) {
+    return res.status(401).json({ error: 'No valid Google Drive token available' });
+  }
+  res.json({ success: true, googleToken: token, userId: resolvedUserId });
+});
+
 app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'], optionalAuth, async (req, res) => {
   let { fileId } = req.params;
   if (fileId && fileId.endsWith('.m3u8')) {
@@ -3606,7 +3620,9 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
   const origin = getHostOrigin(req);
   const inputOrigin = TV_PUBLIC_URL && !TV_PUBLIC_URL.includes('localhost') ? TV_PUBLIC_URL : origin;
   const token = getAuthToken(req) || '';
-  const userParam = userId ? `&user=${encodeURIComponent(userId)}` : '';
+  const { token: googleToken, userId: effectiveUserId } = await resolveGoogleToken(userId);
+  const googleTokenParam = googleToken ? `&googleToken=${encodeURIComponent(googleToken)}` : '';
+  const userParam = (userId || effectiveUserId) ? `&user=${encodeURIComponent(userId || effectiveUserId)}` : '';
   const isRoku = (req.headers['user-agent'] || '').includes('Roku') || req.query.roku === '1';
 
   const vpsCandidates = [];
@@ -3618,7 +3634,7 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
 
   for (const vpsHost of uniqueCandidates) {
     try {
-      const remoteUrl = `${vpsHost}/api/stream/drive-hls/${fileId}.m3u8?offset=${offset}&token=${encodeURIComponent(token)}${userParam}&inputOrigin=${encodeURIComponent(inputOrigin)}`;
+      const remoteUrl = `${vpsHost}/api/stream/drive-hls/${fileId}.m3u8?offset=${offset}&token=${encodeURIComponent(token)}${googleTokenParam}${userParam}&inputOrigin=${encodeURIComponent(inputOrigin)}`;
       console.log(`[Drive HLS] Offloading transcode to dedicated VPS: ${remoteUrl}`);
       const remoteRes = await fetch(remoteUrl, { redirect: 'manual', signal: AbortSignal.timeout(30000) });
       if (remoteRes.status === 302) {

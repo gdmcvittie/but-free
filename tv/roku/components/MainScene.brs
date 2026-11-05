@@ -2095,17 +2095,28 @@ sub saveCurrentPlaybackProgress(finished as Boolean)
         effectiveDur = vidDur
     end if
 
-    if finished and effectiveDur > 0
+    vidPos = m.video.position
+    if vidPos = invalid then vidPos = 0
+    startOffset = 0
+    if m.initialPlayOffset <> invalid and m.initialPlayOffset > 0 then startOffset = m.initialPlayOffset
+    effectivePos = startOffset + vidPos
+    if m.maxPlaybackPosition <> invalid and m.maxPlaybackPosition > effectivePos
+        effectivePos = m.maxPlaybackPosition
+    end if
+
+    ' Only treat as truly finished if playback actually reached near the end of the video
+    isActuallyFinished = false
+    if finished
+        if effectiveDur > 0 and effectivePos >= (effectiveDur * 0.85)
+            isActuallyFinished = true
+        else if effectiveDur <= 0 and effectivePos >= 900
+            isActuallyFinished = true
+        end if
+    end if
+
+    if isActuallyFinished and effectiveDur > 0
         effectivePos = effectiveDur
     else
-        vidPos = m.video.position
-        if vidPos = invalid then vidPos = 0
-        startOffset = 0
-        if m.initialPlayOffset <> invalid and m.initialPlayOffset > 0 then startOffset = m.initialPlayOffset
-        effectivePos = startOffset + vidPos
-        if m.maxPlaybackPosition <> invalid and m.maxPlaybackPosition > effectivePos
-            effectivePos = m.maxPlaybackPosition
-        end if
         if effectiveDur < effectivePos then effectiveDur = effectivePos
         if effectiveDur > 0 and effectivePos >= effectiveDur * 0.9
             effectivePos = effectiveDur
@@ -4380,7 +4391,8 @@ sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, file
         m.chunkWarmTask = invalid
     end if
 
-    isTorrent = Instr(1, LCase(streamUrl), "/api/torrent/stream/") > 0 or Instr(1, LCase(streamUrl), "download.butfree.online") > 0 or Instr(1, LCase(streamUrl), "/api/stream/torrent-hls/") > 0 or Instr(1, LCase(streamUrl), "/api/torrent/serve/") > 0
+    isDriveHls = Instr(1, LCase(streamUrl), "drive-hls") > 0
+    isTorrent = (not isDriveHls) and (Instr(1, LCase(streamUrl), "/api/torrent/stream/") > 0 or Instr(1, LCase(streamUrl), "download.butfree.online") > 0 or Instr(1, LCase(streamUrl), "/api/stream/torrent-hls/") > 0 or Instr(1, LCase(streamUrl), "/api/torrent/serve/") > 0)
     isDrive = Instr(1, LCase(streamUrl), "/api/stream/drive/") > 0
     playUrl = streamUrl
     m.currentStreamUrl = playUrl
@@ -4805,7 +4817,29 @@ sub onVideoStateChange()
         end if
         stopProgressTimer()
 
-        if st = "finished" and playNextDriveEpisode()
+        canAutoAdvance = false
+        if st = "finished"
+            curPos = 0
+            if m.video <> invalid and m.video.position <> invalid then curPos = m.video.position
+            if m.initialPlayOffset <> invalid and m.initialPlayOffset > 0 then curPos = curPos + m.initialPlayOffset
+            if m.maxPlaybackPosition <> invalid and m.maxPlaybackPosition > curPos then curPos = m.maxPlaybackPosition
+
+            totDur = 0
+            if m.currentPlayingTotalDuration <> invalid and m.currentPlayingTotalDuration > 0
+                totDur = m.currentPlayingTotalDuration
+            else if m.video <> invalid and m.video.duration <> invalid and m.video.duration > 0
+                totDur = m.video.duration
+            end if
+
+            ' Only auto-play next episode if episode was actually finished (at least 85% watched, or > 15 minutes)
+            if totDur > 0 and curPos >= (totDur * 0.85)
+                canAutoAdvance = true
+            else if totDur <= 0 and curPos >= 900
+                canAutoAdvance = true
+            end if
+        end if
+
+        if canAutoAdvance and playNextDriveEpisode()
             return
         end if
 
