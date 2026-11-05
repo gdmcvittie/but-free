@@ -107,7 +107,9 @@ export async function handleDriveHls(req, res) {
   if (fileId && fileId.endsWith('.m3u8')) fileId = fileId.replace(/\.m3u8$/, '');
   const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
   const token = req.query.token || req.headers.authorization?.replace('Bearer ', '') || req.headers['x-auth-token'] || '';
+  const user = req.query.user || req.query.userId || '';
   const inputOrigin = (req.query.inputOrigin || 'https://tv.butfree.online').replace(/\/+$/, '');
+  const origin = getHostOrigin(req);
   const sessionKey = `drive:${fileId}`;
   const lockKey = `${sessionKey}:${offset}`;
 
@@ -117,7 +119,7 @@ export async function handleDriveHls(req, res) {
       const waitSessionId = await hlsStartingByKeyOffset.get(lockKey);
       if (waitSessionId) {
         res.writeHead(302, {
-          'Location': `/api/stream/hls/${waitSessionId}/index.m3u8`,
+          'Location': `${origin}/api/stream/hls/${waitSessionId}/index.m3u8`,
           'Cache-Control': 'no-cache'
         });
         return res.end();
@@ -149,7 +151,7 @@ export async function handleDriveHls(req, res) {
     console.log(`[VPS Drive HLS] Reusing active transcode session=${reusableSessionId} fileId=${fileId} offset=${offset}s`);
     touchHlsSession(reusableSessionId);
     res.writeHead(302, {
-      'Location': `/api/stream/hls/${reusableSessionId}/index.m3u8`,
+      'Location': `${origin}/api/stream/hls/${reusableSessionId}/index.m3u8`,
       'Cache-Control': 'no-cache'
     });
     return res.end();
@@ -181,7 +183,10 @@ export async function handleDriveHls(req, res) {
   const ffmpegCmd = resolveFfmpeg();
 
   // Input URL streams directly from the TV server's authenticated Google Drive proxy
-  const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : '';
+  const queryParts = [];
+  if (token) queryParts.push(`token=${encodeURIComponent(token)}`);
+  if (user) queryParts.push(`user=${encodeURIComponent(user)}`);
+  const tokenQuery = queryParts.length > 0 ? `?${queryParts.join('&')}` : '';
   const inputUrl = `${inputOrigin}/api/stream/drive/${fileId}${tokenQuery}`;
   console.log(`[VPS Drive HLS] Starting transcode session=${sessionId} fileId=${fileId} offset=${offset}s inputUrl=${inputOrigin}/api/stream/drive/${fileId}`);
 
@@ -207,9 +212,9 @@ export async function handleDriveHls(req, res) {
     '-c:v', 'libx264',
     '-preset', 'ultrafast',
     '-threads', '2',
-    '-crf', '26',
-    '-maxrate', '2500k',
-    '-bufsize', '4000k',
+    '-crf', '28',
+    '-maxrate', '2000k',
+    '-bufsize', '3000k',
     '-force_key_frames', 'expr:gte(t,n_forced*6)',
     '-sc_threshold', '0',
     '-x264-params', 'repeat-headers=1',
@@ -304,7 +309,7 @@ export async function handleDriveHls(req, res) {
           if (resolveLock) { resolveLock(sessionId); hlsStartingByKeyOffset.delete(lockKey); }
           console.log(`[VPS Drive HLS] Ready session=${sessionId} segments=${segCount} (${elapsed}ms)`);
           res.writeHead(302, {
-            'Location': `/api/stream/hls/${sessionId}/index.m3u8`,
+            'Location': `${origin}/api/stream/hls/${sessionId}/index.m3u8`,
             'Cache-Control': 'no-cache'
           });
           return res.end();
@@ -330,6 +335,7 @@ export async function handleTorrentHls(req, res, activeStreams) {
   let { streamId, fileIndex } = req.params;
   if (fileIndex && fileIndex.endsWith('.m3u8')) fileIndex = fileIndex.replace(/\.m3u8$/, '');
   const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+  const origin = getHostOrigin(req);
   const sessionKey = `torrent:${streamId}:${fileIndex || '0'}`;
   const lockKey = `${sessionKey}:${offset}`;
 
@@ -338,7 +344,7 @@ export async function handleTorrentHls(req, res, activeStreams) {
       const waitSessionId = await hlsStartingByKeyOffset.get(lockKey);
       if (waitSessionId) {
         res.writeHead(302, {
-          'Location': `/api/stream/hls/${waitSessionId}/index.m3u8`,
+          'Location': `${origin}/api/stream/hls/${waitSessionId}/index.m3u8`,
           'Cache-Control': 'no-cache'
         });
         return res.end();
@@ -369,7 +375,7 @@ export async function handleTorrentHls(req, res, activeStreams) {
     console.log(`[VPS Torrent HLS] Reusing active transcode session=${reusableSessionId} streamId=${streamId} offset=${offset}s`);
     touchHlsSession(reusableSessionId);
     res.writeHead(302, {
-      'Location': `/api/stream/hls/${reusableSessionId}/index.m3u8`,
+      'Location': `${origin}/api/stream/hls/${reusableSessionId}/index.m3u8`,
       'Cache-Control': 'no-cache'
     });
     return res.end();
@@ -508,7 +514,7 @@ export async function handleTorrentHls(req, res, activeStreams) {
         if (segCount >= 2 || isComplete || (segCount >= 1 && elapsed > 8000)) {
           if (resolveLock) { resolveLock(sessionId); hlsStartingByKeyOffset.delete(lockKey); }
           res.writeHead(302, {
-            'Location': `/api/stream/hls/${sessionId}/index.m3u8`,
+            'Location': `${origin}/api/stream/hls/${sessionId}/index.m3u8`,
             'Cache-Control': 'no-cache'
           });
           return res.end();
@@ -546,8 +552,21 @@ export function handleServeHlsFile(req, res) {
   res.setHeader('Access-Control-Allow-Headers', '*');
 
   if (targetFile.endsWith('.m3u8')) {
+    let playlist = '';
+    try {
+      playlist = fs.readFileSync(filePath, 'utf-8');
+    } catch (_) {
+      return res.status(404).send('Playlist not ready');
+    }
+    const session = activeHlsSessions.get(sessionId);
+    const isRunning = Boolean(session?.ffmpegProcess && session.ffmpegProcess.exitCode === null);
+    if (!isRunning && !playlist.includes('#EXT-X-ENDLIST')) {
+      playlist = playlist.trimEnd() + '\n#EXT-X-ENDLIST\n';
+      try { fs.writeFileSync(filePath, playlist); } catch (_) {}
+    }
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    return res.send(playlist);
   } else if (targetFile.endsWith('.ts')) {
     res.setHeader('Content-Type', 'video/mp2t');
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');

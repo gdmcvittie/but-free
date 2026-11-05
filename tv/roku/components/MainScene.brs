@@ -1586,21 +1586,10 @@ sub playDriveItem(item as Object)
             end if
         end if
 
-        ' Transcode Drive content to HLS via the high-performance VPS if reachable, else cloud server
-        streamBase = m.serverUrl
-        if m.torrentServerUrl <> invalid and m.torrentServerUrl <> ""
-            streamBase = m.torrentServerUrl
-        end if
-        streamUrl = streamBase + "/api/stream/drive-hls/" + driveId + ".m3u8"
+        ' Always transcode Drive content to HLS via the cloud server (offloaded to VPS in backend).
+        streamUrl = m.serverUrl + "/api/stream/drive-hls/" + driveId + ".m3u8"
         if isLoggedIn()
             streamUrl = streamUrl + "?token=" + m.authToken
-        end if
-        if streamBase <> m.serverUrl
-            if Instr(1, streamUrl, "?") > 0
-                streamUrl = streamUrl + "&inputOrigin=" + m.serverUrl
-            else
-                streamUrl = streamUrl + "?inputOrigin=" + m.serverUrl
-            end if
         end if
         if offset > 0
             if Instr(1, streamUrl, "?") > 0

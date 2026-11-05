@@ -3441,13 +3441,15 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
       const token = getAuthToken(req) || '';
       const origin = getHostOrigin(req);
       const inputOrigin = TV_PUBLIC_URL && !TV_PUBLIC_URL.includes('localhost') ? TV_PUBLIC_URL : origin;
-      const remoteUrl = `${torrentServer}/api/stream/drive-hls/${fileId}.m3u8?offset=${offset}&token=${encodeURIComponent(token)}&inputOrigin=${encodeURIComponent(inputOrigin)}`;
+      const userParam = userId ? `&user=${encodeURIComponent(userId)}` : '';
+      const remoteUrl = `${torrentServer}/api/stream/drive-hls/${fileId}.m3u8?offset=${offset}&token=${encodeURIComponent(token)}${userParam}&inputOrigin=${encodeURIComponent(inputOrigin)}`;
       console.log(`[Drive HLS] Offloading transcode to dedicated VPS: ${remoteUrl}`);
       const remoteRes = await fetch(remoteUrl, { redirect: 'manual' });
       if (remoteRes.status === 302) {
         const location = remoteRes.headers.get('location');
         if (location) {
-          const finalLoc = location.startsWith('http') ? location : `${origin}${location}`;
+          const locPath = location.replace(/^https?:\/\/[^/]+/, '');
+          const finalLoc = `${origin}${locPath}`;
           res.writeHead(302, {
             'Location': finalLoc,
             'Cache-Control': 'no-cache'
@@ -3458,7 +3460,8 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
         res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Access-Control-Allow-Origin', '*');
-        const text = await remoteRes.text();
+        let text = await remoteRes.text();
+        text = text.replace(/^(?:.*[\\/])?(seg_\d+\.ts)\r?$/gm, (m, p1) => `${origin}/api/stream/hls/${fileId}/${p1}`);
         return res.send(text);
       }
     } catch (vpsErr) {
@@ -4251,7 +4254,8 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
       if (remoteRes.status === 302) {
         const location = remoteRes.headers.get('location');
         if (location) {
-          const finalLoc = location.startsWith('http') ? location : `${origin}${location}`;
+          const locPath = location.replace(/^https?:\/\/[^/]+/, '');
+          const finalLoc = `${origin}${locPath}`;
           res.writeHead(302, {
             'Location': finalLoc,
             'Cache-Control': 'no-cache'
@@ -4922,6 +4926,11 @@ app.get('/api/stream/hls/:sessionId/:file', async (req, res) => {
           res.setHeader('Access-Control-Allow-Origin', '*');
           const cacheControl = remoteRes.headers.get('cache-control');
           if (cacheControl) res.setHeader('Cache-Control', cacheControl);
+          if (safeFile.endsWith('.m3u8')) {
+            let text = await remoteRes.text();
+            text = text.replace(/^(?:.*[\\/])?(seg_\d+\.ts)\r?$/gm, (m, p1) => `/api/stream/hls/${sessionId}/${p1}`);
+            return res.send(text);
+          }
           const buf = Buffer.from(await remoteRes.arrayBuffer());
           return res.send(buf);
         }
@@ -6432,7 +6441,7 @@ function getTorrentHeaders(extra = {}) {
 
 async function getActiveTorrentServer() {
   const now = Date.now();
-  if (cachedTorrentServerUrl && (now - lastTorrentServerCheck < 20000)) {
+  if (cachedTorrentServerUrl && (now - lastTorrentServerCheck < 30000)) {
     return cachedTorrentServerUrl;
   }
 
@@ -6443,9 +6452,9 @@ async function getActiveTorrentServer() {
     if (!configured.includes(':4000')) candidateUrls.push(`${configured}:4000`);
   }
   candidateUrls.push('http://download.butfree.online:4000');
-  candidateUrls.push('http://download.butfree.online:4000');
+  candidateUrls.push('http://74.208.40.118:4000');
   if (configured && configured.includes('download.butfree.online')) {
-    candidateUrls.push(configured.replace('download.butfree.online', '74.208.22.119'));
+    candidateUrls.push(configured.replace('download.butfree.online', '74.208.40.118'));
   }
   candidateUrls.push('http://download.butfree.online');
   candidateUrls.push('http://127.0.0.1:4000');
@@ -6455,11 +6464,18 @@ async function getActiveTorrentServer() {
 
   for (const candidate of candidateUrls) {
     try {
-      const res = await fetch(`${candidate}/api/torrent/status`, {
+      // First try /api/torrent which responds instantly (<100ms) without running slow CLI tools
+      let res = await fetch(`${candidate}/api/torrent`, {
         headers: getTorrentHeaders(),
-        signal: AbortSignal.timeout(3000)
-      });
-      if (res.ok) {
+        signal: AbortSignal.timeout(2500)
+      }).catch(() => null);
+      if (!res || !res.ok) {
+        res = await fetch(`${candidate}/health`, {
+          headers: getTorrentHeaders(),
+          signal: AbortSignal.timeout(2500)
+        }).catch(() => null);
+      }
+      if (res && res.ok) {
         cachedTorrentServerUrl = candidate;
         lastTorrentServerCheck = now;
         return candidate;
