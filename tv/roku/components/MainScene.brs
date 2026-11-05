@@ -1499,6 +1499,13 @@ sub openDriveAllMoviesGrid()
     end if
 end sub
 
+function getTranscoderUrl() as String
+    if m.torrentServerUrl <> invalid and m.torrentServerUrl <> ""
+        return m.torrentServerUrl
+    end if
+    return "http://download.butfree.online:4000"
+end function
+
 sub playDriveItem(item as Object)
     if item = invalid return
     m.currentEpisodeList = invalid
@@ -1586,36 +1593,17 @@ sub playDriveItem(item as Object)
             end if
         end if
 
-        ' Check whether video is natively playable or needs transcoding
-        needsTranscode = true
-        fileExt = ""
-        if filename <> "" and Len(filename) > 4
-            fileExt = LCase(Right(filename, 4))
-        end if
-        if fileExt = ".mp4" or fileExt = ".m4v"
-            needsTranscode = false
-        end if
-        transVal = getItemField(item, "needsTranscode")
-        if transVal <> invalid
-            if type(transVal) = "roBoolean" or type(transVal) = "Boolean"
-                needsTranscode = transVal
-            end if
-        end if
-
-        if needsTranscode
-            streamUrl = m.serverUrl + "/api/stream/drive-hls/" + driveId + ".m3u8"
-        else
-            streamUrl = m.serverUrl + "/api/stream/drive/" + driveId
-        end if
+        ' Transcode ALL Drive video files on Roku using the dedicated high-performance VPS
+        vpsHost = getTranscoderUrl()
+        streamUrl = vpsHost + "/api/stream/drive-hls/" + driveId + ".m3u8"
+        sep = "?"
         if isLoggedIn()
-            streamUrl = streamUrl + "?token=" + m.authToken
+            streamUrl = streamUrl + sep + "token=" + m.authToken
+            sep = "&"
         end if
+        streamUrl = streamUrl + sep + "inputOrigin=" + m.serverUrl
         if offset > 0
-            if Instr(1, streamUrl, "?") > 0
-                streamUrl = streamUrl + "&offset=" + Stri(Fix(offset)).trim()
-            else
-                streamUrl = streamUrl + "?offset=" + Stri(Fix(offset)).trim()
-            end if
+            streamUrl = streamUrl + "&offset=" + Stri(Fix(offset)).trim()
         end if
         ' New title: discard any high-water mark from the previous video so a
         ' quick exit cannot save a stale position for this one.
@@ -3827,10 +3815,10 @@ sub stopActiveTorrentStream()
 
     if streamId = "" then return
 
-    ' 1. If cloud server was transcoding HLS for this torrent, stop FFmpeg on cloud server
+    ' 1. Stop HLS transcode on dedicated VPS
     if isTorrentHls
         cloudStopTask = CreateObject("roSGNode", "HttpTask")
-        cloudStopTask.url = m.serverUrl + "/api/stream/torrent-hls/stop"
+        cloudStopTask.url = getTranscoderUrl() + "/api/stream/torrent-hls/stop"
         cloudStopTask.method = "POST"
         cloudStopTask.postData = FormatJson({ streamId: streamId })
         if isLoggedIn() then cloudStopTask.authToken = m.authToken
@@ -3860,21 +3848,25 @@ sub stopDriveTranscode()
     end if
     fileId = ""
     if after <> invalid then fileId = after.trim()
+    if fileId = "" and m.currentPlayFilePath <> invalid and Len(m.currentPlayFilePath) >= 8 and Left(m.currentPlayFilePath, 8) = "drive://"
+        fileId = Mid(m.currentPlayFilePath, 9)
+    end if
     if fileId = "" return
+
+    vpsHost = getTranscoderUrl()
+    m.stopVpsDriveTask = CreateObject("roSGNode", "HttpTask")
+    m.stopVpsDriveTask.url = vpsHost + "/api/stream/drive-hls/stop"
+    m.stopVpsDriveTask.method = "POST"
+    m.stopVpsDriveTask.postData = FormatJson({ fileId: fileId })
+    if isLoggedIn() then m.stopVpsDriveTask.authToken = m.authToken
+    m.stopVpsDriveTask.control = "run"
+
     m.stopDriveTask = CreateObject("roSGNode", "HttpTask")
     m.stopDriveTask.url = m.serverUrl + "/api/stream/drive-hls/stop"
     m.stopDriveTask.method = "POST"
     m.stopDriveTask.postData = FormatJson({ fileId: fileId })
     if isLoggedIn() then m.stopDriveTask.authToken = m.authToken
     m.stopDriveTask.control = "run"
-
-    if m.torrentServerUrl <> invalid and m.torrentServerUrl <> ""
-        m.stopVpsDriveTask = CreateObject("roSGNode", "HttpTask")
-        m.stopVpsDriveTask.url = m.torrentServerUrl + "/api/stream/drive-hls/stop"
-        m.stopVpsDriveTask.method = "POST"
-        m.stopVpsDriveTask.postData = FormatJson({ fileId: fileId })
-        m.stopVpsDriveTask.control = "run"
-    end if
 end sub
 
 sub stopAllActiveStreams()
@@ -4252,8 +4244,8 @@ sub onTorrentInitResult()
         end if
         playVideoUrl(streamUrl, title, 0, "", false)
     else if streamId <> ""
-        ' Route through cloud server HLS transcoder (m.serverUrl, NOT m.torrentServerUrl)
-        hlsUrl = m.serverUrl + "/api/stream/torrent-hls/" + streamId + "/" + fileIndex + ".m3u8"
+        ' Route through dedicated VPS HLS transcoder
+        hlsUrl = getTranscoderUrl() + "/api/stream/torrent-hls/" + streamId + "/" + fileIndex + ".m3u8"
         m.pendingTorrentHlsUrl = hlsUrl
         m.pendingTorrentTitle = title
         m.folderBreadcrumb.text = "Preparing stream... (buffering initial video)"
@@ -4851,8 +4843,13 @@ sub onVideoStateChange()
                     driveId = Mid(m.currentPlayFilePath, 9)
                 end if
                 if driveId <> ""
-                    fallbackUrl = m.serverUrl + "/api/stream/drive-hls/" + driveId
-                    if isLoggedIn() then fallbackUrl = fallbackUrl + "?token=" + m.authToken
+                    fallbackUrl = getTranscoderUrl() + "/api/stream/drive-hls/" + driveId + ".m3u8"
+                    sep = "?"
+                    if isLoggedIn()
+                        fallbackUrl = fallbackUrl + sep + "token=" + m.authToken
+                        sep = "&"
+                    end if
+                    fallbackUrl = fallbackUrl + sep + "inputOrigin=" + m.serverUrl
                     vidPos = m.video.position
                     if vidPos = invalid then vidPos = 0
                     startOffset = 0
@@ -4860,15 +4857,11 @@ sub onVideoStateChange()
                     curOffset = startOffset + vidPos
                     if m.maxPlaybackPosition <> invalid and m.maxPlaybackPosition > curOffset then curOffset = m.maxPlaybackPosition
                     if curOffset > 5
-                        if Instr(1, fallbackUrl, "?") > 0
-                            fallbackUrl = fallbackUrl + "&offset=" + Stri(Fix(curOffset)).trim()
-                        else
-                            fallbackUrl = fallbackUrl + "?offset=" + Stri(Fix(curOffset)).trim()
-                        end if
+                        fallbackUrl = fallbackUrl + "&offset=" + Stri(Fix(curOffset)).trim()
                     end if
                 end if
             else if Instr(1, LCase(fallbackUrl), "/api/torrent/serve/") > 0
-                ' Direct torrent playback failed -> Fallback to cloud server HLS transcoding
+                ' Direct torrent playback failed -> Fallback to dedicated VPS HLS transcoding
                 segPos = Instr(1, fallbackUrl, "/api/torrent/serve/")
                 after = Mid(fallbackUrl, segPos + Len("/api/torrent/serve/"))
                 segEnd = Instr(1, after, "/")
@@ -4883,7 +4876,7 @@ sub onVideoStateChange()
                     tStreamId = after
                 end if
                 if tStreamId <> ""
-                    fallbackUrl = m.serverUrl + "/api/stream/torrent-hls/" + tStreamId + "/" + tFileIdx + ".m3u8"
+                    fallbackUrl = getTranscoderUrl() + "/api/stream/torrent-hls/" + tStreamId + "/" + tFileIdx + ".m3u8"
                 end if
             else if Instr(1, LCase(fallbackUrl), "transcode=true") <= 0 and Instr(1, LCase(fallbackUrl), "transcode=1") <= 0
                 fallbackUrl = appendTranscodeParam(fallbackUrl)
