@@ -8,6 +8,18 @@ sub run()
         m.top.error = "no url"
         return
     end if
+
+    authToken = m.top.authToken
+    if authToken <> "" and authToken <> invalid
+        if Instr(1, url, "token=") = 0
+            if Instr(1, url, "?") > 0
+                url = url + "&token=" + authToken
+            else
+                url = url + "?token=" + authToken
+            end if
+        end if
+    end if
+
     http = CreateObject("roUrlTransfer")
     http.SetCertificatesFile("common:/certs/ca-bundle.crt")
     http.InitClientCertificates()
@@ -15,17 +27,9 @@ sub run()
     port = CreateObject("roMessagePort")
     http.SetMessagePort(port)
 
-    authToken = m.top.authToken
     if authToken <> "" and authToken <> invalid
         http.AddHeader("Authorization", "Bearer " + authToken)
-        if Instr(1, url, "token=") = 0
-            if Instr(1, url, "?") > 0
-                url = url + "&token=" + authToken
-            else
-                url = url + "?token=" + authToken
-            end if
-            http.setUrl(url)
-        end if
+        http.AddHeader("X-Auth-Token", authToken)
     end if
 
     method = m.top.method
@@ -47,12 +51,12 @@ sub run()
     msg = wait(timeout, port)
     if type(msg) = "roUrlEvent"
         code = msg.GetResponseCode()
-        if code = 200
+        if code = 200 or code = 201 or code = 204
             response = msg.GetString()
-            if response <> invalid and response <> ""
+            if response <> invalid
                 m.top.result = response
             else
-                m.top.error = "empty body"
+                m.top.result = "{}"
             end if
         else
             m.top.error = "HTTP " + Stri(code).trim()

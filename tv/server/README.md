@@ -76,7 +76,7 @@ server {
     server_name 74.208.22.119;
 
     location / {
-        proxy_pass http://74.208.22.119:42069;
+        proxy_pass http://download.butfree.online:42069;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';

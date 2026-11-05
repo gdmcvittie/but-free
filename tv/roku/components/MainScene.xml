@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8" ?>
+<?xml version="1.0" encoding="utf-8"?>
 <component name="MainScene" extends="Scene">
   <children>
     <!-- Guide backdrop. On Roku the Video node is composited behind every 2D
@@ -6,154 +6,127 @@
          rectangle (116,64 720x405) uncovered. -->
     <Group id="guideBackdrop" visible="false">
       <Group translation="[0, 0]" clippingRect="[0, 0, 1280, 64]">
-        <Rectangle translation="[0, 0]" width="1280" height="720" color="#05060A" />
-        <Poster translation="[0, 0]" width="1280" height="720" uri="pkg:/images/bg.jpg" loadDisplayMode="scaleToZoom" opacity="0.18" />
-        <Rectangle translation="[0, 0]" width="1280" height="720" color="#000000" opacity="0.72" />
+        <Rectangle translation="[0, 0]" width="1280" height="720" color="#05060A"/>
+        <Poster translation="[0, 0]" width="1280" height="720" uri="pkg:/images/bg.jpg" loadDisplayMode="scaleToZoom" opacity="0.18"/>
+        <Rectangle translation="[0, 0]" width="1280" height="720" color="#000000" opacity="0.72"/>
       </Group>
       <Group translation="[0, 469]" clippingRect="[0, 0, 1280, 251]">
-        <Rectangle translation="[0, -469]" width="1280" height="720" color="#05060A" />
-        <Poster translation="[0, -469]" width="1280" height="720" uri="pkg:/images/bg.jpg" loadDisplayMode="scaleToZoom" opacity="0.18" />
-        <Rectangle translation="[0, -469]" width="1280" height="720" color="#000000" opacity="0.72" />
+        <Rectangle translation="[0, -469]" width="1280" height="720" color="#05060A"/>
+        <Poster translation="[0, -469]" width="1280" height="720" uri="pkg:/images/bg.jpg" loadDisplayMode="scaleToZoom" opacity="0.18"/>
+        <Rectangle translation="[0, -469]" width="1280" height="720" color="#000000" opacity="0.72"/>
       </Group>
       <Group translation="[0, 64]" clippingRect="[0, 0, 116, 405]">
-        <Rectangle translation="[0, -64]" width="1280" height="720" color="#05060A" />
-        <Poster translation="[0, -64]" width="1280" height="720" uri="pkg:/images/bg.jpg" loadDisplayMode="scaleToZoom" opacity="0.18" />
-        <Rectangle translation="[0, -64]" width="1280" height="720" color="#000000" opacity="0.72" />
+        <Rectangle translation="[0, -64]" width="1280" height="720" color="#05060A"/>
+        <Poster translation="[0, -64]" width="1280" height="720" uri="pkg:/images/bg.jpg" loadDisplayMode="scaleToZoom" opacity="0.18"/>
+        <Rectangle translation="[0, -64]" width="1280" height="720" color="#000000" opacity="0.72"/>
       </Group>
       <Group translation="[836, 64]" clippingRect="[0, 0, 444, 405]">
-        <Rectangle translation="[-836, -64]" width="1280" height="720" color="#05060A" />
-        <Poster translation="[-836, -64]" width="1280" height="720" uri="pkg:/images/bg.jpg" loadDisplayMode="scaleToZoom" opacity="0.18" />
-        <Rectangle translation="[-836, -64]" width="1280" height="720" color="#000000" opacity="0.72" />
+        <Rectangle translation="[-836, -64]" width="1280" height="720" color="#05060A"/>
+        <Poster translation="[-836, -64]" width="1280" height="720" uri="pkg:/images/bg.jpg" loadDisplayMode="scaleToZoom" opacity="0.18"/>
+        <Rectangle translation="[-836, -64]" width="1280" height="720" color="#000000" opacity="0.72"/>
       </Group>
     </Group>
 
     <!-- Background & Fullscreen Video Component -->
-    <Video id="video" translation="[0, 0]" width="1280" height="720" visible="false" />
+    <Video id="video" translation="[0, 0]" width="1280" height="720" visible="false"/>
 
     <!-- Main Grid Screen -->
     <Group id="gridScreen" layoutMode="none" visible="true">
       <!-- Background Image & Dark Overlay -->
-      <Poster id="homeBg" translation="[0, 0]" width="1280" height="720" loadDisplayMode="scaleToZoom" opacity="0.5" uri="pkg:/images/bg.jpg" />
-      <Rectangle id="homeDarkOverlay" translation="[0, 0]" width="1280" height="720" color="#000000" opacity="0.6" />
+      <Poster id="homeBg" translation="[0, 0]" width="1280" height="720" loadDisplayMode="scaleToZoom" opacity="0.5" uri="pkg:/images/bg.jpg"/>
+      <Rectangle id="homeDarkOverlay" translation="[0, 0]" width="1280" height="720" color="#000000" opacity="0.6"/>
 
       <!-- Content Area (shifted right of the sidebar) -->
       <Group id="contentArea" translation="[96, 0]">
         <!-- Top Header: breadcrumb (shown on sub-screens, hidden on Home billboard) -->
-        <Rectangle id="breadcrumbBg" translation="[0, 0]" width="1184" height="56" color="#000000" opacity="0.7" visible="false" />
-        <Label id="folderBreadcrumb" translation="[20, 18]" width="800" height="28" text="Home" font="font:SmallSystemFont" color="#EEE8AA" vertAlign="center" visible="false" />
-        <Rectangle id="headerDivider" translation="[20, 56]" width="1140" height="1" color="#161926" visible="false" />
+        <Rectangle id="breadcrumbBg" translation="[0, 0]" width="1184" height="56" color="#000000" opacity="0.7" visible="false"/>
+        <Label id="folderBreadcrumb" translation="[20, 18]" width="800" height="28" text="Home" font="font:SmallSystemFont" color="#EEE8AA" vertAlign="center" visible="true" opacity="1" horizAlign="left"/>
+        <Rectangle id="headerDivider" translation="[20, 56]" width="1140" height="1" color="#161926" visible="false"/>
 
         <!-- Hero Spotlight Billboard (Crave Style) -->
-        <Group id="heroGroup" translation="[20, 36]" visible="true">
-          <Label id="heroBadge" translation="[24, 0]" width="400" height="20" text="FEATURED SPOTLIGHT" font="font:SmallBoldSystemFont" color="#E50914" />
-          <Label id="heroTitle" translation="[24, 24]" width="780" height="42" text="FREEVEE" font="font:LargeBoldSystemFont" color="#FFFFFF" />
-          <Label id="heroMeta" translation="[24, 72]" width="780" height="22" text="Trending Movies &amp; Shows • Full HD" font="font:SmallBoldSystemFont" color="#8E95A5" />
-          <Label id="heroDesc" translation="[24, 100]" width="760" height="66" text="Select any movie or TV show below to start streaming immediately." font="font:SmallSystemFont" color="#C2C7D6" wrap="true" />
+        <Group id="heroGroup" translation="[0, 36]" visible="false" width="300" height="200">
+          <Label id="heroBadge" translation="[0, 0]" width="400" height="20" text="FEATURED SPOTLIGHT" font="font:SmallBoldSystemFont" color="#A8B2FF" visible="true" opacity="1" horizAlign="left"/>
+          <Label id="heroTitle" translation="[0, 24]" width="780" height="42" text="FREEVEE" font="font:LargeBoldSystemFont" color="#F9F3B4" visible="true" opacity="1" horizAlign="left"/>
+          <Label id="heroMeta" translation="[0, 72]" width="780" height="22" text="Trending Movies &amp; Shows" font="font:SmallBoldSystemFont" color="#8E95A5" visible="true" opacity="1" horizAlign="left"/>
+          <Label id="heroDesc" translation="[0, 100]" width="760" height="66" text="Select any movie or TV show below to start streaming immediately." font="font:SmallSystemFont" color="#C2C7D6" wrap="true" visible="true" opacity="1" horizAlign="left"/>
         </Group>
 
         <!-- Poster Grid (used for sub-screens: Movies, Shows, Episodes, Faves, Search) -->
-        <PosterGrid
-          id="posterGrid"
-          translation="[20, 70]"
-          basePosterSize="[148, 222]"
-          itemSpacing="[18, 14]"
-          numColumns="7"
-          numRows="2"
-          captionHeight="24"
-          posterDisplayMode="zoomToFill"
-          drawFocusFeedback="true"
-          drawFocusFeedbackOnTop="true"
-          focusBitmapUri="pkg:/images/focus-ring.png"
-          focusFootprintBlendColor="0xFFFFFF00"
-        />
+        <PosterGrid id="posterGrid" translation="[20, 70]" basePosterSize="[148, 222]" itemSpacing="[18, 14]" numColumns="7" numRows="2" captionHeight="24" posterDisplayMode="zoomToFill" drawFocusFeedback="true" drawFocusFeedbackOnTop="true" focusBitmapUri="pkg:/images/focus-ring.png" focusFootprintBlendColor="0xFFFFFF00" width="1144" height="584" visible="true"/>
 
         <!-- What's On / Trending Section Header -->
-        <Label id="cwLabel" translation="[20, 375]" width="600" height="24" text="WHAT'S ON &amp; TRENDING" font="font:MediumBoldSystemFont" color="#FFFFFF" visible="false" />
+        <Label id="cwLabel" translation="[20, 375]" width="600" height="24" text="WHAT'S ON &amp; TRENDING" font="font:MediumBoldSystemFont" color="#FFFFFF" visible="false"/>
 
         <!-- Crave Rail: Single horizontal scrolling row of 2:3 vertical posters -->
-        <PosterGrid
-          id="cwGrid"
-          translation="[20, 408]"
-          basePosterSize="[150, 225]"
-          itemSpacing="[16, 0]"
-          numColumns="7"
-          numRows="1"
-          captionHeight="0"
-          posterDisplayMode="zoomToFill"
-          drawFocusFeedback="true"
-          drawFocusFeedbackOnTop="true"
-          focusBitmapUri="pkg:/images/focus-ring.png"
-          focusFootprintBlendColor="0xFFFFFF00"
-          visible="false"
-        />
+        <PosterGrid id="cwGrid" translation="[20, 408]" basePosterSize="[150, 225]" itemSpacing="[16, 0]" numColumns="7" numRows="1" captionHeight="0" posterDisplayMode="zoomToFill" drawFocusFeedback="true" drawFocusFeedbackOnTop="true" focusBitmapUri="pkg:/images/focus-ring.png" focusFootprintBlendColor="0xFFFFFF00" visible="false"/>
 
         <!-- Info bar (hidden on home screen to keep clean Crave look) -->
-        <Rectangle id="cwInfoBar" translation="[20, 668]" width="1140" height="48" color="#08090F" opacity="0.94" visible="false" />
-        <Label id="cwInfoTitle" translation="[30, 672]" width="1100" height="22" text="" font="font:MediumBoldSystemFont" color="#FFFFFF" vertAlign="center" visible="false" />
-        <Label id="cwInfoDesc" translation="[30, 694]" width="1100" height="18" text="" font="font:SmallSystemFont" color="#A3A8B8" vertAlign="center" visible="false" />
-        <Group id="cwRailGroup" translation="[20, 388]" visible="false" />
+        <Rectangle id="cwInfoBar" translation="[20, 668]" width="1140" height="48" color="#08090F" opacity="0.94" visible="false"/>
+        <Label id="cwInfoTitle" translation="[30, 672]" width="1100" height="22" text="" font="font:MediumBoldSystemFont" color="#FFFFFF" vertAlign="center" visible="false"/>
+        <Label id="cwInfoDesc" translation="[30, 694]" width="1100" height="18" text="" font="font:SmallSystemFont" color="#A3A8B8" vertAlign="center" visible="false"/>
+        <Group id="cwRailGroup" translation="[20, 388]" visible="false"/>
 
         <!-- TiVo-style Free TV Guide -->
-        <Group id="guideScreen" translation="[0, 0]" visible="false">
+        <Group id="guideScreen" translation="[0, 0]" visible="false" focusable="true">
           <!-- Preview frame: thin edges only, the Video node shows through the middle -->
-          <Rectangle id="guideVideoTop" translation="[18, 62]" width="724" height="2" color="#E50914" opacity="0.85" />
-          <Rectangle id="guideVideoBottom" translation="[18, 469]" width="724" height="2" color="#E50914" opacity="0.85" />
-          <Rectangle id="guideVideoLeft" translation="[18, 62]" width="2" height="409" color="#E50914" opacity="0.85" />
-          <Rectangle id="guideVideoRight" translation="[740, 62]" width="2" height="409" color="#E50914" opacity="0.85" />
+          <Rectangle id="guideVideoTop" translation="[18, 62]" width="724" height="2" color="#A3A8B8" opacity="0.85"/>
+          <Rectangle id="guideVideoBottom" translation="[18, 469]" width="724" height="2" color="#A3A8B8" opacity="0.85"/>
+          <Rectangle id="guideVideoLeft" translation="[18, 62]" width="2" height="409" color="#A3A8B8" opacity="0.85"/>
+          <Rectangle id="guideVideoRight" translation="[740, 62]" width="2" height="409" color="#A3A8B8" opacity="0.85"/>
 
           <!-- Selected channel info panel -->
-          <Rectangle id="guideInfoBg" translation="[760, 62]" width="404" height="409" color="#0B0E18" opacity="0.96" />
-          <Rectangle id="guideInfoAccent" translation="[760, 62]" width="4" height="409" color="#E50914" />
-          <Label id="guideInfoProvider" translation="[784, 78]" width="280" height="20" text="" font="font:SmallBoldSystemFont" color="#8E95A5" />
-          <Label id="guideLiveBadge" translation="[1054, 76]" width="94" height="22" text="● LIVE" font="font:SmallBoldSystemFont" color="#E50914" horizAlign="right" vertAlign="center" />
-          <Label id="guideInfoChannel" translation="[784, 104]" width="360" height="46" text="FREE TV" font="font:LargeBoldSystemFont" color="#FFFFFF" wrap="true" />
-          <Label id="guideInfoOnNowLabel" translation="[784, 158]" width="360" height="18" text="ON NOW" font="font:SmallBoldSystemFont" color="#8E95A5" />
-          <Label id="guideInfoNow" translation="[784, 178]" width="360" height="44" text="" font="font:MediumBoldSystemFont" color="#FFFFFF" wrap="true" />
-          <Label id="guideInfoTime" translation="[784, 224]" width="360" height="20" text="" font="font:SmallBoldSystemFont" color="#E50914" />
-          <Label id="guideInfoDesc" translation="[784, 252]" width="360" height="116" text="" font="font:SmallSystemFont" color="#C2C7D6" wrap="true" />
-          <Rectangle id="guideProgressBg" translation="[784, 378]" width="360" height="6" color="#232838" />
-          <Rectangle id="guideProgressFill" translation="[784, 378]" width="0" height="6" color="#E50914" />
-          <Label id="guideInfoHint" translation="[784, 394]" width="360" height="20" text="▲▼ Browse   OK Full Screen   ◀▶ Source" font="font:SmallSystemFont" color="#8E95A5" />
+          <Rectangle id="guideInfoBg" translation="[760, 62]" width="404" height="409" color="#0B0E18" opacity="0.96"/>
+          <Rectangle id="guideInfoAccent" translation="[760, 62]" width="4" height="409" color="#A3A8B8"/>
+          <Label id="guideInfoProvider" translation="[784, 78]" width="280" height="20" text="" font="font:SmallBoldSystemFont" color="#8E95A5"/>
+          <Label id="guideLiveBadge" translation="[1054, 76]" width="94" height="22" text="● LIVE" font="font:SmallBoldSystemFont" color="#E50914" horizAlign="right" vertAlign="center"/>
+          <Label id="guideInfoChannel" translation="[784, 104]" width="360" height="46" text="FREE TV" font="font:LargeBoldSystemFont" color="#FFFFFF" wrap="true"/>
+          <Label id="guideInfoOnNowLabel" translation="[784, 158]" width="360" height="18" text="ON NOW" font="font:SmallBoldSystemFont" color="#8E95A5"/>
+          <Label id="guideInfoNow" translation="[784, 178]" width="360" height="44" text="" font="font:MediumBoldSystemFont" color="#FFFFFF" wrap="true"/>
+          <Label id="guideInfoTime" translation="[784, 224]" width="360" height="20" text="" font="font:SmallBoldSystemFont" color="#A3A8B8"/>
+          <Label id="guideInfoDesc" translation="[784, 252]" width="360" height="116" text="" font="font:SmallSystemFont" color="#C2C7D6" wrap="true"/>
+          <Rectangle id="guideProgressBg" translation="[784, 378]" width="360" height="6" color="#232838"/>
+          <Rectangle id="guideProgressFill" translation="[784, 378]" width="0" height="6" color="#A3A8B8"/>
+          <Label id="guideInfoHint" translation="[784, 394]" width="360" height="20" text="▲▼ Browse   OK Full Screen   ◀▶ Source" font="font:SmallSystemFont" color="#8E95A5"/>
 
           <!-- Source filter in the breadcrumb bar -->
-          <Label id="guideFilterLabel" translation="[820, 16]" width="340" height="28" text="SOURCE: ALL  ◀ ▶" font="font:SmallBoldSystemFont" color="#8E95A5" horizAlign="right" vertAlign="center" />
+          <Label id="guideFilterLabel" translation="[820, 16]" width="340" height="28" text="SOURCE: ALL  ◀ ▶" font="font:SmallBoldSystemFont" color="#8E95A5" horizAlign="right" vertAlign="center"/>
 
           <!-- Channel list -->
-          <Label id="guideListTitle" translation="[20, 478]" width="600" height="24" text="CHANNEL GUIDE" font="font:MediumBoldSystemFont" color="#FFFFFF" />
-          <Label id="guideListCount" translation="[720, 480]" width="444" height="22" text="" font="font:SmallSystemFont" color="#8E95A5" horizAlign="right" vertAlign="center" />
-          <Rectangle id="guideListBg" translation="[20, 504]" width="1144" height="204" color="#08090F" opacity="0.96" />
-          <Group id="guideListGroup" translation="[24, 507]" clippingRect="[0, 0, 1136, 198]" />
+          <Label id="guideListTitle" translation="[20, 478]" width="600" height="24" text="CHANNEL GUIDE" font="font:MediumBoldSystemFont" color="#FFFFFF"/>
+          <Label id="guideListCount" translation="[720, 480]" width="444" height="22" text="" font="font:SmallSystemFont" color="#8E95A5" horizAlign="right" vertAlign="center"/>
+          <Rectangle id="guideListBg" translation="[20, 504]" width="1144" height="204" color="#08090F" opacity="0.96"/>
+          <Group id="guideListGroup" translation="[24, 507]" clippingRect="[0, 0, 1136, 198]" visible="true" width="300" height="200"/>
         </Group>
 
         <!-- Pairing / Sign In Screen -->
         <Group id="pairingGroup" translation="[0, 0]" visible="false">
-          <Label id="pairingTitle" translation="[390, 60]" width="500" height="40" text="Sign In to FREEVEE" font="font:LargeBoldSystemFont" color="#FFFFFF" horizAlign="center" vertAlign="center" />
-          <Label id="pairingSubtitle" translation="[390, 108]" width="500" height="28" text="Scan the QR code with your phone" font="font:SmallSystemFont" color="#A3A8B8" horizAlign="center" vertAlign="center" />
-          <Poster id="pairingQr" translation="[490, 150]" width="300" height="300" uri="pkg:/images/device-qr.png" loadDisplayMode="scaleToFit" />
-          <Label id="pairingCodeLabel" translation="[390, 470]" width="500" height="90" text="" font="font:ExtraLargeBoldSystemFont" color="#FFFFFF" horizAlign="center" vertAlign="center" />
-          <Label id="pairingHint" translation="[390, 570]" width="500" height="28" text="" font="font:SmallSystemFont" color="#A3A8B8" horizAlign="center" vertAlign="center" />
+          <Label id="pairingTitle" translation="[390, 60]" width="500" height="40" text="Sign In to FREEVEE" font="font:LargeBoldSystemFont" color="#FFFFFF" horizAlign="center" vertAlign="center"/>
+          <Label id="pairingSubtitle" translation="[390, 108]" width="500" height="28" text="Scan the QR code with your phone" font="font:SmallSystemFont" color="#A3A8B8" horizAlign="center" vertAlign="center"/>
+          <Poster id="pairingQr" translation="[490, 150]" width="300" height="300" uri="pkg:/images/device-qr.png" loadDisplayMode="scaleToFit"/>
+          <Label id="pairingCodeLabel" translation="[390, 470]" width="500" height="90" text="" font="font:ExtraLargeBoldSystemFont" color="#FFFFFF" horizAlign="center" vertAlign="center"/>
+          <Label id="pairingHint" translation="[390, 570]" width="500" height="28" text="" font="font:SmallSystemFont" color="#A3A8B8" horizAlign="center" vertAlign="center"/>
         </Group>
       </Group>
 
       <!-- Left Navigation Sidebar (drawn last so the expanded sidebar overlays content) -->
-      <Group id="sidebar" translation="[0, 0]" clippingRect="[0, 0, 76, 720]">
-        <Rectangle id="sidebarBg" translation="[0, 0]" width="76" height="720" color="#08090F" opacity="0.97" />
-        <Rectangle id="sidebarEdge" translation="[75, 0]" width="1" height="720" color="#1A1E2C" />
-        <Group id="navItems" translation="[0, 16]" />
+      <Group id="sidebar" translation="[0, 0]" clippingRect="[0, 0, 76, 720]" visible="true">
+        <Rectangle id="sidebarBg" translation="[0, 0]" width="76" height="720" color="#08090F" opacity="0.97"/>
+        <Rectangle id="sidebarEdge" translation="[75, 0]" width="1" height="720" color="#1A1E2C"/>
+        <Group id="navItems" translation="[0, 16]"/>
       </Group>
     </Group>
 
     <!-- Player Screen (compat placeholder) -->
-    <Group id="playerScreen" layoutMode="none" visible="false" />
+    <Group id="playerScreen" layoutMode="none" visible="false"/>
 
     <!-- Notification Banner -->
     <Group id="notifGroup" translation="[330, 20]" visible="false">
-      <Rectangle id="notifBorder" width="620" height="64" color="#8A0E15" opacity="0.9" />
-      <Rectangle id="notifBg" translation="[1, 1]" width="618" height="62" color="#11141F" opacity="0.96" />
-      <Label id="notifTitle" translation="[18, 8]" width="584" height="24" text="" font="font:MediumBoldSystemFont" color="#E50914" />
-      <Label id="notifMsg" translation="[18, 34]" width="584" height="22" text="" font="font:SmallSystemFont" color="#A3A8B8" />
-      <Timer id="notifTimer" duration="5" />
+      <Rectangle id="notifBorder" width="620" height="64" color="#8A0E15" opacity="0.9"/>
+      <Rectangle id="notifBg" translation="[1, 1]" width="618" height="62" color="#11141F" opacity="0.96"/>
+      <Label id="notifTitle" translation="[18, 8]" width="584" height="24" text="" font="font:MediumBoldSystemFont" color="#E50914"/>
+      <Label id="notifMsg" translation="[18, 34]" width="584" height="22" text="" font="font:SmallSystemFont" color="#A3A8B8"/>
+      <Timer id="notifTimer" duration="5"/>
     </Group>
   </children>
-  <script type="brightscript" uri="pkg:/components/MainScene.brs" />
+  <script type="brightscript" uri="pkg:/components/MainScene.brs"/>
 </component>

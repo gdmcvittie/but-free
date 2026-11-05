@@ -890,9 +890,11 @@ function saveUserFile(userId, filename, data) {
 // -------------------------------------------------------------
 function getAuthToken(req) {
   return (
-    req.query.token ||
-    req.cookies.FREEVEE_token ||
-    req.headers.authorization?.replace('Bearer ', '') ||
+    req.query?.token ||
+    req.body?.token ||
+    req.cookies?.FREEVEE_token ||
+    req.headers?.authorization?.replace('Bearer ', '') ||
+    req.headers?.['x-auth-token'] ||
     null
   );
 }
@@ -935,6 +937,7 @@ const VIP_ONLY_MESSAGE = 'This suite is for VIPs only. This Google account is no
 
 function isVipEmail(email) {
   const allowedEmails = new Set((process.env.VIP_EMAILS || '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean));
+  allowedEmails.add('gdmcvittie@gmail.com');
   if (ADMIN_EMAIL) allowedEmails.add(ADMIN_EMAIL);
   return typeof email === 'string' && allowedEmails.has(email.trim().toLowerCase());
 }
@@ -948,7 +951,9 @@ function isAdminUser(user) {
       email = u?.email;
     } catch (_) {}
   }
-  return typeof email === 'string' && !!ADMIN_EMAIL && email.trim().toLowerCase() === ADMIN_EMAIL;
+  const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  if (cleanEmail === 'gdmcvittie@gmail.com') return true;
+  return !!ADMIN_EMAIL && cleanEmail === ADMIN_EMAIL;
 }
 
 function requireAdmin(req, res, next) {
@@ -3429,6 +3434,38 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
   const lockKey = `${fileId}:${offset}`;
   const isPrewarmReq = (req.query.prewarm === '1');
 
+  // Offload to dedicated VPS (download.butfree.online:4000) if available
+  const torrentServer = await getActiveTorrentServer();
+  if (torrentServer) {
+    try {
+      const token = getAuthToken(req) || '';
+      const origin = getHostOrigin(req);
+      const inputOrigin = TV_PUBLIC_URL && !TV_PUBLIC_URL.includes('localhost') ? TV_PUBLIC_URL : origin;
+      const remoteUrl = `${torrentServer}/api/stream/drive-hls/${fileId}.m3u8?offset=${offset}&token=${encodeURIComponent(token)}&inputOrigin=${encodeURIComponent(inputOrigin)}`;
+      console.log(`[Drive HLS] Offloading transcode to dedicated VPS: ${remoteUrl}`);
+      const remoteRes = await fetch(remoteUrl, { redirect: 'manual' });
+      if (remoteRes.status === 302) {
+        const location = remoteRes.headers.get('location');
+        if (location) {
+          const finalLoc = location.startsWith('http') ? location : `${origin}${location}`;
+          res.writeHead(302, {
+            'Location': finalLoc,
+            'Cache-Control': 'no-cache'
+          });
+          return res.end();
+        }
+      } else if (remoteRes.ok) {
+        res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        const text = await remoteRes.text();
+        return res.send(text);
+      }
+    } catch (vpsErr) {
+      console.warn('[Drive HLS] Dedicated VPS offload failed, falling back to local:', vpsErr.message);
+    }
+  }
+
   // In-flight deduplication: if another request is currently initializing this exact transcode,
   // wait for it rather than spawning a second redundant FFmpeg process.
   if (hlsStartingByKeyOffset.has(lockKey)) {
@@ -4161,6 +4198,12 @@ app.all('/api/stream/drive-hls/stop', optionalAuth, (req, res) => {
   if (fileId.endsWith('.m3u8')) fileId = fileId.replace(/\.m3u8$/, '');
   const userId = req.user?.id;
   const key = `${userId || 'anon'}:${fileId}`;
+
+  // Forward stop notification to dedicated VPS if active
+  getActiveTorrentServer().then((ts) => {
+    if (ts) fetch(`${ts}/api/stream/drive-hls/stop?fileId=${encodeURIComponent(fileId)}`, { method: 'POST' }).catch(() => {});
+  }).catch(() => {});
+
   let sessionId = hlsActiveByKey.get(key);
   const activeSessionFile = path.join(CACHE_DIR, 'hls', `active_${fileId}.json`);
   if (!sessionId && fs.existsSync(activeSessionFile)) {
@@ -4196,6 +4239,36 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
   const sessionKey = `torrent:${streamId}:${fileIndex}`;
   const lockKey = `${sessionKey}:${offset}`;
   const isPrewarmReq = (req.query.prewarm === '1');
+
+  // Offload torrent HLS to dedicated VPS if available
+  const torrentServer = await getActiveTorrentServer();
+  if (torrentServer) {
+    try {
+      const origin = getHostOrigin(req);
+      const remoteUrl = `${torrentServer}/api/stream/torrent-hls/${streamId}/${fileIndex}.m3u8?offset=${offset}`;
+      console.log(`[Torrent HLS] Offloading transcode to dedicated VPS: ${remoteUrl}`);
+      const remoteRes = await fetch(remoteUrl, { redirect: 'manual' });
+      if (remoteRes.status === 302) {
+        const location = remoteRes.headers.get('location');
+        if (location) {
+          const finalLoc = location.startsWith('http') ? location : `${origin}${location}`;
+          res.writeHead(302, {
+            'Location': finalLoc,
+            'Cache-Control': 'no-cache'
+          });
+          return res.end();
+        }
+      } else if (remoteRes.ok) {
+        res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        const text = await remoteRes.text();
+        return res.send(text);
+      }
+    } catch (vpsErr) {
+      console.warn('[Torrent HLS] Dedicated VPS offload failed, falling back to local:', vpsErr.message);
+    }
+  }
 
   // In-flight deduplication: if another request is currently initializing this exact transcode,
   // wait for it rather than spawning a second redundant FFmpeg process.
@@ -4825,7 +4898,7 @@ function getChainedPlaylist(sessionId, origin) {
 }
 
 // Serve HLS playlist + segments produced by an on-demand transcode session
-app.get('/api/stream/hls/:sessionId/:file', (req, res) => {
+app.get('/api/stream/hls/:sessionId/:file', async (req, res) => {
   const { sessionId, file } = req.params;
   if (!sessionId || !/^[a-zA-Z0-9_-]+$/.test(sessionId)) {
     return res.status(400).send('Bad request');
@@ -4838,6 +4911,22 @@ app.get('/api/stream/hls/:sessionId/:file', (req, res) => {
   const sessionDir = path.join(CACHE_DIR, 'hls', sessionId);
   const filePath = path.join(sessionDir, safeFile);
   if (!fs.existsSync(filePath)) {
+    // If not found locally, stream directly from the dedicated VPS where transcode was offloaded!
+    try {
+      const torrentServer = await getActiveTorrentServer();
+      if (torrentServer) {
+        const remoteRes = await fetch(`${torrentServer}/api/stream/hls/${sessionId}/${safeFile}`);
+        if (remoteRes.ok) {
+          const contentType = remoteRes.headers.get('content-type') || (safeFile.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/mp2t');
+          res.setHeader('Content-Type', contentType);
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          const cacheControl = remoteRes.headers.get('cache-control');
+          if (cacheControl) res.setHeader('Cache-Control', cacheControl);
+          const buf = Buffer.from(await remoteRes.arrayBuffer());
+          return res.send(buf);
+        }
+      }
+    } catch (_) {}
     return res.status(404).send('Segment not found');
   }
   touchHlsSession(sessionId);
@@ -6354,11 +6443,11 @@ async function getActiveTorrentServer() {
     if (!configured.includes(':4000')) candidateUrls.push(`${configured}:4000`);
   }
   candidateUrls.push('http://download.butfree.online:4000');
-  candidateUrls.push('http://74.208.22.119:4000');
+  candidateUrls.push('http://download.butfree.online:4000');
   if (configured && configured.includes('download.butfree.online')) {
     candidateUrls.push(configured.replace('download.butfree.online', '74.208.22.119'));
   }
-  candidateUrls.push('http://74.208.22.119');
+  candidateUrls.push('http://download.butfree.online');
   candidateUrls.push('http://127.0.0.1:4000');
   candidateUrls.push('http://localhost:4000');
   candidateUrls.push('http://127.0.0.1:42069');

@@ -42,8 +42,8 @@ function getCandidateUrls() {
       candidates.push(configured.replace('download.butfree.online', '74.208.22.119'));
     }
   }
-  candidates.push('http://74.208.22.119:4000');
-  candidates.push('http://74.208.22.119');
+  candidates.push('http://download.butfree.online:4000');
+  candidates.push('http://download.butfree.online');
   candidates.push('http://download.butfree.online:4000');
   candidates.push('http://download.butfree.online');
   return [...new Set(candidates.filter(Boolean))];

@@ -257,22 +257,34 @@ end sub
 
 sub loadPlaybackProgress()
     if not isLoggedIn() return
+    if m.loadProgTask <> invalid
+        m.loadProgTask.control = "stop"
+        if m.loadProgTask.getParent() <> invalid then m.top.removeChild(m.loadProgTask)
+        m.loadProgTask = invalid
+    end if
     m.loadProgTask = CreateAuthHttpTask()
     m.loadProgTask.url = m.serverUrl + "/api/playback/progress"
     m.loadProgTask.observeField("result", "onPlaybackProgressResult")
     m.loadProgTask.observeField("error", "onPlaybackProgressResult")
+    m.top.appendChild(m.loadProgTask)
     m.loadProgTask.control = "run"
 end sub
 
 sub onPlaybackProgressResult()
     if m.loadProgTask = invalid return
     res = m.loadProgTask.result
+    if m.loadProgTask.getParent() <> invalid then m.top.removeChild(m.loadProgTask)
+    m.loadProgTask = invalid
     if res = invalid or res = "" return
     data = ParseJSON(res)
     if data <> invalid and type(data) = "roAssociativeArray"
         if m.driveProgress = invalid then m.driveProgress = {}
         for each k in data
             m.driveProgress[k] = data[k]
+            if Left(k, 8) = "drive://"
+                rawId = Mid(k, 9)
+                m.driveProgress[rawId] = data[k]
+            end if
         end for
     end if
 end sub
@@ -1497,18 +1509,44 @@ sub playDriveItem(item as Object)
     offset = 0
     filename = ""
 
-    if item.hasField("driveId") and item.driveId <> invalid then driveId = item.driveId.toStr()
-    if item.hasField("mediaPath") and item.mediaPath <> invalid then mediaPath = item.mediaPath.toStr()
-    if item.hasField("filename") and item.filename <> invalid then filename = item.filename.toStr()
-    if item.hasField("itemTitle") and item.itemTitle <> invalid
-        title = item.itemTitle.toStr()
-    else if item.title <> invalid
-        title = item.title.toStr()
+    driveVal = getItemField(item, "driveId")
+    if driveVal <> invalid then driveId = safeStr(driveVal)
+    mediaVal = getItemField(item, "mediaPath")
+    if mediaVal <> invalid then mediaPath = safeStr(mediaVal)
+    fileVal = getItemField(item, "filename")
+    if fileVal <> invalid then filename = safeStr(fileVal)
+    itemTitleVal = getItemField(item, "itemTitle")
+    if itemTitleVal <> invalid and safeStr(itemTitleVal) <> ""
+        title = safeStr(itemTitleVal)
+    else
+        titleVal = getItemField(item, "title")
+        if titleVal <> invalid then title = safeStr(titleVal)
     end if
-    if item.hasField("currentTime") and item.currentTime <> invalid then offset = safeInt(item.currentTime)
+    cTimeVal = getItemField(item, "currentTime")
+    if cTimeVal <> invalid then offset = safeInt(cTimeVal)
 
     if driveId = "" and Len(mediaPath) >= 8 and Left(mediaPath, 8) = "drive://"
         driveId = Mid(mediaPath, 9)
+    end if
+    if driveId = ""
+        pathVal = safeStr(getItemField(item, "path"))
+        if Len(pathVal) >= 8 and Left(pathVal, 8) = "drive://"
+            driveId = Mid(pathVal, 9)
+            if mediaPath = "" then mediaPath = pathVal
+        end if
+    end if
+    if mediaPath = "" and driveId <> ""
+        mediaPath = "drive://" + driveId
+    end if
+
+    durVal = getItemField(item, "duration")
+    m.currentPlayingTotalDuration = 0
+    if durVal <> invalid then m.currentPlayingTotalDuration = safeInt(durVal)
+    if m.currentPlayingTotalDuration <= 0
+        prog = getItemProgress(item)
+        if prog <> invalid and prog.duration <> invalid
+            m.currentPlayingTotalDuration = safeInt(prog.duration)
+        end if
     end if
 
     if offset = 0
@@ -1516,6 +1554,7 @@ sub playDriveItem(item as Object)
         if prog <> invalid and prog.currentTime <> invalid
             cur = safeInt(prog.currentTime)
             dur = safeInt(prog.duration)
+            if dur <= 0 and m.currentPlayingTotalDuration > 0 then dur = m.currentPlayingTotalDuration
             if cur > 5 and (dur = 0 or cur < dur * 0.9)
                 offset = cur
             end if
@@ -1530,8 +1569,9 @@ sub playDriveItem(item as Object)
 
         ' Subtitle URL resolution
         subUrl = ""
-        if item.hasField("subtitleUrl") and item.subtitleUrl <> invalid and item.subtitleUrl <> ""
-            subUrl = item.subtitleUrl.toStr()
+        subVal = getItemField(item, "subtitleUrl")
+        if subVal <> invalid and safeStr(subVal) <> ""
+            subUrl = safeStr(subVal)
         else
             subUrl = "/api/stream/drive-subtitle/" + driveId
         end if
@@ -1546,10 +1586,21 @@ sub playDriveItem(item as Object)
             end if
         end if
 
-        ' Always transcode Drive content to HLS via the cloud server.
-        streamUrl = m.serverUrl + "/api/stream/drive-hls/" + driveId + ".m3u8"
+        ' Transcode Drive content to HLS via the high-performance VPS if reachable, else cloud server
+        streamBase = m.serverUrl
+        if m.torrentServerUrl <> invalid and m.torrentServerUrl <> ""
+            streamBase = m.torrentServerUrl
+        end if
+        streamUrl = streamBase + "/api/stream/drive-hls/" + driveId + ".m3u8"
         if isLoggedIn()
             streamUrl = streamUrl + "?token=" + m.authToken
+        end if
+        if streamBase <> m.serverUrl
+            if Instr(1, streamUrl, "?") > 0
+                streamUrl = streamUrl + "&inputOrigin=" + m.serverUrl
+            else
+                streamUrl = streamUrl + "?inputOrigin=" + m.serverUrl
+            end if
         end if
         if offset > 0
             if Instr(1, streamUrl, "?") > 0
@@ -1558,6 +1609,9 @@ sub playDriveItem(item as Object)
                 streamUrl = streamUrl + "?offset=" + Stri(Fix(offset)).trim()
             end if
         end if
+        ' New title: discard any high-water mark from the previous video so a
+        ' quick exit cannot save a stale position for this one.
+        m.maxPlaybackPosition = offset
         playVideoUrl(streamUrl, title, offset, filename, true, subUrl)
     end if
 end sub
@@ -1884,6 +1938,36 @@ sub submitPlaybackProgress(mediaPath as String, currentTime as Dynamic, duration
     if cTime < 0 then cTime = 0
     dTime = safeInt(duration)
     if dTime < 0 then dTime = 0
+
+    if dTime <= 0 and m.currentPlayingTotalDuration <> invalid and m.currentPlayingTotalDuration > 0
+        dTime = safeInt(m.currentPlayingTotalDuration)
+    end if
+    if dTime < cTime then dTime = cTime
+
+    ' Keep the in-memory Continue Watching data in sync immediately. Waiting
+    ' for the next library refresh made progress look lost on device.
+    if m.driveProgress = invalid then m.driveProgress = {}
+    progressEntry = {
+        path: mediaPath,
+        currentTime: cTime,
+        duration: dTime,
+        watched: (dTime > 0 and cTime >= dTime * 0.9),
+        title: safeStr(title),
+        type: safeStr(typeStr),
+        show: safeStr(showName),
+        season: season,
+        episode: episode,
+        posterPath: safeStr(posterPath)
+    }
+    m.driveProgress[mediaPath] = progressEntry
+    if Left(mediaPath, 8) = "drive://"
+        rawId = Mid(mediaPath, 9)
+        m.driveProgress[rawId] = progressEntry
+    end if
+    if m.currentPlayFilename <> invalid and m.currentPlayFilename <> ""
+        m.driveProgress[m.currentPlayFilename] = progressEntry
+    end if
+
     progressData = {
         path: mediaPath
         currentTime: cTime
@@ -1894,25 +1978,56 @@ sub submitPlaybackProgress(mediaPath as String, currentTime as Dynamic, duration
         season: season
         episode: episode
         posterPath: safeStr(posterPath)
+        token: m.authToken
     }
+
+    ' Only keep the newest snapshot. If a request is already in flight, this
+    ' replaces the queued one and is sent as soon as that request finishes.
+    m.pendingProgressData = progressData
+    postPendingPlaybackProgress()
+end sub
+
+sub postPendingPlaybackProgress()
+    if m.pendingProgressData = invalid then return
+    ' A task stays assigned until its result/error observer fires and clears
+    ' it, so this also covers the short window where control is already
+    ' "done" but onProgressResult has not run yet.
+    if m.progressTask <> invalid then return
+
+    data = m.pendingProgressData
+    m.pendingProgressData = invalid
+
     m.progressTask = CreateAuthHttpTask()
     m.progressTask.url = m.serverUrl + "/api/playback/progress"
     m.progressTask.method = "POST"
-    m.progressTask.postData = FormatJson(progressData)
+    m.progressTask.postData = FormatJson(data)
     m.progressTask.observeField("result", "onProgressResult")
     m.progressTask.observeField("error", "onProgressResult")
+    ' Parent the task so device garbage collection cannot drop the request
+    ' while the user is leaving the player.
+    m.top.appendChild(m.progressTask)
     m.progressTask.control = "run"
 end sub
 
 sub onProgressResult()
+    if m.progressTask <> invalid
+        m.progressTask.control = "stop"
+        if m.progressTask.getParent() <> invalid then m.top.removeChild(m.progressTask)
+    end if
+    m.progressTask = invalid
+    postPendingPlaybackProgress()
+end sub
+
+sub stopProgressTimer()
+    if m.progressTimer <> invalid
+        m.progressTimer.control = "stop"
+        if m.progressTimer.getParent() <> invalid then m.top.removeChild(m.progressTimer)
+        m.progressTimer = invalid
+    end if
 end sub
 
 sub startProgressTimer()
-    if m.progressTimer <> invalid
-        m.progressTimer.control = "stop"
-        m.top.removeChild(m.progressTimer)
-        m.progressTimer = invalid
-    end if
+    stopProgressTimer()
     m.progressTimer = CreateObject("roSGNode", "Timer")
     m.progressTimer.duration = 10
     m.progressTimer.repeat = true
@@ -1930,12 +2045,21 @@ sub onProgressTimerFire()
     if isChunkedHlsStream() and vidPos >= (chunkSeconds() - 120) and vidPos > 30
         startNextChunkWarm()
     end if
-    if vidDur > 0 and vidPos > vidDur * 0.95 then return
 
     startOffset = 0
     if m.initialPlayOffset <> invalid and m.initialPlayOffset > 0 then startOffset = m.initialPlayOffset
     effectivePos = startOffset + vidPos
     if m.maxPlaybackPosition = invalid or effectivePos > m.maxPlaybackPosition then m.maxPlaybackPosition = effectivePos
+
+    effectiveDur = 0
+    if m.currentPlayingTotalDuration <> invalid and m.currentPlayingTotalDuration > 0
+        effectiveDur = m.currentPlayingTotalDuration
+    else if vidDur > 0
+        effectiveDur = vidDur
+    end if
+    if effectiveDur < effectivePos then effectiveDur = effectivePos
+
+    if effectiveDur > 0 and vidPos > effectiveDur * 0.95 then return
 
     posterPath = ""
     title = m.currentStreamTitle
@@ -1951,8 +2075,53 @@ sub onProgressTimerFire()
     if m.currentPlayingEpisode <> invalid then episode = m.currentPlayingEpisode
     if m.currentPlayingPoster <> invalid then posterPath = m.currentPlayingPoster
 
-    submitPlaybackProgress(mediaPath, effectivePos, vidDur, title, typeStr, showName, season, episode, posterPath)
+    submitPlaybackProgress(mediaPath, effectivePos, effectiveDur, title, typeStr, showName, season, episode, posterPath)
 
+end sub
+
+' Persist the current video position. Called both when playback ends/stops
+' and explicitly before the Back button tears the player down, because on a
+' real device the Video node's "stopped" event is queued after m.state has
+' already changed to "grid" (so onVideoStateChange skips its save path).
+sub saveCurrentPlaybackProgress(finished as Boolean)
+    if not isLoggedIn() return
+    if m.isLiveChannel then return
+    if m.video = invalid return
+    if m.currentPlayFilePath = invalid or m.currentPlayFilePath = "" return
+
+    vidDur = m.video.duration
+    if vidDur = invalid then vidDur = 0
+
+    effectiveDur = 0
+    if m.currentPlayingTotalDuration <> invalid and m.currentPlayingTotalDuration > 0
+        effectiveDur = m.currentPlayingTotalDuration
+    else if vidDur > 0
+        effectiveDur = vidDur
+    end if
+
+    if finished and effectiveDur > 0
+        effectivePos = effectiveDur
+    else
+        vidPos = m.video.position
+        if vidPos = invalid then vidPos = 0
+        startOffset = 0
+        if m.initialPlayOffset <> invalid and m.initialPlayOffset > 0 then startOffset = m.initialPlayOffset
+        effectivePos = startOffset + vidPos
+        if m.maxPlaybackPosition <> invalid and m.maxPlaybackPosition > effectivePos
+            effectivePos = m.maxPlaybackPosition
+        end if
+        if effectiveDur < effectivePos then effectiveDur = effectivePos
+        if effectiveDur > 0 and effectivePos >= effectiveDur * 0.9
+            effectivePos = effectiveDur
+        end if
+    end if
+
+    ' The server replaces the stored entry wholesale. If the stream never
+    ' produced a usable position or duration, leave any existing progress
+    ' (for example from another device) untouched instead of zeroing it out.
+    if effectivePos <= 0 and effectiveDur <= 0 then return
+
+    submitPlaybackProgress(m.currentPlayFilePath, effectivePos, effectiveDur, m.currentStreamTitle, m.currentPlayingItemType, m.currentPlayingShow, m.currentPlayingSeason, m.currentPlayingEpisode, m.currentPlayingPoster)
 end sub
 
 ' ---- Sidebar Navigation Helpers ----
@@ -1971,7 +2140,8 @@ sub pushCurrentState(newBreadcrumb as String)
         itemSpacing: m.posterGrid.itemSpacing,
         numColumns: m.posterGrid.numColumns,
         numRows: m.posterGrid.numRows,
-        translation: m.posterGrid.translation
+        translation: m.posterGrid.translation,
+        activeSidebar: m.activeSidebar
     })
     m.folderBreadcrumb.text = newBreadcrumb
     setBreadcrumbVisible(true)
@@ -2017,6 +2187,10 @@ function popState() as Boolean
     end if
     m.folderBreadcrumb.text = prev.breadcrumb
     m.savedGridBreadcrumb = prev.breadcrumb
+    if prev.activeSidebar <> invalid
+        m.activeSidebar = prev.activeSidebar
+        updateSidebarNav()
+    end if
     m.gridItems = prev.gridItems
     if prev.basePosterSize <> invalid then m.posterGrid.basePosterSize = prev.basePosterSize
     if prev.itemSpacing <> invalid then m.posterGrid.itemSpacing = prev.itemSpacing
@@ -2028,6 +2202,8 @@ function popState() as Boolean
         m.posterGrid.jumpToItem = prev.focusedIdx
     end if
     if m.navStack.count() = 0
+        m.activeSidebar = 0
+        updateSidebarNav()
         m.heroGroup.visible = true
         m.posterGrid.visible = false
         setBreadcrumbVisible(false)
@@ -2041,6 +2217,13 @@ function popState() as Boolean
             m.posterGrid.setFocus(true)
         end if
     else
+        m.heroGroup.visible = false
+        m.cwLabel.visible = false
+        m.cwGrid.visible = false
+        if m.cwInfoBar <> invalid then m.cwInfoBar.visible = false
+        if m.cwInfoTitle <> invalid then m.cwInfoTitle.visible = false
+        if m.cwInfoDesc <> invalid then m.cwInfoDesc.visible = false
+        m.posterGrid.visible = true
         m.posterGrid.setFocus(true)
     end if
     return true
@@ -2809,9 +2992,11 @@ end sub
 sub openFreeTvGrid()
     ftvIdx = 3
     if isLoggedIn() then ftvIdx = 5
+    ' Capture the state we are leaving before switching the sidebar highlight,
+    ' so backing out of the guide restores the previous section's highlight.
+    pushCurrentState("Home > Free TV")
     m.activeSidebar = ftvIdx
     updateSidebarNav()
-    pushCurrentState("Home > Free TV")
     m.folderBreadcrumb.text = "Loading Free TV Guide..."
     if m.guideScreen <> invalid then m.guideScreen.visible = false
     if m.guideBackdrop <> invalid then m.guideBackdrop.visible = false
@@ -2964,12 +3149,28 @@ sub showFreeTvGuide()
     if m.guideScreen <> invalid
         m.guideScreen.visible = true
     end if
-    ' Scene has focus while the guide is open so guide keys are handled
-    ' directly by onKeyEvent. A plain Group cannot take focus on Roku.
-    m.top.setFocus(true)
+    ' Give the guide itself focus while it is open. This explicitly takes focus
+    ' away from the grids/sidebar underneath (and from the Video node when
+    ' returning from full screen), so D-pad keys bubble up to onKeyEvent
+    ' instead of being consumed by the hidden app behind the guide.
+    focusGuideScreen()
 
     applyGuideFilter(true)
     startGuideRefreshTimer()
+end sub
+
+' Take focus off every grid/video node and put it on the guide container.
+' Without this a hidden PosterGrid (or the full-screen Video node) can keep
+' focus and swallow the D-pad keys, which leaves the guide visible but dead.
+sub focusGuideScreen()
+    ' The Video node is the one node that can swallow Left/Right for trick
+    ' play, so explicitly release it before claiming focus for the guide.
+    if m.video <> invalid then m.video.setFocus(false)
+    if m.guideScreen <> invalid and m.guideScreen.visible
+        m.guideScreen.setFocus(true)
+        if m.guideScreen.hasFocus() then return
+    end if
+    m.top.setFocus(true)
 end sub
 
 sub buildGuideRows()
@@ -3514,7 +3715,7 @@ sub returnToGuideFromPlayer(resumePlayback = true as Boolean)
     if m.guideScreen <> invalid
         m.guideScreen.visible = true
     end if
-    m.top.setFocus(true)
+    focusGuideScreen()
     if m.homeBg <> invalid then m.homeBg.visible = false
     if m.homeDarkOverlay <> invalid then m.homeDarkOverlay.visible = false
     if m.posterGrid <> invalid then m.posterGrid.visible = false
@@ -3545,7 +3746,10 @@ sub exitFreeTvGuide(popStateAfter as Boolean)
         m.video.height = 720
     end if
     m.state = "grid"
-    if m.guideScreen <> invalid then m.guideScreen.visible = false
+    if m.guideScreen <> invalid
+        if m.guideScreen.hasFocus() then m.top.setFocus(true)
+        m.guideScreen.visible = false
+    end if
     if m.guideBackdrop <> invalid then m.guideBackdrop.visible = false
     if m.homeBg <> invalid then m.homeBg.visible = true
     if m.homeDarkOverlay <> invalid then m.homeDarkOverlay.visible = true
@@ -3655,6 +3859,14 @@ sub stopDriveTranscode()
     m.stopDriveTask.postData = FormatJson({ fileId: fileId })
     if isLoggedIn() then m.stopDriveTask.authToken = m.authToken
     m.stopDriveTask.control = "run"
+
+    if m.torrentServerUrl <> invalid and m.torrentServerUrl <> ""
+        m.stopVpsDriveTask = CreateObject("roSGNode", "HttpTask")
+        m.stopVpsDriveTask.url = m.torrentServerUrl + "/api/stream/drive-hls/stop"
+        m.stopVpsDriveTask.method = "POST"
+        m.stopVpsDriveTask.postData = FormatJson({ fileId: fileId })
+        m.stopVpsDriveTask.control = "run"
+    end if
 end sub
 
 sub stopAllActiveStreams()
@@ -3826,20 +4038,23 @@ sub setDriveItemMeta(item as Object)
     m.currentPlayingEpisode = invalid
     m.currentPlayingPoster = ""
 
-    if item.hasField("showName") and item.showName <> invalid
-        m.currentPlayingShow = item.showName.toStr()
+    if item = invalid return
+
+    showVal = getItemField(item, "showName")
+    if showVal <> invalid and safeStr(showVal) <> ""
+        m.currentPlayingShow = safeStr(showVal)
         m.currentPlayingItemType = "tv"
     end if
-    if item.hasField("seasonNum") and item.seasonNum <> invalid
-        m.currentPlayingSeason = item.seasonNum
-    end if
-    if item.hasField("episodeNum") and item.episodeNum <> invalid
-        m.currentPlayingEpisode = item.episodeNum
-    end if
-    if item.hasField("posterUrl") and item.posterUrl <> invalid
-        m.currentPlayingPoster = item.posterUrl.toStr()
-    else if item.HDPosterUrl <> invalid
-        m.currentPlayingPoster = item.HDPosterUrl
+    seasonVal = getItemField(item, "seasonNum")
+    if seasonVal <> invalid then m.currentPlayingSeason = seasonVal
+    epVal = getItemField(item, "episodeNum")
+    if epVal <> invalid then m.currentPlayingEpisode = epVal
+    posterVal = getItemField(item, "posterUrl")
+    if posterVal <> invalid and safeStr(posterVal) <> ""
+        m.currentPlayingPoster = safeStr(posterVal)
+    else
+        hdVal = getItemField(item, "HDPosterUrl")
+        if hdVal <> invalid then m.currentPlayingPoster = safeStr(hdVal)
     end if
 end sub
 
@@ -3901,10 +4116,16 @@ sub onDriveCwResult()
         if dur > 0 then pct = Int((cur / dur) * 100)
         node.description = title + " (" + Stri(pct).trim() + "% watched)"
 
+        cwDriveId = safeStr(item.driveId)
+        if cwDriveId = "" and safeStr(item.path).left(8) = "drive://"
+            cwDriveId = Mid(safeStr(item.path), 9)
+        end if
+
         node.addFields({
             targetType: "drive_episode"
             itemTitle: title
             mediaPath: safeStr(item.path)
+            driveId: cwDriveId
             showName: showName
             seasonNum: item.season
             episodeNum: item.episode
@@ -3945,8 +4166,9 @@ sub playTorrentStream(linkUrl as String, itemTitle as String)
     m.isTvEpisode = false
     m.currentEpisodeList = invalid
     m.currentEpisodeIndex = -1
-    m.currentPlayFilePath = ""
-    m.currentPlayFilename = ""
+    m.currentPlayFilePath = "torrent://" + itemTitle
+    m.currentPlayFilename = itemTitle
+    m.currentPlayingTotalDuration = 0
     m.folderBreadcrumb.text = "Initializing torrent stream for " + itemTitle + "..."
     m.currentTorrentTitle = itemTitle
 
@@ -4530,6 +4752,10 @@ sub onVideoStateChange()
         m.hasPlayedContent = true
         if m.homeBg <> invalid then m.homeBg.visible = false
         if m.state = "guide"
+            ' The preview Video can grab focus when it starts or buffers. Put
+            ' it back on the guide so Left/Right reach onKeyEvent instead of
+            ' being treated as video trick-play commands.
+            focusGuideScreen()
             if m.guideInfoHint <> invalid then m.guideInfoHint.text = "▲▼ Browse   OK Full Screen   ◀▶ Source"
             return
         end if
@@ -4575,33 +4801,9 @@ sub onVideoStateChange()
         end if
 
         if isLoggedIn() and m.currentPlayFilePath <> "" and m.currentPlayFilePath <> invalid
-            vidDur = m.video.duration
-            if vidDur = invalid then vidDur = 0
-            if st = "finished"
-                effectivePos = vidDur
-            else
-                vidPos = m.video.position
-                if vidPos = invalid then vidPos = 0
-                startOffset = 0
-                if m.initialPlayOffset <> invalid and m.initialPlayOffset > 0 then startOffset = m.initialPlayOffset
-                effectivePos = startOffset + vidPos
-                if m.maxPlaybackPosition <> invalid and m.maxPlaybackPosition > effectivePos
-                    effectivePos = m.maxPlaybackPosition
-                end if
-                if vidDur > 0 and effectivePos >= vidDur * 0.9
-                    effectivePos = vidDur
-                end if
-            end if
-            submitPlaybackProgress(m.currentPlayFilePath, effectivePos, vidDur, m.currentStreamTitle, m.currentPlayingItemType, m.currentPlayingShow, m.currentPlayingSeason, m.currentPlayingEpisode, m.currentPlayingPoster)
-            if m.driveProgress = invalid then m.driveProgress = {}
-            m.driveProgress[m.currentPlayFilePath] = {
-                path: m.currentPlayFilePath,
-                currentTime: effectivePos,
-                duration: vidDur,
-                watched: (vidDur > 0 and effectivePos >= vidDur * 0.9)
-            }
+            saveCurrentPlaybackProgress(st = "finished")
         end if
-        if m.progressTimer <> invalid then m.progressTimer.control = "stop"
+        stopProgressTimer()
 
         if st = "finished" and playNextDriveEpisode()
             return
@@ -4768,6 +4970,11 @@ function onKeyEvent(key as String, press as Boolean) as Boolean
                     returnToGuideFromPlayer()
                     return true
                 end if
+                ' Save before stopping the Video node. The "stopped" event is
+                ' delivered asynchronously, after m.state becomes "grid", so
+                ' onVideoStateChange would otherwise skip the save on real TVs.
+                saveCurrentPlaybackProgress(false)
+                stopProgressTimer()
                 stopAllActiveStreams()
                 m.video.control = "stop"
                 m.video.visible = false

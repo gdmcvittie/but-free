@@ -88,7 +88,7 @@ export const config = {
      * the download and the Drive upload, so audio bytes never cross the
      * network twice.
      */
-    nodeUrl: (process.env.TORRENT_NODE_URL || process.env.DOWNLOADER_URL || 'http://74.208.22.119:4000').replace(/\/+$/, ''),
+    nodeUrl: (process.env.TORRENT_NODE_URL || process.env.DOWNLOADER_URL || 'http://download.butfree.online:4000').replace(/\/+$/, ''),
     nodeKey: process.env.TORRENT_NODE_KEY || process.env.DOWNLOADER_SECRET_KEY || process.env.NODE_KEY || '',
     requestTimeoutMs: num(process.env.TORRENT_NODE_TIMEOUT_MS, 20000),
     maxConcurrent: Math.max(1, num(process.env.TORRENT_MAX_CONCURRENT, 1)),

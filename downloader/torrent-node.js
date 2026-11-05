@@ -59,6 +59,14 @@ import {
   resolveFuckingFastUrl,
   gameNodeStatus
 } from './gameDownloadManager.js';
+import {
+  handleDriveHls,
+  handleTorrentHls,
+  handleServeHlsFile,
+  handleDriveHlsStop,
+  handleTorrentHlsStop,
+  getHlsStatus
+} from './hls-engine.js';
 
 const PORT = parseInt(process.env.PORT || process.env.DOWNLOADER_PORT || '4000', 10);
 const NODE_KEY = (process.env.NODE_KEY || process.env.DOWNLOADER_SECRET_KEY || process.env.TORRENT_NODE_KEY || '').trim();
@@ -219,6 +227,7 @@ app.get(['/health', '/api/status', '/api/torrent/status'], (req, res) => {
     authRequired: Boolean(NODE_KEY),
     activeStreams: activeStreams.size,
     streams,
+    ...getHlsStatus(),
     ...nodeStatus()
   });
 });
@@ -881,6 +890,18 @@ const stopStreamRoute = (req, res) => {
 
 app.post('/api/torrent/stream/:streamId/stop', stopStreamRoute);
 app.delete('/api/torrent/stream/:streamId', stopStreamRoute);
+
+// -------------------------------------------------------------
+// High-Performance HLS Video Transcoding (Google Drive & Torrents)
+// -------------------------------------------------------------
+app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'], handleDriveHls);
+app.all('/api/stream/drive-hls/stop', handleDriveHlsStop);
+app.get('/api/stream/drive-hls/status', (req, res) => res.json(getHlsStatus()));
+
+app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hls/:streamId/:fileIndex.m3u8'], (req, res) => handleTorrentHls(req, res, activeStreams));
+app.all('/api/stream/torrent-hls/stop', handleTorrentHlsStop);
+
+app.get(['/api/stream/hls/:sessionId/:file', '/api/stream/hls/:sessionId'], handleServeHlsFile);
 
 // Cache management
 function getDirectorySize(dirPath) {
