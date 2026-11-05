@@ -754,7 +754,7 @@ sub openDriveGrid()
     m.folderBreadcrumb.text = "Loading Drive library..."
 
     m.driveLibTask = CreateAuthHttpTask()
-    m.driveLibTask.url = m.serverUrl + "/api/ondemand"
+    m.driveLibTask.url = m.serverUrl + "/api/ondemand?roku=1"
     m.driveLibTask.observeField("result", "onDriveLibraryResult")
     m.driveLibTask.observeField("error", "onDriveLibraryError")
     m.driveLibTask.control = "run"
@@ -913,7 +913,13 @@ sub openDriveShowsGrid()
         totalEps = 0
         for each sKey in seasons
             eps = seasons[sKey]
-            if eps <> invalid then totalEps = totalEps + eps.count()
+            if eps <> invalid
+                if type(eps) = "roArray"
+                    totalEps = totalEps + eps.count()
+                else if type(eps) = "roInteger" or type(eps) = "Integer"
+                    totalEps = totalEps + eps
+                end if
+            end if
         end for
         if totalEps = 0 then continue for
 
@@ -944,6 +950,58 @@ sub openDriveShowsGrid()
         m.posterGrid.jumpToItem = 0
         onPosterFocused()
     end if
+end sub
+
+function isShowFullyLoaded(seasons as Object) as Boolean
+    if seasons = invalid return false
+    for each sKey in seasons
+        eps = seasons[sKey]
+        if eps <> invalid and type(eps) = "roArray" and eps.count() > 0
+            firstEp = eps[0]
+            if type(firstEp) = "roAssociativeArray" and (firstEp.driveId <> invalid or firstEp.id <> invalid)
+                return true
+            end if
+        end if
+    end for
+    return false
+end function
+
+sub fetchAndOpenDriveShow(showName as String)
+    m.pendingShowName = showName
+    m.folderBreadcrumb.text = "Loading " + showName + "..."
+    if m.showEpisodesTask <> invalid
+        m.showEpisodesTask.control = "stop"
+        m.showEpisodesTask = invalid
+    end if
+    m.showEpisodesTask = CreateAuthHttpTask()
+    urlTransfer = CreateObject("roUrlTransfer")
+    m.showEpisodesTask.url = m.serverUrl + "/api/ondemand/show?name=" + urlTransfer.Escape(showName)
+    m.showEpisodesTask.observeField("result", "onShowEpisodesResult")
+    m.showEpisodesTask.observeField("error", "onShowEpisodesError")
+    m.showEpisodesTask.control = "run"
+end sub
+
+sub onShowEpisodesResult()
+    if m.showEpisodesTask = invalid return
+    res = m.showEpisodesTask.result
+    if res = invalid or res = ""
+        m.folderBreadcrumb.text = "Failed to load show episodes"
+        return
+    end if
+    data = ParseJSON(res)
+    if data = invalid or data.seasons = invalid
+        m.folderBreadcrumb.text = "Error parsing show episodes"
+        return
+    end if
+    showName = m.pendingShowName
+    if showName = invalid or showName = "" then showName = safeStr(data.showName)
+    if m.driveShows = invalid then m.driveShows = {}
+    m.driveShows[showName] = data.seasons
+    openDriveShowSeasons(showName, data.seasons)
+end sub
+
+sub onShowEpisodesError()
+    m.folderBreadcrumb.text = "Network error loading show episodes"
 end sub
 
 sub openDriveShowSeasons(showName as String, seasons as Object, crumbPrefix = "Home > Drive > " as String)
@@ -1593,17 +1651,16 @@ sub playDriveItem(item as Object)
             end if
         end if
 
-        ' Always transcode Drive content to HLS via dedicated VPS (offloaded by cloud server)
-        streamUrl = m.serverUrl + "/api/stream/drive-hls/" + driveId + ".m3u8"
+        ' Always transcode Drive content to HLS via dedicated VPS (download.butfree.online:4000)
+        streamUrl = getTranscoderUrl() + "/api/stream/drive-hls/" + driveId + ".m3u8"
+        sep = "?"
         if isLoggedIn()
-            streamUrl = streamUrl + "?token=" + m.authToken
+            streamUrl = streamUrl + sep + "token=" + m.authToken
+            sep = "&"
         end if
+        streamUrl = streamUrl + sep + "inputOrigin=" + m.serverUrl
         if offset > 0
-            if Instr(1, streamUrl, "?") > 0
-                streamUrl = streamUrl + "&offset=" + Stri(Fix(offset)).trim()
-            else
-                streamUrl = streamUrl + "?offset=" + Stri(Fix(offset)).trim()
-            end if
+            streamUrl = streamUrl + "&offset=" + Stri(Fix(offset)).trim()
         end if
         m.maxPlaybackPosition = offset
         playVideoUrl(streamUrl, title, offset, filename, true, subUrl)
@@ -4005,7 +4062,18 @@ m.currentPlayFilePath = ""
     else if tType = "drive_continue_watching"
         openDriveContinueWatching()
     else if tType = "drive_show"
-        openDriveShowSeasons(item.showName, item.seasons)
+        showName = safeStr(item.showName)
+        seasons = invalid
+        if m.driveShows <> invalid and m.driveShows[showName] <> invalid
+            seasons = m.driveShows[showName]
+        else if item.seasons <> invalid
+            seasons = item.seasons
+        end if
+        if isShowFullyLoaded(seasons)
+            openDriveShowSeasons(showName, seasons)
+        else
+            fetchAndOpenDriveShow(showName)
+        end if
     else if tType = "drive_season"
         cp = safeStr(item.crumbPrefix)
         if cp = "" then cp = "Home > Drive > "
@@ -4073,7 +4141,7 @@ sub openDriveContinueWatching()
     m.folderBreadcrumb.text = "Loading continue watching..."
 
     m.driveCwTask = CreateAuthHttpTask()
-    m.driveCwTask.url = m.serverUrl + "/api/ondemand"
+    m.driveCwTask.url = m.serverUrl + "/api/ondemand?roku=1"
     m.driveCwTask.observeField("result", "onDriveCwResult")
     m.driveCwTask.observeField("error", "onDriveCwError")
     m.driveCwTask.control = "run"
@@ -4875,8 +4943,13 @@ sub onVideoStateChange()
                     driveId = Mid(m.currentPlayFilePath, 9)
                 end if
                 if driveId <> ""
-                    fallbackUrl = m.serverUrl + "/api/stream/drive-hls/" + driveId + ".m3u8"
-                    if isLoggedIn() then fallbackUrl = fallbackUrl + "?token=" + m.authToken
+                    fallbackUrl = getTranscoderUrl() + "/api/stream/drive-hls/" + driveId + ".m3u8"
+                    sep = "?"
+                    if isLoggedIn()
+                        fallbackUrl = fallbackUrl + sep + "token=" + m.authToken
+                        sep = "&"
+                    end if
+                    fallbackUrl = fallbackUrl + sep + "inputOrigin=" + m.serverUrl
                     vidPos = m.video.position
                     if vidPos = invalid then vidPos = 0
                     startOffset = 0

@@ -867,6 +867,8 @@ function getUserDir(userId) {
   return dir;
 }
 
+const userFileCache = new Map();
+
 function getUserFile(userId, filename, defaultValue = {}) {
   const filePath = path.join(getUserDir(userId), filename);
   if (!fs.existsSync(filePath)) {
@@ -874,7 +876,15 @@ function getUserFile(userId, filename, defaultValue = {}) {
     return defaultValue;
   }
   try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    const stat = fs.statSync(filePath);
+    const cacheKey = `${userId}:${filename}`;
+    const cached = userFileCache.get(cacheKey);
+    if (cached && cached.mtimeMs === stat.mtimeMs) {
+      return cached.data;
+    }
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    userFileCache.set(cacheKey, { mtimeMs: stat.mtimeMs, data });
+    return data;
   } catch {
     return defaultValue;
   }
@@ -883,6 +893,10 @@ function getUserFile(userId, filename, defaultValue = {}) {
 function saveUserFile(userId, filename, data) {
   const filePath = path.join(getUserDir(userId), filename);
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+  try {
+    const stat = fs.statSync(filePath);
+    userFileCache.set(`${userId}:${filename}`, { mtimeMs: stat.mtimeMs, data });
+  } catch (_) {}
 }
 
 // -------------------------------------------------------------
@@ -2712,8 +2726,83 @@ app.get('/api/ondemand', optionalAuth, (req, res) => {
     ? new Date(new Date(lastScannedAt).getTime() + DRIVE_AUTO_SCAN_INTERVAL_MS).toISOString()
     : null;
 
+  const isRoku = req.query.roku === '1' || req.headers['user-agent']?.includes('Roku');
+
+  if (isRoku) {
+    // Ultra-lightweight summary payload for Roku: eliminates 30s freeze on hardware parse
+    const showsSummary = {};
+    if (library.shows && typeof library.shows === 'object') {
+      for (const [sName, seasons] of Object.entries(library.shows)) {
+        showsSummary[sName] = {};
+        if (seasons && typeof seasons === 'object') {
+          for (const [sKey, eps] of Object.entries(seasons)) {
+            showsSummary[sName][sKey] = Array.isArray(eps) ? eps.length : (typeof eps === 'number' ? eps : 0);
+          }
+        }
+      }
+    }
+
+    const cleanMovies = Array.isArray(library.movies) ? library.movies.map(m => ({
+      driveId: m.driveId || m.id,
+      title: m.title,
+      year: m.year,
+      folder: m.folder,
+      folderPath: m.folderPath,
+      filename: m.filename,
+      posterUrl: m.posterUrl || moviesPosters[m.title] || moviesPosters[m.driveId] || null,
+      subtitleUrl: m.subtitleUrl || (m.driveId ? `/api/stream/drive-subtitle/${m.driveId}` : null)
+    })) : [];
+
+    const cleanCw = continueWatching.map(cw => ({
+      ...cw,
+      driveId: cw.driveId || (cw.path?.startsWith('drive://') ? cw.path.replace('drive://', '') : null),
+      path: cw.path || (cw.driveId ? `drive://${cw.driveId}` : null)
+    }));
+
+    return sendCachedJson(req, res, {
+      shows: showsSummary,
+      showsList: library.showsList || [],
+      showsPosters: library.showsPosters || {},
+      movies: cleanMovies,
+      moviesPosters,
+      movieFolders: movieFolders || {},
+      movieFolderList: movieFolderList || [],
+      continueWatching: cleanCw,
+      progress: progress || {},
+      personal: true,
+      user: req.user ? { id: req.user.id, name: req.user.name } : null,
+      autoScanIntervalHours: 4,
+      nextAutoScanAt,
+      hlsChunkSeconds: HLS_CHUNK_SECONDS
+    });
+  }
+
+  // For general / web clients: strip bloated lh3 thumbnail URLs and duplicate paths
+  const slimShows = {};
+  if (library.shows && typeof library.shows === 'object') {
+    for (const [sName, seasons] of Object.entries(library.shows)) {
+      slimShows[sName] = {};
+      if (seasons && typeof seasons === 'object') {
+        for (const [sKey, eps] of Object.entries(seasons)) {
+          if (Array.isArray(eps)) {
+            slimShows[sName][sKey] = eps.map(e => ({
+              driveId: e.driveId || e.id,
+              title: e.title,
+              episode: e.episode,
+              season: e.season,
+              filename: e.filename,
+              duration: e.duration || 0,
+              subtitleUrl: e.subtitleUrl || (e.driveId || e.id ? `/api/stream/drive-subtitle/${e.driveId || e.id}` : null)
+            }));
+          }
+        }
+      }
+    }
+  }
+
   sendCachedJson(req, res, {
     ...library,
+    shows: slimShows,
     moviesPosters,
     movieFolders: movieFolders || {},
     movieFolderList: movieFolderList || [],
@@ -2724,6 +2813,39 @@ app.get('/api/ondemand', optionalAuth, (req, res) => {
     autoScanIntervalHours: 4,
     nextAutoScanAt,
     hlsChunkSeconds: HLS_CHUNK_SECONDS
+  });
+});
+
+// Single show on-demand loader for Roku & lightweight clients
+app.get('/api/ondemand/show', optionalAuth, (req, res) => {
+  const userId = req.user?.id || 'default';
+  const showName = (req.query.name || req.query.show || '').trim();
+  if (!showName) return res.status(400).json({ error: 'Missing show name' });
+  const library = getUserFile(userId, 'library.json', {});
+  const seasons = library.shows?.[showName];
+  if (!seasons) return res.status(404).json({ error: 'Show not found' });
+
+  const cleanSeasons = {};
+  for (const [sKey, eps] of Object.entries(seasons)) {
+    if (Array.isArray(eps)) {
+      cleanSeasons[sKey] = eps.map(e => ({
+        driveId: e.driveId || e.id,
+        title: e.title,
+        episode: e.episode,
+        season: e.season,
+        filename: e.filename,
+        duration: e.duration || 0,
+        subtitleUrl: e.subtitleUrl || (e.driveId || e.id ? `/api/stream/drive-subtitle/${e.driveId || e.id}` : null)
+      }));
+    } else {
+      cleanSeasons[sKey] = [];
+    }
+  }
+
+  sendCachedJson(req, res, {
+    showName,
+    seasons: cleanSeasons,
+    posterUrl: library.showsPosters?.[showName] || null
   });
 });
 
