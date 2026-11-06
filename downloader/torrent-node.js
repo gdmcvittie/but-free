@@ -118,14 +118,23 @@ function guardTorrentDebug(torrent) {
   }
 }
 
-const streamingClient = new WebTorrent({
-  dht: true,
-  maxConns: 150
-});
+let streamingClient = null;
 
-streamingClient.on('error', (err) => {
-  console.warn('[WebTorrent Streaming Client Error]:', err?.message || err);
-});
+function getStreamingClient() {
+  if (!streamingClient) {
+    const enableDht = process.env.ENABLE_DHT === 'true';
+    streamingClient = new WebTorrent({
+      dht: enableDht,
+      lsd: false,
+      tracker: true,
+      maxConns: 80
+    });
+    streamingClient.on('error', (err) => {
+      console.warn('[WebTorrent Streaming Client Error]:', err?.message || err);
+    });
+  }
+  return streamingClient;
+}
 
 const activeStreams = new Map();
 const streamHistory = [];
@@ -563,6 +572,7 @@ app.post(['/api/torrent/stream', '/api/roku/stream'], (req, res) => {
 
   try {
     const getActiveTorrent = (hash) => {
+      if (!streamingClient) return null;
       const lower = String(hash || '').toLowerCase();
       return (streamingClient.torrents || []).find(t => t && t.infoHash && String(t.infoHash).toLowerCase() === lower) || null;
     };
@@ -574,7 +584,8 @@ app.post(['/api/torrent/stream', '/api/roku/stream'], (req, res) => {
     } else {
       console.log(`[Adding torrent]: infoHash=${infoHashHex}, announceCount=${announce.length}`);
       try {
-        torrentInstance = streamingClient.add(url, {
+        const client = getStreamingClient();
+        torrentInstance = client.add(url, {
           path: path.join(CACHE_DIR, 'streams', streamId),
           announce,
           name,
@@ -873,6 +884,15 @@ const stopStreamById = (streamId) => {
     activeStreams.delete(streamId);
     addStreamHistory({ type: 'stopped', streamId, title: stream.file ? stream.file.name : 'Unknown' });
     console.log(`[Stream Stopped]: ${streamId}`);
+
+    if (activeStreams.size === 0 && streamingClient) {
+      try {
+        streamingClient.destroy();
+      } catch (err) {
+        console.warn('[WebTorrent Streaming Client Destroy Error]:', err?.message || err);
+      }
+      streamingClient = null;
+    }
   }
 
   try {

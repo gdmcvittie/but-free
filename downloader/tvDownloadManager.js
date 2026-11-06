@@ -14,12 +14,29 @@ if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true
 let client = null;
 function getTorrentClient() {
   if (!client) {
-    client = new WebTorrent({ dht: true, tracker: true, lsd: true, maxConns: 120 });
+    const enableDht = process.env.ENABLE_DHT === 'true';
+    client = new WebTorrent({
+      dht: enableDht,
+      tracker: true,
+      lsd: false,
+      maxConns: 80
+    });
     client.on('error', (err) => {
       console.warn('[TvDownloadManager] WebTorrent error:', err?.message || err);
     });
   }
   return client;
+}
+
+function maybeDestroyClient() {
+  if (downloadQueue.length === 0 && !activeDownloadJob && client) {
+    try {
+      client.destroy();
+    } catch (err) {
+      console.warn('[TvDownloadManager] WebTorrent destroy error:', err?.message || err);
+    }
+    client = null;
+  }
 }
 
 // -------------------------------------------------------------
@@ -181,6 +198,7 @@ export function cancelJob(id) {
       try { job.torrent.destroy(); } catch (_) {}
     }
     activeDownloadJob = null;
+    maybeDestroyClient();
     setImmediate(pumpDownloadQueue);
   }
 
@@ -520,6 +538,7 @@ async function runDownloadPhase(job) {
 
     // Download slot is now released! Next torrent can start downloading
     activeDownloadJob = null;
+    maybeDestroyClient();
     pumpDownloadQueue();
 
     // Route to Transcode Queue
@@ -531,6 +550,7 @@ async function runDownloadPhase(job) {
     }
     job.torrent = null;
     activeDownloadJob = null;
+    maybeDestroyClient();
     handleJobError(job, err);
     pumpDownloadQueue();
   }
@@ -658,6 +678,7 @@ async function runUploadPhase(job) {
       job.status = 'active';
       job.stage = 'uploading';
       job.updatedAt = Date.now();
+      saveHistory();
 
       // Dynamic token refresh helper function
       const refreshToken = async () => {
@@ -839,9 +860,11 @@ function handleJobError(job, err) {
 
   job.status = 'error';
   job.stage = 'error';
-  job.error = err.message;
+  const causeMsg = err?.cause ? (err.cause.message || err.cause.code || String(err.cause)) : '';
+  const detailedError = causeMsg ? `${err.message} (${causeMsg})` : (err.message || String(err));
+  job.error = detailedError;
   job.updatedAt = Date.now();
-  console.error(`[TvDownloadManager] Job ${job.id} failed:`, err.message);
+  console.error(`[TvDownloadManager] Job ${job.id} failed:`, detailedError);
 
   const jobDir = path.join(DOWNLOADS_DIR, job.id);
   try { fs.rmSync(jobDir, { recursive: true, force: true }); } catch (_) {}

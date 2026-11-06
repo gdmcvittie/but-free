@@ -46,12 +46,24 @@ const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 let wtClient = null;
 function getGameTorrentClient() {
   if (!wtClient) {
-    wtClient = new WebTorrent({ dht: true, maxConns: 80, tracker: true });
+    const enableDht = process.env.ENABLE_DHT === 'true';
+    wtClient = new WebTorrent({ dht: enableDht, maxConns: 80, tracker: true, lsd: false });
     wtClient.on('error', (err) => {
       console.warn('[GameDownloadManager] WebTorrent client error:', err?.message || err);
     });
   }
   return wtClient;
+}
+
+function maybeDestroyGameClient() {
+  if (gameQueue.length === 0 && !activeGameJob && wtClient) {
+    try {
+      wtClient.destroy();
+    } catch (err) {
+      console.warn('[GameDownloadManager] WebTorrent destroy error:', err?.message || err);
+    }
+    wtClient = null;
+  }
 }
 
 const jobs = new Map();
@@ -227,6 +239,7 @@ export function cancelJob(id) {
   if (activeGameJob && activeGameJob.id === id) {
     if (job.torrent) { try { job.torrent.destroy(); } catch (_) {} }
     activeGameJob = null;
+    maybeDestroyGameClient();
     setImmediate(pumpGameQueue);
   }
   if (activeDirectJob && activeDirectJob.id === id) {
@@ -342,15 +355,19 @@ function pumpGameQueue() {
     runGameTorrentPhase(nextJob)
       .then(() => {
         activeGameJob = null;
+        maybeDestroyGameClient();
         pumpGameQueue();
       })
       .catch((err) => {
         activeGameJob = null;
+        maybeDestroyGameClient();
         handleJobError(nextJob, err);
         pumpGameQueue();
       });
-    break;
+    return;
   }
+
+  maybeDestroyGameClient();
 }
 
 async function runGameTorrentPhase(job) {

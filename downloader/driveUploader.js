@@ -36,7 +36,7 @@ export async function findFolder(accessToken, parentFolderId, folderName, refres
 
   const query = `'${escapeQuery(parentFolderId)}' in parents and name = '${escapeQuery(cleanName)}'`
     + " and mimeType = 'application/vnd.google-apps.folder' and trashed = false";
-  const url = `${DRIVE_API}/files?q=${encodeURIComponent(query)}&fields=files(id,name)&pageSize=1`;
+  const url = `${DRIVE_API}/files?q=${encodeURIComponent(query)}&fields=files(id,name)&pageSize=1&supportsAllDrives=true&includeItemsFromAllDrives=true`;
 
   let res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
 
@@ -63,7 +63,7 @@ export async function findOrCreateFolder(accessToken, parentFolderId, folderName
   const existing = await findFolder(accessToken, parentFolderId, cleanName, refreshTokenFn);
   if (existing) return existing;
 
-  const create = () => fetch(`${DRIVE_API}/files`, {
+  const create = () => fetch(`${DRIVE_API}/files?supportsAllDrives=true`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -140,7 +140,7 @@ export async function uploadCover(filePath, fileName, destFolderId, accessToken,
   if (!fs.existsSync(filePath)) throw new Error(`Cover file not found: ${filePath}`);
   const body = new Uint8Array(fs.readFileSync(filePath));
 
-  const send = () => fetch(`${DRIVE_UPLOAD_API}/files?uploadType=multipart&fields=id,name,parents`, {
+  const send = () => fetch(`${DRIVE_UPLOAD_API}/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,parents`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -194,7 +194,7 @@ export async function uploadFileToGoogleDrive(
   const fileSize = fs.statSync(filePath).size;
   const contentType = mimeFor(filePath);
 
-  const initiate = () => fetch(`${DRIVE_UPLOAD_API}/files?uploadType=resumable&fields=id,name,parents`, {
+  const initiate = () => fetch(`${DRIVE_UPLOAD_API}/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,parents`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -226,59 +226,155 @@ export async function uploadFileToGoogleDrive(
   const fd = fs.openSync(filePath, 'r');
   const buffer = Buffer.alloc(CHUNK_SIZE);
 
+  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+  // Query Drive status using Google's resumable upload status inquiry
+  const checkDriveStatus = async () => {
+    let checkRes = await fetch(sessionUri, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Length': '0',
+        'Content-Range': `bytes */${fileSize}`
+      }
+    });
+
+    if (checkRes.status === 401 && typeof refreshTokenFn === 'function') {
+      const refreshed = await refreshTokenFn();
+      if (refreshed) {
+        accessToken = refreshed;
+        checkRes = await fetch(sessionUri, {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Length': '0',
+            'Content-Range': `bytes */${fileSize}`
+          }
+        });
+      }
+    }
+
+    return checkRes;
+  };
+
   try {
     while (offset < fileSize) {
       const bytesToRead = Math.min(CHUNK_SIZE, fileSize - offset);
       fs.readSync(fd, buffer, 0, bytesToRead, offset);
       const chunk = bytesToRead === CHUNK_SIZE ? buffer : buffer.subarray(0, bytesToRead);
 
-      let chunkRes = await fetch(sessionUri, {
-        method: 'PUT',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Length': String(bytesToRead),
-          'Content-Range': `bytes ${offset}-${offset + bytesToRead - 1}/${fileSize}`
-        },
-        body: chunk
-      });
+      let chunkUploaded = false;
+      const MAX_RETRIES = 5;
 
-      // A long upload can outlive the access token; refresh once and retry the
-      // same range rather than restarting the whole file.
-      if (chunkRes.status === 401 && typeof refreshTokenFn === 'function') {
-        const refreshed = await refreshTokenFn();
-        if (refreshed) {
-          accessToken = refreshed;
-          chunkRes = await fetch(sessionUri, {
+      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          let chunkRes = await fetch(sessionUri, {
             method: 'PUT',
             headers: {
               Authorization: `Bearer ${accessToken}`,
               'Content-Length': String(bytesToRead),
               'Content-Range': `bytes ${offset}-${offset + bytesToRead - 1}/${fileSize}`
             },
-            body: chunk
+            body: chunk,
+            duplex: 'half'
           });
+
+          // Handle token expiration mid-upload
+          if (chunkRes.status === 401 && typeof refreshTokenFn === 'function') {
+            console.log(`[DriveUploader] Access token expired at byte ${offset}, refreshing...`);
+            const refreshed = await refreshTokenFn();
+            if (refreshed) {
+              accessToken = refreshed;
+              chunkRes = await fetch(sessionUri, {
+                method: 'PUT',
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                  'Content-Length': String(bytesToRead),
+                  'Content-Range': `bytes ${offset}-${offset + bytesToRead - 1}/${fileSize}`
+                },
+                body: chunk,
+                duplex: 'half'
+              });
+            }
+          }
+
+          if (chunkRes.status === 308) {
+            offset += bytesToRead;
+            if (onProgress) onProgress(Math.round((offset / fileSize) * 100));
+            chunkUploaded = true;
+            break;
+          }
+
+          if (chunkRes.ok) {
+            const fileObj = await chunkRes.json();
+            if (onProgress) onProgress(100);
+            return fileObj;
+          }
+
+          // If Google returned 5xx server error, treat as transient failure and retry
+          if (chunkRes.status >= 500) {
+            console.warn(`[DriveUploader] Drive returned HTTP ${chunkRes.status} for chunk at ${offset}, retrying (${attempt}/${MAX_RETRIES})...`);
+          } else {
+            const errText = await chunkRes.text();
+            throw new Error(`Upload of "${fileName}" failed at byte ${offset}: HTTP ${chunkRes.status} - ${errText}`);
+          }
+        } catch (fetchErr) {
+          if (attempt === MAX_RETRIES) {
+            throw fetchErr;
+          }
+          console.warn(`[DriveUploader] Transient error uploading chunk at byte ${offset} (attempt ${attempt}/${MAX_RETRIES}):`, fetchErr?.message || fetchErr);
+        }
+
+        // Backoff before checking upload status and retrying
+        const backoffMs = Math.min(1000 * Math.pow(2, attempt - 1), 16000) + Math.floor(Math.random() * 1000);
+        await sleep(backoffMs);
+
+        // Inquire about the upload status to resume at the exact byte offset Google expects
+        try {
+          const statusRes = await checkDriveStatus();
+          if (statusRes.ok) {
+            const fileObj = await statusRes.json();
+            if (onProgress) onProgress(100);
+            return fileObj;
+          }
+          if (statusRes.status === 308) {
+            const range = statusRes.headers.get('range');
+            if (range) {
+              const match = range.match(/bytes=0-(\d+)/);
+              if (match) {
+                const driveOffset = parseInt(match[1], 10) + 1;
+                console.log(`[DriveUploader] Resumed session: Drive has ${driveOffset}/${fileSize} bytes.`);
+                if (driveOffset > offset) {
+                  offset = driveOffset;
+                  chunkUploaded = true;
+                  if (onProgress) onProgress(Math.round((offset / fileSize) * 100));
+                  break;
+                }
+              }
+            }
+          }
+        } catch (statusErr) {
+          console.warn(`[DriveUploader] Status inquiry failed:`, statusErr?.message || statusErr);
         }
       }
 
-      if (chunkRes.status === 308) {
-        offset += bytesToRead;
-        if (onProgress) onProgress(Math.round((offset / fileSize) * 100));
-        continue;
+      if (!chunkUploaded && offset < fileSize) {
+        throw new Error(`Upload of "${fileName}" failed at byte ${offset} after ${MAX_RETRIES} attempts.`);
       }
+    }
 
-      if (chunkRes.ok) {
-        const fileObj = await chunkRes.json();
-        if (onProgress) onProgress(100);
-        return fileObj;
-      }
-
-      throw new Error(`Upload of "${fileName}" failed at byte ${offset}: HTTP ${chunkRes.status} - ${await chunkRes.text()}`);
+    // Verify completion
+    const finalRes = await checkDriveStatus();
+    if (finalRes.ok) {
+      const fileObj = await finalRes.json();
+      if (onProgress) onProgress(100);
+      return fileObj;
     }
   } finally {
     fs.closeSync(fd);
   }
 
-  throw new Error(`Upload of "${fileName}" ended without a Drive response`);
+  throw new Error(`Upload of "${fileName}" ended without a Drive completion response`);
 }
 
 /**
@@ -304,7 +400,7 @@ export async function deleteFileByName(accessToken, folderId, fileName, refreshT
   if (!accessToken || !folderId || !cleanName) return;
 
   const query = `'${escapeQuery(folderId)}' in parents and name = '${escapeQuery(cleanName)}' and trashed = false`;
-  const url = `${DRIVE_API}/files?q=${encodeURIComponent(query)}&fields=files(id,name)&pageSize=10`;
+  const url = `${DRIVE_API}/files?q=${encodeURIComponent(query)}&fields=files(id,name)&pageSize=10&supportsAllDrives=true&includeItemsFromAllDrives=true`;
 
   let res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (res.status === 401 && typeof refreshTokenFn === 'function') {
@@ -319,7 +415,7 @@ export async function deleteFileByName(accessToken, folderId, fileName, refreshT
     const data = await res.json();
     for (const f of data.files || []) {
       try {
-        await fetch(`${DRIVE_API}/files/${f.id}`, {
+        await fetch(`${DRIVE_API}/files/${f.id}?supportsAllDrives=true`, {
           method: 'DELETE',
           headers: { Authorization: `Bearer ${accessToken}` }
         });

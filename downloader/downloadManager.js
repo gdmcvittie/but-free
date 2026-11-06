@@ -38,9 +38,21 @@ const active = new Map();
 let client = null;
 function getClient() {
   if (client) return client;
-  client = new WebTorrent({ dht: true, tracker: true, lsd: true, maxConns: 100 });
+  const enableDht = process.env.ENABLE_DHT === 'true';
+  client = new WebTorrent({ dht: enableDht, tracker: true, lsd: false, maxConns: 80 });
   client.on('error', (err) => console.warn('[FraudioStreamer] client error:', err?.message || err));
   return client;
+}
+
+function maybeDestroyClient() {
+  if (queue.length === 0 && active.size === 0 && client) {
+    try {
+      client.destroy();
+    } catch (err) {
+      console.warn('[FraudioStreamer] client destroy error:', err?.message || err);
+    }
+    client = null;
+  }
 }
 
 // -------------------------------------------------------------
@@ -329,6 +341,8 @@ function pump() {
         pump();
       });
   }
+
+  maybeDestroyClient();
 }
 
 function update(job, patch) {
