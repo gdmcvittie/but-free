@@ -22,7 +22,7 @@ import {
 
 const DOWNLOADS_DIR = path.resolve(process.env.DOWNLOADS_DIR || './downloads');
 const HISTORY_FILE = path.join(path.dirname(DOWNLOADS_DIR), 'download_history.json');
-const MAX_CONCURRENT = Math.max(1, parseInt(process.env.MAX_CONCURRENT || '1', 10) || 1);
+const MAX_CONCURRENT = Math.max(1, parseInt(process.env.MAX_CONCURRENT || '2', 10) || 2);
 const ORPHAN_MAX_AGE_MS = (parseInt(process.env.ORPHAN_MAX_AGE_MINUTES || '60', 10) || 60) * 60 * 1000;
 
 fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });

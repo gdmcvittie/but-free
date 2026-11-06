@@ -1140,10 +1140,27 @@ async function downloadTracksRemote(user, entries, meta = {}, onProgress = () =>
   onProgress({ phase: 'Queued on VPS node', percent: 10 });
 
   let lastStage = '';
+  let missingPollCount = 0;
+  const pollStart = Date.now();
+  const MAX_POLL_MS = 45 * 60 * 1000;
+
   while (true) {
+    if (Date.now() - pollStart > MAX_POLL_MS) {
+      await torrentNode.cancelJob(remoteJobId).catch(() => {});
+      throw new Error('Download timed out after 45 minutes.');
+    }
+
     await sleep(2500);
+
     const remote = await torrentNode.getJob(remoteJobId).catch(() => null);
-    if (!remote) continue;
+    if (!remote) {
+      missingPollCount += 1;
+      if (missingPollCount > 10) {
+        throw new Error('Job no longer exists on VPS (node restarted or job was purged).');
+      }
+      continue;
+    }
+    missingPollCount = 0;
 
     if (remote.stage !== lastStage || remote.percent) {
       lastStage = remote.stage;
@@ -1686,11 +1703,26 @@ export function cancelJob(id) {
     return true;
   }
   job.cancelRequested = true;
+  if (activeJobId === id) {
+    setTimeout(() => {
+      if (activeJobId === id) {
+        activeJobId = null;
+        pump();
+      }
+    }, 4000);
+  }
   return true;
 }
 
 function pump() {
-  if (activeJobId) return;
+  if (activeJobId) {
+    const currentActive = jobs.get(activeJobId);
+    if (!currentActive || currentActive.status === 'error' || currentActive.status === 'done' || currentActive.status === 'cancelled') {
+      activeJobId = null;
+    } else {
+      return;
+    }
+  }
   const nextId = queue.shift();
   if (!nextId) return;
   const job = jobs.get(nextId);
@@ -1804,6 +1836,10 @@ export function resumePendingQueue() {
       continue;
     }
     for (const entry of pending) {
+      if (!entry.args || (typeof entry.args === 'object' && Object.keys(entry.args).length === 0)) {
+        console.warn(`[Queue] Dropping arg-less pending job "${entry.title}" (${entry.id})`);
+        continue;
+      }
       const build = QUEUE_BUILDERS[entry.kind];
       if (!build) {
         console.warn(`[Queue] Unknown job kind "${entry.kind}" - dropped.`);
