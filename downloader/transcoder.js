@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { spawn } from 'child_process';
 import { createRequire } from 'module';
 
@@ -99,12 +100,16 @@ export async function transcodeMediaFile(filePath, targetOutputPath, options = {
   }
 
   const cmd = resolveFfmpeg();
-  const vEncoder = String(options.codec || 'h265').toLowerCase() === 'h264' ? 'libx264' : 'libx265';
-  const crf = String(options.crf || '20');
+  const vEncoder = String(options.codec || 'h264').toLowerCase() === 'h265' ? 'libx265' : 'libx264';
+  const crf = String(options.crf || (vEncoder === 'libx265' ? '20' : '22'));
   const aCodec = options.audioCodec || 'aac';
   const aBitrate = options.audioBitrate || '128k';
   const aChannels = options.audioChannels || '2';
   const preset = options.preset || 'veryfast';
+
+  const cpuCount = os.cpus()?.length || 2;
+  const maxThreads = Math.max(1, cpuCount > 2 ? cpuCount - 1 : cpuCount);
+  const threads = String(options.threads || process.env.MAX_TRANSCODE_THREADS || maxThreads);
 
   const duration = await getMediaDuration(filePath);
 
@@ -115,6 +120,7 @@ export async function transcodeMediaFile(filePath, targetOutputPath, options = {
 
   const args = [
     '-y',
+    '-threads', threads,
     '-i', filePath,
     '-map', '0:v:0',
     '-map', '0:a:0?',

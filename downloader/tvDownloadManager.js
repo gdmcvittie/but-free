@@ -279,7 +279,7 @@ export function addDownloadJob(options) {
     driveConfig: options.driveConfig || null,
     transcodeConfig: options.transcodeConfig || (kind === 'game' || kind === 'game-direct'
       ? { enabled: false }
-      : { enabled: true, targetHeight: '480', codec: 'h265', preset: 'veryfast', crf: '20' }),
+      : { enabled: true, targetHeight: '720', codec: 'h264', preset: 'veryfast', crf: '22' }),
     webhookUrl: options.webhookUrl || null,
     status: 'queued',
     stage: 'queued_download',
