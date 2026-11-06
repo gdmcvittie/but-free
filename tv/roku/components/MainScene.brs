@@ -1768,10 +1768,8 @@ sub playDriveItem(item as Object)
         end if
 
         ' Check if file has a native video extension Roku can direct-play
-        ext = ""
-        dotPos = InstrRev(filename, ".")
-        if dotPos > 0 then ext = LCase(Mid(filename, dotPos))
-        isNative = (ext = ".mp4" or ext = ".m4v" or ext = ".mov" or ext = ".mkv")
+        lName = LCase(safeStr(filename))
+        isNative = (Len(lName) >= 4 and (Right(lName, 4) = ".mp4" or Right(lName, 4) = ".mkv" or Right(lName, 4) = ".m4v" or Right(lName, 4) = ".mov"))
 
         if isNative
             ' Attempt Direct Stream first for native containers (MKV/MP4/M4V/MOV).
