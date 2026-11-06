@@ -563,7 +563,7 @@ export const downloadManager = {
     }
 
     const callbackOrigin = resolveCallbackOrigin();
-    const webhookSecret = process.env.TORRENT_NODE_WEBHOOK_SECRET || (callbackOrigin ? 'fraudio-secret' : null);
+    const webhookSecret = process.env.TORRENT_NODE_WEBHOOK_SECRET || process.env.TORRENT_NODE_KEY || process.env.DOWNLOADER_SECRET_KEY || process.env.NODE_KEY || (callbackOrigin ? 'fraudio-secret' : null);
     const webhookUrl = publicUrl('/api/downloads/webhook');
     const tokenRefreshUrl = publicUrl('/api/downloads/token-refresh');
 

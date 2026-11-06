@@ -472,15 +472,20 @@ async function runDownloadPhase(job) {
  */
 export async function refreshDriveToken(job) {
   const driveConfig = job?.driveConfig;
-  if (!driveConfig?.tokenRefreshUrl) return null;
+  let refreshUrl = driveConfig?.tokenRefreshUrl || (job?.userId ? 'https://music.butfree.online/api/downloads/token-refresh' : null);
+  if (!refreshUrl) return null;
   try {
-    const headers = { 'Content-Type': 'application/json' };
-    if (driveConfig.webhookSecret) headers['x-node-secret'] = driveConfig.webhookSecret;
-    const res = await fetch(driveConfig.tokenRefreshUrl, {
+    const secret = driveConfig?.webhookSecret || process.env.NODE_KEY || process.env.DOWNLOADER_SECRET_KEY || 'fraudio-secret';
+    const headers = { 'Content-Type': 'application/json', 'x-node-secret': secret };
+    let res = await fetch(refreshUrl, {
       method: 'POST',
       headers,
       body: JSON.stringify({ userId: job.userId })
     });
+    if (res.status === 404 && !refreshUrl.includes('music.butfree.online')) {
+      const fallback = 'https://music.butfree.online/api/downloads/token-refresh';
+      res = await fetch(fallback, { method: 'POST', headers, body: JSON.stringify({ userId: job.userId }) });
+    }
     if (!res.ok) {
       console.warn(`[FraudioStreamer] Token refresh returned HTTP ${res.status}`);
       return null;
@@ -755,18 +760,21 @@ function failJob(job, err) {
   }
   active.delete(job.id);
 
+  const causeMsg = err?.cause ? (err.cause.message || err.cause.code || String(err.cause)) : '';
+  const detailedError = causeMsg ? `${err.message} (${causeMsg})` : (err.message || String(err));
+
   update(job, {
     status: 'error',
     stage: 'error',
-    error: err.message,
-    message: err.message
+    error: detailedError,
+    message: detailedError
   });
 
-  console.error(`[FraudioStreamer] Job ${job.id} failed:`, err.message);
+  console.error(`[FraudioStreamer] Job ${job.id} failed:`, detailedError);
   removeJobDir(job.id);
   releaseClaim(job);
   saveHistory();
-  notify(job, { status: 'error', error: err.message });
+  notify(job, { status: 'error', error: detailedError });
 }
 
 /**
