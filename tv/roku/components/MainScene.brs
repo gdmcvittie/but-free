@@ -310,6 +310,10 @@ function getItemProgress(item as Object) as Object
     end if
     if p = invalid
         driveId = safeStr(getItemField(item, "driveId"))
+        if driveId = ""
+            idVal = safeStr(getItemField(item, "id"))
+            if idVal <> "" then driveId = idVal
+        end if
         if driveId <> ""
             p = m.driveProgress["drive://" + driveId]
             if p = invalid then p = m.driveProgress[driveId]
@@ -317,14 +321,78 @@ function getItemProgress(item as Object) as Object
     end if
     if p = invalid
         pathVal = safeStr(getItemField(item, "path"))
-        if pathVal <> "" then p = m.driveProgress[pathVal]
+        if pathVal <> ""
+            p = m.driveProgress[pathVal]
+            if p = invalid and Left(pathVal, 8) = "drive://"
+                p = m.driveProgress[Mid(pathVal, 9)]
+            end if
+        end if
     end if
     if p = invalid
         filenameVal = safeStr(getItemField(item, "filename"))
         if filenameVal <> "" then p = m.driveProgress[filenameVal]
     end if
+    if p = invalid
+        titleVal = safeStr(getItemField(item, "itemTitle"))
+        if titleVal = "" then titleVal = safeStr(getItemField(item, "title"))
+        if titleVal <> "" then p = m.driveProgress[titleVal]
+    end if
     return p
 end function
+
+sub updateGridItemWatchedStatus(mediaPath as String)
+    if m.gridItems = invalid or mediaPath = "" return
+    prog = invalid
+    if m.driveProgress <> invalid
+        prog = m.driveProgress[mediaPath]
+        if prog = invalid and Left(mediaPath, 8) = "drive://"
+            prog = m.driveProgress[Mid(mediaPath, 9)]
+        end if
+    end if
+    if prog = invalid return
+
+    isWatched = (prog.watched = true or prog.watched = "true" or prog.watched = 1)
+    if not isWatched
+        dur = safeInt(prog.duration)
+        cur = safeInt(prog.currentTime)
+        if dur > 0 and cur >= dur * 0.85
+            isWatched = true
+        end if
+    end if
+
+    for each node in m.gridItems
+        if node <> invalid
+            mP = safeStr(getItemField(node, "mediaPath"))
+            dId = safeStr(getItemField(node, "driveId"))
+            match = false
+            if mP <> "" and (mP = mediaPath or (Left(mediaPath, 8) = "drive://" and mP = Mid(mediaPath, 9)))
+                match = true
+            else if dId <> "" and (mediaPath = dId or mediaPath = ("drive://" + dId))
+                match = true
+            end if
+            if match
+                baseTitle = node.title
+                if Left(baseTitle, 2) = "✓ " or Left(baseTitle, 2) = "✔ "
+                    baseTitle = Mid(baseTitle, 3)
+                end if
+                if isWatched
+                    node.title = "✓ " + baseTitle
+                    node.shortDescriptionLine1 = "✓ Watched"
+                else if prog.currentTime <> invalid and safeInt(prog.currentTime) > 5
+                    cur = safeInt(prog.currentTime)
+                    dur = safeInt(prog.duration)
+                    remMin = 0
+                    if dur > cur then remMin = Int((dur - cur) / 60)
+                    if remMin > 0
+                        node.shortDescriptionLine1 = Stri(remMin).trim() + "m left"
+                    else
+                        node.shortDescriptionLine1 = "In Progress"
+                    end if
+                end if
+            end if
+        end if
+    end for
+end sub
 
 function isLoggedIn() as Boolean
     return m.authToken <> "" and m.authToken <> invalid
@@ -792,12 +860,22 @@ sub onDriveLibraryResult()
     if data.progress <> invalid and type(data.progress) = "roAssociativeArray"
         for each pk in data.progress
             m.driveProgress[pk] = data.progress[pk]
+            if Left(pk, 8) = "drive://"
+                rawId = Mid(pk, 9)
+                m.driveProgress[rawId] = data.progress[pk]
+            end if
         end for
     end if
     if data.continueWatching <> invalid
         for each cw in data.continueWatching
-            if cw <> invalid and cw.path <> invalid
-                if m.driveProgress[cw.path] = invalid then m.driveProgress[cw.path] = cw
+            if cw <> invalid
+                if cw.path <> invalid and cw.path <> ""
+                    m.driveProgress[cw.path] = cw
+                end if
+                if cw.driveId <> invalid and cw.driveId <> ""
+                    m.driveProgress[cw.driveId] = cw
+                    m.driveProgress["drive://" + cw.driveId] = cw
+                end if
             end if
         end for
     end if
@@ -1153,7 +1231,7 @@ function buildDriveEpisodeNode(showName as String, seasonNum as String, ep as Ob
     if prog <> invalid
         dur = safeInt(prog.duration)
         cur = safeInt(prog.currentTime)
-        if (dur > 0 and cur >= dur * 0.9) or prog.watched = true
+        if (dur > 0 and cur >= dur * 0.85) or prog.watched = true or prog.watched = "true" or prog.watched = 1
             isWatched = true
         else if cur > 5
             currentTime = cur
@@ -1161,7 +1239,11 @@ function buildDriveEpisodeNode(showName as String, seasonNum as String, ep as Ob
     end if
 
     if isWatched
-        node.title = "✓ " + fullTitle
+        if Left(fullTitle, 2) <> "✓ " and Left(fullTitle, 2) <> "✔ "
+            node.title = "✓ " + fullTitle
+        else
+            node.title = fullTitle
+        end if
         node.shortDescriptionLine1 = "✓ Watched"
     else if currentTime > 0
         remMin = 0
@@ -1182,16 +1264,22 @@ function buildDriveEpisodeNode(showName as String, seasonNum as String, ep as Ob
         subUrl = "/api/stream/drive-subtitle/" + ep.driveId
     end if
 
+    epPath = safeStr(ep.path)
+    if epPath = "" and ep.driveId <> invalid and safeStr(ep.driveId) <> ""
+        epPath = "drive://" + safeStr(ep.driveId)
+    end if
+
     node.addFields({
         targetType: "drive_episode"
         showName: showName
         seasonNum: seasonNum
         episodeNum: Stri(eNum).trim()
         itemTitle: fullTitle
-        mediaPath: safeStr(ep.path)
+        mediaPath: epPath
         driveId: safeStr(ep.driveId)
         filename: safeStr(ep.filename)
         currentTime: currentTime
+        duration: safeInt(ep.duration)
         subtitleUrl: subUrl
     })
     return node
@@ -1306,6 +1394,79 @@ function getDriveMoviePoster(movie as Object) as String
     return p
 end function
 
+function buildDriveMovieNode(gridContent as Object, movie as Object) as Object
+    if movie = invalid or gridContent = invalid return invalid
+    node = gridContent.CreateChild("ContentNode")
+    rawTitle = safeStr(movie.title)
+    if rawTitle = "" then rawTitle = safeStr(movie.filename)
+    posterUrl = getDriveMoviePoster(movie)
+    setPosterUrl(node, posterUrl)
+    yearStr = ""
+    yStr = safeStr(movie.year)
+    if yStr <> "" and yStr <> "0" then yearStr = " (" + yStr + ")"
+    node.shortDescriptionLine1 = "Movie" + yearStr
+    node.description = rawTitle + yearStr
+
+    prog = getItemProgress(movie)
+    isWatched = false
+    currentTime = 0
+    if prog <> invalid
+        dur = safeInt(prog.duration)
+        cur = safeInt(prog.currentTime)
+        if (dur > 0 and cur >= dur * 0.85) or prog.watched = true or prog.watched = "true" or prog.watched = 1
+            isWatched = true
+        else if cur > 5
+            currentTime = cur
+        end if
+    end if
+
+    if isWatched
+        if Left(rawTitle, 2) <> "✓ " and Left(rawTitle, 2) <> "✔ "
+            node.title = "✓ " + rawTitle
+        else
+            node.title = rawTitle
+        end if
+        node.shortDescriptionLine1 = "✓ Watched"
+    else
+        node.title = rawTitle
+        if currentTime > 0
+            remMin = 0
+            if prog <> invalid and prog.duration <> invalid and prog.duration > currentTime
+                remMin = Int((prog.duration - currentTime) / 60)
+            end if
+            if remMin > 0
+                node.shortDescriptionLine1 = Stri(remMin).trim() + "m left"
+            else
+                node.shortDescriptionLine1 = "In Progress"
+            end if
+        end if
+    end if
+
+    subUrl = ""
+    if movie.subtitleUrl <> invalid and movie.subtitleUrl <> ""
+        subUrl = movie.subtitleUrl
+    else if movie.driveId <> invalid and movie.driveId <> ""
+        subUrl = "/api/stream/drive-subtitle/" + movie.driveId
+    end if
+
+    mPath = safeStr(movie.path)
+    dId = safeStr(movie.driveId)
+    if mPath = "" and dId <> "" then mPath = "drive://" + dId
+
+    node.addFields({
+        targetType: "drive_movie",
+        itemTitle: rawTitle,
+        mediaPath: mPath,
+        driveId: dId,
+        filename: safeStr(movie.filename),
+        posterUrl: posterUrl,
+        currentTime: currentTime,
+        duration: safeInt(movie.duration),
+        subtitleUrl: subUrl
+    })
+    return node
+end function
+
 sub openDriveMoviesGrid()
     if m.driveMovies = invalid or m.driveMovies.count() = 0 return
     pushCurrentState("Home > Drive > Movies")
@@ -1350,24 +1511,8 @@ sub openDriveMoviesGrid()
             mFolder = ""
             if movie.folder <> invalid then mFolder = movie.folder.toStr().trim()
             if mFolder = ""
-                node = gridContent.CreateChild("ContentNode")
-                node.title = safeStr(movie.title)
-                posterUrl = getDriveMoviePoster(movie)
-                setPosterUrl(node, posterUrl)
-                yearStr = ""
-                yStr = safeStr(movie.year)
-                if yStr <> "" and yStr <> "0" then yearStr = " (" + yStr + ")"
-                node.shortDescriptionLine1 = "Movie" + yearStr
-                node.description = safeStr(movie.title) + yearStr
-                node.addFields({
-                    targetType: "drive_movie",
-                    itemTitle: safeStr(movie.title),
-                    mediaPath: safeStr(movie.path),
-                    driveId: safeStr(movie.driveId),
-                    filename: safeStr(movie.filename),
-                    posterUrl: posterUrl
-                })
-                m.gridItems.push(node)
+                mNode = buildDriveMovieNode(gridContent, movie)
+                if mNode <> invalid then m.gridItems.push(mNode)
             end if
         end for
 
@@ -1385,24 +1530,8 @@ sub openDriveMoviesGrid()
         ' Flat list if no folders exist
         for each movie in m.driveMovies
             if movie = invalid then continue for
-            node = gridContent.CreateChild("ContentNode")
-            node.title = safeStr(movie.title)
-            posterUrl = getDriveMoviePoster(movie)
-            setPosterUrl(node, posterUrl)
-            yearStr = ""
-            yStr = safeStr(movie.year)
-            if yStr <> "" and yStr <> "0" then yearStr = " (" + yStr + ")"
-            node.shortDescriptionLine1 = "Movie" + yearStr
-            node.description = safeStr(movie.title) + yearStr
-            node.addFields({
-                targetType: "drive_movie",
-                itemTitle: safeStr(movie.title),
-                mediaPath: safeStr(movie.path),
-                driveId: safeStr(movie.driveId),
-                filename: safeStr(movie.filename),
-                posterUrl: posterUrl
-            })
-            m.gridItems.push(node)
+            mNode = buildDriveMovieNode(gridContent, movie)
+            if mNode <> invalid then m.gridItems.push(mNode)
         end for
         m.folderBreadcrumb.text = "Home > Drive > Movies (" + Stri(m.gridItems.count()).trim() + ")"
     end if
@@ -1423,58 +1552,8 @@ sub openDriveMovieFolderGrid(folderName as String, movies as Object)
 
     for each movie in movies
         if movie = invalid then continue for
-        node = gridContent.CreateChild("ContentNode")
-        node.title = safeStr(movie.title)
-        posterUrl = getDriveMoviePoster(movie)
-        setPosterUrl(node, posterUrl)
-        yearStr = ""
-        yStr = safeStr(movie.year)
-        if yStr <> "" and yStr <> "0" then yearStr = " (" + yStr + ")"
-        node.shortDescriptionLine1 = "Movie" + yearStr
-        node.description = safeStr(movie.title) + yearStr
-        prog = getItemProgress(movie)
-        isWatched = false
-        currentTime = 0
-        if prog <> invalid
-            dur = safeInt(prog.duration)
-            cur = safeInt(prog.currentTime)
-            if (dur > 0 and cur >= dur * 0.9) or prog.watched = true
-                isWatched = true
-            else if cur > 5
-                currentTime = cur
-            end if
-        end if
-        if isWatched
-            node.title = "✓ " + safeStr(movie.title)
-            node.shortDescriptionLine1 = "✓ Watched"
-        else if currentTime > 0
-            remMin = 0
-            if prog.duration <> invalid and prog.duration > currentTime
-                remMin = Int((prog.duration - currentTime) / 60)
-            end if
-            if remMin > 0
-                node.shortDescriptionLine1 = Stri(remMin).trim() + "m left"
-            else
-                node.shortDescriptionLine1 = "In Progress"
-            end if
-        end if
-        subUrl = ""
-        if movie.subtitleUrl <> invalid and movie.subtitleUrl <> ""
-            subUrl = movie.subtitleUrl
-        else if movie.driveId <> invalid and movie.driveId <> ""
-            subUrl = "/api/stream/drive-subtitle/" + movie.driveId
-        end if
-        node.addFields({
-            targetType: "drive_movie",
-            itemTitle: safeStr(movie.title),
-            mediaPath: safeStr(movie.path),
-            driveId: safeStr(movie.driveId),
-            filename: safeStr(movie.filename),
-            posterUrl: posterUrl,
-            currentTime: currentTime,
-            subtitleUrl: subUrl
-        })
-        m.gridItems.push(node)
+        mNode = buildDriveMovieNode(gridContent, movie)
+        if mNode <> invalid then m.gridItems.push(mNode)
     end for
 
     m.folderBreadcrumb.text = "Home > Drive > Movies > " + folderName + " (" + Stri(m.gridItems.count()).trim() + ")"
@@ -1494,58 +1573,8 @@ sub openDriveAllMoviesGrid()
 
     for each movie in m.driveMovies
         if movie = invalid then continue for
-        node = gridContent.CreateChild("ContentNode")
-        node.title = safeStr(movie.title)
-        posterUrl = getDriveMoviePoster(movie)
-        setPosterUrl(node, posterUrl)
-        yearStr = ""
-        yStr = safeStr(movie.year)
-        if yStr <> "" and yStr <> "0" then yearStr = " (" + yStr + ")"
-        node.shortDescriptionLine1 = "Movie" + yearStr
-        node.description = safeStr(movie.title) + yearStr
-        prog = getItemProgress(movie)
-        isWatched = false
-        currentTime = 0
-        if prog <> invalid
-            dur = safeInt(prog.duration)
-            cur = safeInt(prog.currentTime)
-            if (dur > 0 and cur >= dur * 0.9) or prog.watched = true
-                isWatched = true
-            else if cur > 5
-                currentTime = cur
-            end if
-        end if
-        if isWatched
-            node.title = "✓ " + safeStr(movie.title)
-            node.shortDescriptionLine1 = "✓ Watched"
-        else if currentTime > 0
-            remMin = 0
-            if prog.duration <> invalid and prog.duration > currentTime
-                remMin = Int((prog.duration - currentTime) / 60)
-            end if
-            if remMin > 0
-                node.shortDescriptionLine1 = Stri(remMin).trim() + "m left"
-            else
-                node.shortDescriptionLine1 = "In Progress"
-            end if
-        end if
-        subUrl = ""
-        if movie.subtitleUrl <> invalid and movie.subtitleUrl <> ""
-            subUrl = movie.subtitleUrl
-        else if movie.driveId <> invalid and movie.driveId <> ""
-            subUrl = "/api/stream/drive-subtitle/" + movie.driveId
-        end if
-        node.addFields({
-            targetType: "drive_movie",
-            itemTitle: safeStr(movie.title),
-            mediaPath: safeStr(movie.path),
-            driveId: safeStr(movie.driveId),
-            filename: safeStr(movie.filename),
-            posterUrl: posterUrl,
-            currentTime: currentTime,
-            subtitleUrl: subUrl
-        })
-        m.gridItems.push(node)
+        mNode = buildDriveMovieNode(gridContent, movie)
+        if mNode <> invalid then m.gridItems.push(mNode)
     end for
 
     m.folderBreadcrumb.text = "Home > Drive > All Movies (" + Stri(m.gridItems.count()).trim() + ")"
@@ -1993,7 +2022,9 @@ sub submitPlaybackProgress(mediaPath as String, currentTime as Dynamic, duration
     if dTime <= 0 and m.currentPlayingTotalDuration <> invalid and m.currentPlayingTotalDuration > 0
         dTime = safeInt(m.currentPlayingTotalDuration)
     end if
-    if dTime < cTime then dTime = cTime
+    if dTime > 0 and dTime < cTime then dTime = cTime
+
+    isWatched = ((dTime > 0 and cTime >= dTime * 0.85) or (cTime > 0 and dTime > 0 and cTime = dTime))
 
     ' Keep the in-memory Continue Watching data in sync immediately. Waiting
     ' for the next library refresh made progress look lost on device.
@@ -2002,7 +2033,7 @@ sub submitPlaybackProgress(mediaPath as String, currentTime as Dynamic, duration
         path: mediaPath,
         currentTime: cTime,
         duration: dTime,
-        watched: (dTime > 0 and cTime >= dTime * 0.9),
+        watched: isWatched,
         title: safeStr(title),
         type: safeStr(typeStr),
         show: safeStr(showName),
@@ -2019,10 +2050,13 @@ sub submitPlaybackProgress(mediaPath as String, currentTime as Dynamic, duration
         m.driveProgress[m.currentPlayFilename] = progressEntry
     end if
 
+    updateGridItemWatchedStatus(mediaPath)
+
     progressData = {
         path: mediaPath
         currentTime: cTime
         duration: dTime
+        watched: isWatched
         title: safeStr(title)
         type: safeStr(typeStr)
         show: safeStr(showName)
@@ -2051,6 +2085,7 @@ sub postPendingPlaybackProgress()
     m.progressTask = CreateAuthHttpTask()
     m.progressTask.url = m.serverUrl + "/api/playback/progress"
     m.progressTask.method = "POST"
+    m.progressTask.timeoutMs = 8000
     m.progressTask.postData = FormatJson(data)
     m.progressTask.observeField("result", "onProgressResult")
     m.progressTask.observeField("error", "onProgressResult")
@@ -2090,7 +2125,7 @@ end sub
 sub onProgressTimerFire()
     if m.state <> "player" or m.isLiveChannel then return
     vidPos = m.video.position
-    if vidPos = invalid or vidPos < 5 then return
+    if vidPos = invalid or vidPos <= 0 then return
     vidDur = m.video.duration
     if vidDur = invalid then vidDur = 0
     if isChunkedHlsStream() and vidPos >= (chunkSeconds() - 120) and vidPos > 30
@@ -2108,9 +2143,7 @@ sub onProgressTimerFire()
     else if vidDur > 0
         effectiveDur = vidDur
     end if
-    if effectiveDur < effectivePos then effectiveDur = effectivePos
-
-    if effectiveDur > 0 and vidPos > effectiveDur * 0.95 then return
+    if effectiveDur > 0 and effectiveDur < effectivePos then effectiveDur = effectivePos
 
     posterPath = ""
     title = m.currentStreamTitle
@@ -2127,7 +2160,6 @@ sub onProgressTimerFire()
     if m.currentPlayingPoster <> invalid then posterPath = m.currentPlayingPoster
 
     submitPlaybackProgress(mediaPath, effectivePos, effectiveDur, title, typeStr, showName, season, episode, posterPath)
-
 end sub
 
 ' Persist the current video position. Called both when playback ends/stops
@@ -2162,20 +2194,19 @@ sub saveCurrentPlaybackProgress(finished as Boolean)
     ' Only treat as truly finished if playback actually reached near the end of the video
     isActuallyFinished = false
     if finished
-        if effectiveDur > 0 and effectivePos >= (effectiveDur * 0.85)
+        if effectiveDur > 0 and effectivePos >= (effectiveDur * 0.80)
             isActuallyFinished = true
-        else if effectiveDur <= 0 and effectivePos >= 900
+        else if effectiveDur <= 0 and effectivePos >= 300
             isActuallyFinished = true
         end if
+    else if effectiveDur > 0 and effectivePos >= (effectiveDur * 0.85)
+        isActuallyFinished = true
     end if
 
     if isActuallyFinished and effectiveDur > 0
         effectivePos = effectiveDur
-    else
-        if effectiveDur < effectivePos then effectiveDur = effectivePos
-        if effectiveDur > 0 and effectivePos >= effectiveDur * 0.9
-            effectivePos = effectiveDur
-        end if
+    else if effectiveDur > 0 and effectivePos >= effectiveDur * 0.85
+        effectivePos = effectiveDur
     end if
 
     ' The server replaces the stored entry wholesale. If the stream never
@@ -2184,6 +2215,7 @@ sub saveCurrentPlaybackProgress(finished as Boolean)
     if effectivePos <= 0 and effectiveDur <= 0 then return
 
     submitPlaybackProgress(m.currentPlayFilePath, effectivePos, effectiveDur, m.currentStreamTitle, m.currentPlayingItemType, m.currentPlayingShow, m.currentPlayingSeason, m.currentPlayingEpisode, m.currentPlayingPoster)
+    updateGridItemWatchedStatus(m.currentPlayFilePath)
 end sub
 
 ' ---- Sidebar Navigation Helpers ----
@@ -4117,6 +4149,11 @@ sub setDriveItemMeta(item as Object)
 
     if item = invalid return
 
+    durVal = getItemField(item, "duration")
+    if durVal <> invalid and safeInt(durVal) > 0
+        m.currentPlayingTotalDuration = safeInt(durVal)
+    end if
+
     showVal = getItemField(item, "showName")
     if showVal <> invalid and safeStr(showVal) <> ""
         m.currentPlayingShow = safeStr(showVal)
@@ -4185,13 +4222,23 @@ sub onDriveCwResult()
                 epStr = " S" + Stri(sNum).trim() + "E" + eNumStr
             end if
         end if
-        node.shortDescriptionLine1 = typeLabel + epStr
 
         pct = 0
         dur = safeInt(item.duration)
         cur = safeInt(item.currentTime)
         if dur > 0 then pct = Int((cur / dur) * 100)
-        node.description = title + " (" + Stri(pct).trim() + "% watched)"
+
+        isWatched = (item.watched = true or item.watched = "true" or item.watched = 1 or (dur > 0 and cur >= dur * 0.85))
+        if isWatched
+            if Left(title, 2) <> "✓ " and Left(title, 2) <> "✔ "
+                node.title = "✓ " + title
+            end if
+            node.shortDescriptionLine1 = "✓ Watched · " + typeLabel + epStr
+            node.description = title + " (Watched)"
+        else
+            node.shortDescriptionLine1 = typeLabel + epStr
+            node.description = title + " (" + Stri(pct).trim() + "% watched)"
+        end if
 
         cwDriveId = safeStr(item.driveId)
         if cwDriveId = "" and safeStr(item.path).left(8) = "drive://"
@@ -4840,6 +4887,9 @@ sub onVideoStateChange()
         if m.state = "player"
             m.gridScreen.visible = false
             if m.playerScreen <> invalid then m.playerScreen.visible = true
+            if not m.isLiveChannel and isLoggedIn()
+                if m.progressTimer = invalid then startProgressTimer()
+            end if
         end if
         return
     end if
@@ -4880,6 +4930,7 @@ sub onVideoStateChange()
 
         if isLoggedIn() and m.currentPlayFilePath <> "" and m.currentPlayFilePath <> invalid
             saveCurrentPlaybackProgress(st = "finished")
+            updateGridItemWatchedStatus(m.currentPlayFilePath)
         end if
         stopProgressTimer()
 
@@ -5079,6 +5130,7 @@ function onKeyEvent(key as String, press as Boolean) as Boolean
                 ' delivered asynchronously, after m.state becomes "grid", so
                 ' onVideoStateChange would otherwise skip the save on real TVs.
                 saveCurrentPlaybackProgress(false)
+                updateGridItemWatchedStatus(m.currentPlayFilePath)
                 stopProgressTimer()
                 stopAllActiveStreams()
                 m.video.control = "stop"

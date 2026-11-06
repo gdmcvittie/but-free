@@ -2742,11 +2742,13 @@ app.get('/api/ondemand', optionalAuth, (req, res) => {
 
     const cleanMovies = Array.isArray(library.movies) ? library.movies.map(m => ({
       driveId: m.driveId || m.id,
+      path: m.path || (m.driveId || m.id ? `drive://${m.driveId || m.id}` : null),
       title: m.title,
       year: m.year,
       folder: m.folder,
       folderPath: m.folderPath,
       filename: m.filename,
+      duration: m.duration || 0,
       posterUrl: m.posterUrl || moviesPosters[m.title] || moviesPosters[m.driveId] || null,
       subtitleUrl: m.subtitleUrl || (m.driveId ? `/api/stream/drive-subtitle/${m.driveId}` : null)
     })) : [];
@@ -2828,6 +2830,7 @@ app.get('/api/ondemand/show', optionalAuth, (req, res) => {
     if (Array.isArray(eps)) {
       cleanSeasons[sKey] = eps.map(e => ({
         driveId: e.driveId || e.id,
+        path: e.path || (e.driveId || e.id ? `drive://${e.driveId || e.id}` : null),
         title: e.title,
         episode: e.episode,
         season: e.season,
@@ -3002,17 +3005,18 @@ app.get(['/api/playback/progress', '/playback/progress'], optionalAuth, (req, re
 });
 
 app.post(['/api/playback/progress', '/playback/progress'], authenticate, (req, res) => {
-  const { path: mediaPath, currentTime, duration, title, type, show, season, episode, posterPath } = req.body;
+  const { path: mediaPath, currentTime, duration, title, type, show, season, episode, posterPath, watched } = req.body;
   if (!mediaPath) return res.status(400).json({ error: 'Missing path' });
 
   const cTime = Math.floor(currentTime || 0);
   const dTime = Math.floor(duration || 0);
+  const isWatched = (dTime > 0 && cTime >= dTime * 0.85) || watched === true || watched === 'true' || (dTime > 0 && cTime >= dTime);
   const progress = getUserFile(req.user.id, 'progress.json', {});
-  progress[mediaPath] = {
+  const entry = {
     path: mediaPath,
     currentTime: cTime,
     duration: dTime,
-    watched: (dTime > 0 && cTime >= dTime * 0.9),
+    watched: isWatched,
     title: title || 'Video',
     type: type || 'video',
     show,
@@ -3021,9 +3025,16 @@ app.post(['/api/playback/progress', '/playback/progress'], authenticate, (req, r
     posterPath,
     updatedAt: new Date().toISOString()
   };
+  progress[mediaPath] = entry;
+  if (typeof mediaPath === 'string' && mediaPath.startsWith('drive://')) {
+    const rawId = mediaPath.replace('drive://', '');
+    if (rawId) {
+      progress[rawId] = { ...entry, path: rawId };
+    }
+  }
   saveUserFile(req.user.id, 'progress.json', progress);
   scheduleSyncTvDriveMeta(req.user.id, 'progress');
-  res.json({ success: true });
+  res.json({ success: true, watched: isWatched });
 });
 
 app.get('/api/favorites', optionalAuth, (req, res) => {
