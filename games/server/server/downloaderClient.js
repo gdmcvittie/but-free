@@ -1,11 +1,40 @@
 import { GoogleAuth } from './googleAuth.js';
 
-function getDownloaderUrl() {
-  return (
+function getDownloaderCandidates() {
+  const configured = (
     process.env.DOWNLOADER_URL ||
     process.env.TORRENT_STREAM_SERVER ||
-    'http://download.butfree.online:4000'
+    ''
   ).replace(/\/+$/, '');
+  const candidates = [];
+  if (configured) {
+    if (configured.includes(':4000')) {
+      candidates.push(configured.replace(':4000', ''));
+    }
+    candidates.push(configured);
+    if (!configured.includes(':4000')) {
+      candidates.push(`${configured}:4000`);
+    }
+    if (configured.includes('download.butfree.online')) {
+      candidates.push(configured.replace('download.butfree.online', '74.208.40.118').replace(':4000', ''));
+      candidates.push(configured.replace('download.butfree.online', '74.208.40.118'));
+    }
+  }
+  candidates.push('http://download.butfree.online');
+  candidates.push('http://74.208.40.118');
+  candidates.push('http://download.butfree.online:4000');
+  candidates.push('http://74.208.40.118:4000');
+  candidates.push('http://127.0.0.1:4000');
+  return [...new Set(candidates.filter(Boolean))];
+}
+
+let cachedDownloaderUrl = null;
+
+function getDownloaderUrl() {
+  if (cachedDownloaderUrl) return cachedDownloaderUrl;
+  const configured = (process.env.DOWNLOADER_URL || process.env.TORRENT_STREAM_SERVER || '').replace(/\/+$/, '');
+  if (configured) return configured;
+  return 'http://download.butfree.online';
 }
 
 function getNodeHeaders() {
@@ -25,26 +54,30 @@ function getNodeHeaders() {
 
 export const DownloaderClient = {
   async getStatus() {
-    const url = `${getDownloaderUrl()}/api/torrent`;
-    try {
-      const res = await fetch(url, {
-        headers: getNodeHeaders(),
-        signal: AbortSignal.timeout(4000)
-      });
-      const data = await res.json().catch(() => ({}));
-      return {
-        online: res.ok,
-        url: getDownloaderUrl(),
-        activeJobs: data.activeStreams || 0,
-        service: data.service || 'butfree Downloader'
-      };
-    } catch {
-      return {
-        online: false,
-        url: getDownloaderUrl(),
-        activeJobs: 0
-      };
+    const candidates = getDownloaderCandidates();
+    for (const c of candidates) {
+      try {
+        const res = await fetch(`${c}/api/torrent`, {
+          headers: getNodeHeaders(),
+          signal: AbortSignal.timeout(3000)
+        });
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          cachedDownloaderUrl = c;
+          return {
+            online: true,
+            url: c,
+            activeJobs: data.activeStreams || 0,
+            service: data.service || 'butfree Downloader'
+          };
+        }
+      } catch (_) {}
     }
+    return {
+      online: false,
+      url: getDownloaderUrl(),
+      activeJobs: 0
+    };
   },
 
   async addDownload(user, { magnet, title, console: consoleKey, webhookUrl }) {

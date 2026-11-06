@@ -35,17 +35,24 @@ function getCandidateUrls() {
   const configured = (config.torrent.nodeUrl || '').replace(/\/+$/, '');
   const candidates = [];
   if (configured) {
+    if (configured.includes(':4000')) {
+      candidates.push(configured.replace(':4000', ''));
+    }
     candidates.push(configured);
-    if (!configured.includes(':4000')) candidates.push(`${configured}:4000`);
-    if (configured.includes(':4000')) candidates.push(configured.replace(':4000', ''));
+    if (!configured.includes(':4000')) {
+      candidates.push(`${configured}:4000`);
+    }
     if (configured.includes('download.butfree.online')) {
-      candidates.push(configured.replace('download.butfree.online', 'download.butfree.online'));
+      candidates.push(configured.replace('download.butfree.online', '74.208.40.118').replace(':4000', ''));
+      candidates.push(configured.replace('download.butfree.online', '74.208.40.118'));
     }
   }
-  candidates.push('http://download.butfree.online:4000');
-  candidates.push('http://download.butfree.online:4000');
   candidates.push('http://download.butfree.online');
-  candidates.push('http://download.butfree.online');
+  candidates.push('http://74.208.40.118');
+  candidates.push('http://download.butfree.online:4000');
+  candidates.push('http://74.208.40.118:4000');
+  candidates.push('http://127.0.0.1:4000');
+  candidates.push('http://localhost:4000');
   return [...new Set(candidates.filter(Boolean))];
 }
 
@@ -59,7 +66,7 @@ async function fetchFromUrl(targetUrl, { method = 'GET', body, timeoutMs } = {})
     for (let hop = 0; hop < 5; hop++) {
       res = await fetch(currentUrl, {
         method,
-        headers: headers(currentUrl.includes('download.butfree.online') ? { Host: 'download.butfree.online' } : undefined),
+        headers: headers(currentUrl.includes('74.208.40.118') ? { Host: 'download.butfree.online' } : undefined),
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: controller.signal,
         redirect: 'manual'
