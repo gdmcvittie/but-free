@@ -3893,7 +3893,7 @@ sub stopActiveTorrentStream()
 
     ' 2. Tell the cloud server / dedicated torrent streamer to stop and clear the torrent from memory/cache
     task = CreateObject("roSGNode", "HttpTask")
-    task.url = m.serverUrl + "/api/torrent/stream/" + streamId + "/stop"
+    task.url = getTranscoderUrl() + "/api/torrent/stream/" + streamId + "/stop"
     task.method = "POST"
     task.control = "run"
 end sub
@@ -4250,7 +4250,7 @@ sub playTorrentStream(linkUrl as String, itemTitle as String)
     m.currentTorrentTitle = itemTitle
 
     m.torrentInitTask = CreateObject("roSGNode", "HttpTask")
-    m.torrentInitTask.url = m.serverUrl + "/api/torrent/stream"
+    m.torrentInitTask.url = getTranscoderUrl() + "/api/torrent/stream"
     m.torrentInitTask.method = "POST"
     m.torrentInitTask.timeoutMs = 90000
     m.torrentInitTask.postData = FormatJson({ url: linkUrl })
@@ -4317,7 +4317,7 @@ sub onTorrentInitResult()
 
     if isNativeMp4 and streamId = ""
         if Left(streamUrl, 4) <> "http"
-            streamUrl = m.serverUrl + streamUrl
+            streamUrl = getTranscoderUrl() + streamUrl
         end if
         playVideoUrl(streamUrl, title, 0, "", false)
     else if streamId <> ""
@@ -4340,7 +4340,7 @@ sub onTorrentInitResult()
         m.torrentHlsWarmupTask.control = "run"
     else
         if Left(streamUrl, 4) <> "http"
-            streamUrl = m.serverUrl + streamUrl
+            streamUrl = getTranscoderUrl() + streamUrl
         end if
         playVideoUrl(streamUrl, title, 0, "", false)
     end if
