@@ -284,8 +284,8 @@ export async function handleDriveHls(req, res) {
     '-hls_playlist_type', 'event',
     '-hls_list_size', '0',
     '-hls_flags', 'independent_segments',
-    '-hls_segment_filename', path.join(hlsDir, 'seg_%05d.ts'),
-    path.join(hlsDir, 'index.m3u8')
+    '-hls_segment_filename', 'seg_%05d.ts',
+    'index.m3u8'
   );
 
   const ffmpegProcess = spawn(ffmpegCmd, ffmpegArgs, { cwd: hlsDir });
@@ -520,8 +520,8 @@ export async function handleTorrentHls(req, res, activeStreams) {
     '-hls_playlist_type', 'event',
     '-hls_list_size', '0',
     '-hls_flags', 'independent_segments',
-    '-hls_segment_filename', path.join(hlsDir, 'seg_%05d.ts'),
-    path.join(hlsDir, 'index.m3u8')
+    '-hls_segment_filename', 'seg_%05d.ts',
+    'index.m3u8'
   );
 
   const ffmpegProcess = spawn(ffmpegCmd, ffmpegArgs, { cwd: hlsDir });
@@ -645,7 +645,7 @@ export function handleServeHlsFile(req, res) {
     const origin = getHostOrigin(req);
     // Rewrite all segment references to fully-qualified absolute URLs so clients (especially Roku)
     // resolve segments directly to this VPS and never misroute relative paths
-    const rewritten = playlist.replace(/(seg_\d+\.ts)/g, `${origin}/api/stream/hls/${sessionId}/$1`);
+    const rewritten = playlist.replace(/^(?:.*[\\/])?(seg_\d+\.ts)\r?$/gm, `${origin}/api/stream/hls/${sessionId}/$1`);
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     return res.send(rewritten);

@@ -1767,16 +1767,17 @@ sub playDriveItem(item as Object)
             end if
         end if
 
-        ' Always transcode Drive content to HLS via dedicated VPS (download.butfree.online:4000)
-        streamUrl = getTranscoderUrl() + "/api/stream/drive-hls/" + driveId + ".m3u8"
-        sep = "?"
+        ' Always transcode Drive content to HLS via dedicated VPS (offloaded by cloud server)
+        streamUrl = m.serverUrl + "/api/stream/drive-hls/" + driveId + ".m3u8"
         if isLoggedIn()
-            streamUrl = streamUrl + sep + "token=" + m.authToken
-            sep = "&"
+            streamUrl = streamUrl + "?token=" + m.authToken
         end if
-        streamUrl = streamUrl + sep + "inputOrigin=" + m.serverUrl
         if offset > 0
-            streamUrl = streamUrl + "&offset=" + Stri(Fix(offset)).trim()
+            if Instr(1, streamUrl, "?") > 0
+                streamUrl = streamUrl + "&offset=" + Stri(Fix(offset)).trim()
+            else
+                streamUrl = streamUrl + "?offset=" + Stri(Fix(offset)).trim()
+            end if
         end if
         m.maxPlaybackPosition = offset
         playVideoUrl(streamUrl, title, offset, filename, true, subUrl)
