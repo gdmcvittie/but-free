@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import { spawn } from 'child_process';
@@ -7,6 +8,9 @@ import { resolveFfmpeg } from './transcoder.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const cpuCount = os.cpus()?.length || 2;
+const CPU_THREADS = String(process.env.MAX_TRANSCODE_THREADS || Math.max(2, cpuCount > 2 ? cpuCount - 1 : cpuCount));
 
 const CACHE_DIR = process.env.DOWNLOADER_CACHE_DIR || process.env.CACHE_DIR || path.join(__dirname, 'downloads');
 const HLS_CACHE_DIR = path.join(CACHE_DIR, 'hls');
@@ -224,11 +228,14 @@ export async function handleDriveHls(req, res) {
 
   let inputUrl;
   const ffmpegArgs = [
+    '-threads', CPU_THREADS,
+    '-buffer_size', '10485760',
     '-reconnect', '1',
     '-reconnect_streamed', '1',
     '-reconnect_delay_max', '5',
     '-reconnect_at_eof', '1',
     '-reconnect_on_http_error', '1',
+    '-reconnect_on_network_error', '1',
     '-analyzeduration', '5M',
     '-probesize', '5M'
   ];
@@ -257,11 +264,12 @@ export async function handleDriveHls(req, res) {
     '-sn',
     '-c:v', 'libx264',
     '-preset', 'ultrafast',
-    '-threads', '2',
+    '-tune', 'zerolatency',
+    '-threads', CPU_THREADS,
     '-crf', '28',
     '-maxrate', '2000k',
     '-bufsize', '3000k',
-    '-force_key_frames', 'expr:gte(t,n_forced*6)',
+    '-force_key_frames', 'expr:gte(t,n_forced*4)',
     '-sc_threshold', '0',
     '-x264-params', 'repeat-headers=1',
     '-vf', "scale=-2:'min(720,2*trunc(ih/2))':flags=fast_bilinear",
@@ -271,7 +279,7 @@ export async function handleDriveHls(req, res) {
     '-b:a', '128k',
     '-ac', '2',
     '-max_muxing_queue_size', '2048',
-    '-hls_time', '6',
+    '-hls_time', '4',
     '-t', String(HLS_CHUNK_SECONDS),
     '-hls_playlist_type', 'event',
     '-hls_list_size', '0',
@@ -351,7 +359,7 @@ export async function handleDriveHls(req, res) {
         const segCount = (content.match(/seg_\d+\.ts/g) || []).length;
         const isComplete = content.includes('#EXT-X-ENDLIST');
         const elapsed = Date.now() - waitStarted;
-        if (segCount >= 2 || isComplete || (segCount >= 1 && elapsed > 8000)) {
+        if (segCount >= 3 || isComplete || (segCount >= 2 && elapsed > 10000)) {
           if (resolveLock) { resolveLock(sessionId); hlsStartingByKeyOffset.delete(lockKey); }
           console.log(`[VPS Drive HLS] Ready session=${sessionId} segments=${segCount} (${elapsed}ms)`);
           res.writeHead(302, {
@@ -469,11 +477,14 @@ export async function handleTorrentHls(req, res, activeStreams) {
   console.log(`[VPS Torrent HLS] Starting transcode session=${sessionId} streamId=${streamId} offset=${offset}s inputUrl=${inputUrl}`);
 
   const ffmpegArgs = [
+    '-threads', CPU_THREADS,
+    '-buffer_size', '10485760',
     '-reconnect', '1',
     '-reconnect_streamed', '1',
     '-reconnect_delay_max', '5',
     '-reconnect_at_eof', '1',
     '-reconnect_on_http_error', '1',
+    '-reconnect_on_network_error', '1',
     '-analyzeduration', '5M',
     '-probesize', '5M'
   ];
@@ -489,11 +500,12 @@ export async function handleTorrentHls(req, res, activeStreams) {
     '-sn',
     '-c:v', 'libx264',
     '-preset', 'ultrafast',
-    '-threads', '2',
+    '-tune', 'zerolatency',
+    '-threads', CPU_THREADS,
     '-crf', '26',
     '-maxrate', '2500k',
     '-bufsize', '4000k',
-    '-force_key_frames', 'expr:gte(t,n_forced*6)',
+    '-force_key_frames', 'expr:gte(t,n_forced*4)',
     '-sc_threshold', '0',
     '-x264-params', 'repeat-headers=1',
     '-vf', "scale=-2:'min(720,2*trunc(ih/2))':flags=fast_bilinear",
@@ -503,7 +515,7 @@ export async function handleTorrentHls(req, res, activeStreams) {
     '-b:a', '128k',
     '-ac', '2',
     '-max_muxing_queue_size', '2048',
-    '-hls_time', '6',
+    '-hls_time', '4',
     '-t', String(HLS_CHUNK_SECONDS),
     '-hls_playlist_type', 'event',
     '-hls_list_size', '0',
@@ -577,7 +589,7 @@ export async function handleTorrentHls(req, res, activeStreams) {
         const segCount = (content.match(/seg_\d+\.ts/g) || []).length;
         const isComplete = content.includes('#EXT-X-ENDLIST');
         const elapsed = Date.now() - waitStarted;
-        if (segCount >= 2 || isComplete || (segCount >= 1 && elapsed > 8000)) {
+        if (segCount >= 3 || isComplete || (segCount >= 2 && elapsed > 10000)) {
           if (resolveLock) { resolveLock(sessionId); hlsStartingByKeyOffset.delete(lockKey); }
           res.writeHead(302, {
             'Location': `${origin}/api/stream/hls/${sessionId}/index.m3u8`,

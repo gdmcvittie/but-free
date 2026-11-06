@@ -1767,19 +1767,39 @@ sub playDriveItem(item as Object)
             end if
         end if
 
-        ' Always transcode Drive content to HLS via dedicated VPS (download.butfree.online:4000)
-        streamUrl = getTranscoderUrl() + "/api/stream/drive-hls/" + driveId + ".m3u8"
-        sep = "?"
-        if isLoggedIn()
-            streamUrl = streamUrl + sep + "token=" + m.authToken
-            sep = "&"
+        ' Check if file has a native video extension Roku can direct-play
+        ext = ""
+        dotPos = InstrRev(filename, ".")
+        if dotPos > 0 then ext = LCase(Mid(filename, dotPos))
+        isNative = (ext = ".mp4" or ext = ".m4v" or ext = ".mov" or ext = ".mkv")
+
+        if isNative
+            ' Attempt Direct Stream first for native containers (MKV/MP4/M4V/MOV).
+            ' Roku hardware natively decodes supported video/audio codecs (HEVC/H264/AAC/AC3)
+            ' without CPU transcoding overhead on the VPS.
+            ' If playback errors due to unsupported codecs, onVideoStateChange automatically
+            ' falls back to dedicated VPS HLS transcoding.
+            streamUrl = m.serverUrl + "/api/stream/drive/" + driveId + "/" + encodePath(filename)
+            if isLoggedIn()
+                streamUrl = streamUrl + "?token=" + m.authToken
+            end if
+            m.maxPlaybackPosition = offset
+            playVideoUrl(streamUrl, title, offset, filename, false, subUrl)
+        else
+            ' Non-native container: transcode to HLS via dedicated VPS (download.butfree.online:4000)
+            streamUrl = getTranscoderUrl() + "/api/stream/drive-hls/" + driveId + ".m3u8"
+            sep = "?"
+            if isLoggedIn()
+                streamUrl = streamUrl + sep + "token=" + m.authToken
+                sep = "&"
+            end if
+            streamUrl = streamUrl + sep + "inputOrigin=" + m.serverUrl
+            if offset > 0
+                streamUrl = streamUrl + "&offset=" + Stri(Fix(offset)).trim()
+            end if
+            m.maxPlaybackPosition = offset
+            playVideoUrl(streamUrl, title, offset, filename, true, subUrl)
         end if
-        streamUrl = streamUrl + sep + "inputOrigin=" + m.serverUrl
-        if offset > 0
-            streamUrl = streamUrl + "&offset=" + Stri(Fix(offset)).trim()
-        end if
-        m.maxPlaybackPosition = offset
-        playVideoUrl(streamUrl, title, offset, filename, true, subUrl)
     end if
 end sub
 
@@ -5148,6 +5168,10 @@ sub onVideoStateChange()
             vidContent.title = m.currentStreamTitle
             vidContent.streamFormat = detectStreamFormat(fallbackUrl)
             vidContent.PlayStart = 0
+            if m.video.content <> invalid and m.video.content.subtitleTracks <> invalid
+                vidContent.subtitleTracks = m.video.content.subtitleTracks
+            end if
+            m.currentStreamUrl = fallbackUrl
             m.video.content = vidContent
             m.video.visible = true
             m.video.setFocus(true)
