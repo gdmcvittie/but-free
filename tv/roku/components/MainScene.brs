@@ -291,13 +291,13 @@ end sub
 
 function getItemField(item as Object, key as String) as Dynamic
     if item = invalid return invalid
-    ' Drive library entries are plain associative arrays, which do not have a
-    ' hasField() method. ContentNode items do, so check the type first.
     if type(item) = "roAssociativeArray"
         if item.DoesExist(key) then return item[key]
         return invalid
     end if
-    if item.hasField(key) then return item[key]
+    if type(item) = "roSGNode" or type(item) = "ContentNode"
+        if item.hasField(key) then return item[key]
+    end if
     return invalid
 end function
 
@@ -323,7 +323,7 @@ function getItemProgress(item as Object) as Object
         pathVal = safeStr(getItemField(item, "path"))
         if pathVal <> ""
             p = m.driveProgress[pathVal]
-            if p = invalid and Left(pathVal, 8) = "drive://"
+            if p = invalid and Len(pathVal) >= 8 and Left(pathVal, 8) = "drive://"
                 p = m.driveProgress[Mid(pathVal, 9)]
             end if
         end if
@@ -345,7 +345,7 @@ sub updateGridItemWatchedStatus(mediaPath as String)
     prog = invalid
     if m.driveProgress <> invalid
         prog = m.driveProgress[mediaPath]
-        if prog = invalid and Left(mediaPath, 8) = "drive://"
+        if prog = invalid and Len(mediaPath) >= 8 and Left(mediaPath, 8) = "drive://"
             prog = m.driveProgress[Mid(mediaPath, 9)]
         end if
     end if
@@ -365,15 +365,19 @@ sub updateGridItemWatchedStatus(mediaPath as String)
             mP = safeStr(getItemField(node, "mediaPath"))
             dId = safeStr(getItemField(node, "driveId"))
             match = false
-            if mP <> "" and (mP = mediaPath or (Left(mediaPath, 8) = "drive://" and mP = Mid(mediaPath, 9)))
+            if mP <> "" and (mP = mediaPath or (Len(mediaPath) >= 8 and Left(mediaPath, 8) = "drive://" and mP = Mid(mediaPath, 9)))
                 match = true
             else if dId <> "" and (mediaPath = dId or mediaPath = ("drive://" + dId))
                 match = true
             end if
             if match
-                baseTitle = node.title
-                if Left(baseTitle, 2) = "✓ " or Left(baseTitle, 2) = "✔ "
-                    baseTitle = Mid(baseTitle, 3)
+                baseTitle = safeStr(getItemField(node, "itemTitle"))
+                if baseTitle = "" then baseTitle = node.title
+                if InStr(1, baseTitle, "✓") > 0
+                    idx = InStr(1, baseTitle, " ")
+                    if idx > 0 and idx <= 4
+                        baseTitle = Mid(baseTitle, idx + 1)
+                    end if
                 end if
                 if isWatched
                     node.title = "✓ " + baseTitle
@@ -980,7 +984,9 @@ sub onDriveLibraryError()
 end sub
 
 sub openDriveShowsGrid()
-    if m.driveShowsList = invalid or m.driveShowsList.count() = 0 return
+    if m.driveShowsList = invalid return
+    if type(m.driveShowsList) <> "roArray" return
+    if m.driveShowsList.count() = 0 return
     pushCurrentState("Home > Drive > TV Shows")
     gridContent = CreateObject("roSGNode", "ContentNode")
     m.gridItems = []
@@ -1083,6 +1089,12 @@ sub onShowEpisodesError()
 end sub
 
 sub openDriveShowSeasons(showName as String, seasons as Object, crumbPrefix = "Home > Drive > " as String)
+    if (seasons = invalid or type(seasons) <> "roAssociativeArray") and m.driveShows <> invalid and m.driveShows[showName] <> invalid
+        seasons = m.driveShows[showName]
+    end if
+    if seasons = invalid return
+    if type(seasons) <> "roAssociativeArray" return
+
     pushCurrentState(crumbPrefix + showName)
     gridContent = CreateObject("roSGNode", "ContentNode")
     m.gridItems = []
@@ -1106,13 +1118,15 @@ sub openDriveShowSeasons(showName as String, seasons as Object, crumbPrefix = "H
     for each sNum in seasonKeys
         sKey = Stri(sNum).trim()
         eps = seasons[sKey]
-        if eps <> invalid
+        if eps <> invalid and type(eps) = "roArray"
             for each ep in eps
-                curEpNum = safeInt(ep.episode)
-                if sNum > latestSeasonNum or (sNum = latestSeasonNum and curEpNum > latestEpNum)
-                    latestSeasonNum = sNum
-                    latestEpNum = curEpNum
-                    latestEpObj = ep
+                if ep <> invalid
+                    curEpNum = safeInt(ep.episode)
+                    if sNum > latestSeasonNum or (sNum = latestSeasonNum and curEpNum > latestEpNum)
+                        latestSeasonNum = sNum
+                        latestEpNum = curEpNum
+                        latestEpObj = ep
+                    end if
                 end if
             end for
         end if
@@ -1131,11 +1145,11 @@ sub openDriveShowSeasons(showName as String, seasons as Object, crumbPrefix = "H
                 targetType: "drive_episode",
                 showName: showName,
                 seasonNum: Stri(latestSeasonNum).trim(),
-                episodeNum: latestNode.episodeNum,
-                itemTitle: latestNode.itemTitle,
-                mediaPath: latestNode.mediaPath,
-                driveId: latestNode.driveId,
-                filename: latestNode.filename
+                episodeNum: safeStr(getItemField(latestNode, "episodeNum")),
+                itemTitle: safeStr(getItemField(latestNode, "itemTitle")),
+                mediaPath: safeStr(getItemField(latestNode, "mediaPath")),
+                driveId: safeStr(getItemField(latestNode, "driveId")),
+                filename: safeStr(getItemField(latestNode, "filename"))
             })
             m.gridItems.push(latestCard)
         end if
@@ -1144,12 +1158,20 @@ sub openDriveShowSeasons(showName as String, seasons as Object, crumbPrefix = "H
     for each sNum in seasonKeys
         sKey = Stri(sNum).trim()
         eps = seasons[sKey]
-        if eps = invalid or eps.count() = 0 then continue for
+        if eps = invalid then continue for
+        epsCount = 0
+        if type(eps) = "roArray"
+            epsCount = eps.count()
+        else if type(eps) = "roInteger" or type(eps) = "Integer"
+            epsCount = eps
+        end if
+        if epsCount = 0 then continue for
+
         node = gridContent.CreateChild("ContentNode")
         node.title = "Season " + sKey
         setPosterUrl(node, posterUrl)
-        node.shortDescriptionLine1 = Stri(eps.count()).trim() + " Episodes"
-        node.description = showName + " - Season " + sKey + " (" + Stri(eps.count()).trim() + " episodes)"
+        node.shortDescriptionLine1 = Stri(epsCount).trim() + " Episodes"
+        node.description = showName + " - Season " + sKey + " (" + Stri(epsCount).trim() + " episodes)"
         node.addFields({ targetType: "drive_season", showName: showName, seasonNum: sKey, episodes: eps, crumbPrefix: crumbPrefix })
         m.gridItems.push(node)
     end for
@@ -1164,7 +1186,15 @@ sub openDriveShowSeasons(showName as String, seasons as Object, crumbPrefix = "H
 end sub
 
 sub openDriveSeasonEpisodes(showName as String, seasonNum as String, episodes as Object, crumbPrefix = "Home > Drive > " as String)
-    if episodes = invalid or episodes.count() = 0 then return
+    if (episodes = invalid or type(episodes) <> "roArray") and m.driveShows <> invalid and m.driveShows[showName] <> invalid
+        if m.driveShows[showName][seasonNum] <> invalid
+            episodes = m.driveShows[showName][seasonNum]
+        end if
+    end if
+    if episodes = invalid return
+    if type(episodes) <> "roArray" return
+    if episodes.count() = 0 return
+
     pushCurrentState(crumbPrefix + showName + " > Season " + seasonNum)
     gridContent = CreateObject("roSGNode", "ContentNode")
     m.gridItems = []
@@ -1172,21 +1202,23 @@ sub openDriveSeasonEpisodes(showName as String, seasonNum as String, episodes as
 
     sortedEps = []
     for each epItem in episodes
-        sortedEps.push(epItem)
+        if epItem <> invalid then sortedEps.push(epItem)
     end for
     ' Bubble sort by episode number (BrightScript-safe)
     n = sortedEps.count()
-    for i = 0 to n - 2
-        for j = 0 to n - i - 2
-            eA = safeInt(sortedEps[j].episode)
-            eB = safeInt(sortedEps[j + 1].episode)
-            if eA > eB
-                tmp = sortedEps[j]
-                sortedEps[j] = sortedEps[j + 1]
-                sortedEps[j + 1] = tmp
-            end if
+    if n > 1
+        for i = 0 to n - 2
+            for j = 0 to n - i - 2
+                eA = safeInt(sortedEps[j].episode)
+                eB = safeInt(sortedEps[j + 1].episode)
+                if eA > eB
+                    tmp = sortedEps[j]
+                    sortedEps[j] = sortedEps[j + 1]
+                    sortedEps[j + 1] = tmp
+                end if
+            end for
         end for
-    end for
+    end if
 
     for each ep in sortedEps
         node = buildDriveEpisodeNode(showName, seasonNum, ep)
@@ -1196,7 +1228,7 @@ sub openDriveSeasonEpisodes(showName as String, seasonNum as String, episodes as
         end if
     end for
 
-    m.folderBreadcrumb.text = crumbPrefix + showName + " > S" + seasonNum + " (" + Stri(episodes.count()).trim() + " Episodes)"
+    m.folderBreadcrumb.text = crumbPrefix + showName + " > S" + seasonNum + " (" + Stri(sortedEps.count()).trim() + " Episodes)"
     m.posterGrid.content = gridContent
     m.posterGrid.setFocus(true)
     if m.gridItems.count() > 0
@@ -1239,7 +1271,7 @@ function buildDriveEpisodeNode(showName as String, seasonNum as String, ep as Ob
     end if
 
     if isWatched
-        if Left(fullTitle, 2) <> "✓ " and Left(fullTitle, 2) <> "✔ "
+        if InStr(1, fullTitle, "✓") = 0
             node.title = "✓ " + fullTitle
         else
             node.title = fullTitle
@@ -1270,16 +1302,16 @@ function buildDriveEpisodeNode(showName as String, seasonNum as String, ep as Ob
     end if
 
     node.addFields({
-        targetType: "drive_episode"
-        showName: showName
-        seasonNum: seasonNum
-        episodeNum: Stri(eNum).trim()
-        itemTitle: fullTitle
-        mediaPath: epPath
-        driveId: safeStr(ep.driveId)
-        filename: safeStr(ep.filename)
-        currentTime: currentTime
-        duration: safeInt(ep.duration)
+        targetType: "drive_episode",
+        showName: showName,
+        seasonNum: seasonNum,
+        episodeNum: Stri(eNum).trim(),
+        itemTitle: fullTitle,
+        mediaPath: epPath,
+        driveId: safeStr(ep.driveId),
+        filename: safeStr(ep.filename),
+        currentTime: currentTime,
+        duration: safeInt(ep.duration),
         subtitleUrl: subUrl
     })
     return node
@@ -1421,7 +1453,7 @@ function buildDriveMovieNode(gridContent as Object, movie as Object) as Object
     end if
 
     if isWatched
-        if Left(rawTitle, 2) <> "✓ " and Left(rawTitle, 2) <> "✔ "
+        if InStr(1, rawTitle, "✓") = 0
             node.title = "✓ " + rawTitle
         else
             node.title = rawTitle
@@ -1468,7 +1500,9 @@ function buildDriveMovieNode(gridContent as Object, movie as Object) as Object
 end function
 
 sub openDriveMoviesGrid()
-    if m.driveMovies = invalid or m.driveMovies.count() = 0 return
+    if m.driveMovies = invalid return
+    if type(m.driveMovies) <> "roArray" return
+    if m.driveMovies.count() = 0 return
     pushCurrentState("Home > Drive > Movies")
     gridContent = CreateObject("roSGNode", "ContentNode")
     m.gridItems = []
@@ -1545,7 +1579,12 @@ sub openDriveMoviesGrid()
 end sub
 
 sub openDriveMovieFolderGrid(folderName as String, movies as Object)
-    if movies = invalid or movies.count() = 0 return
+    if (movies = invalid or type(movies) <> "roArray") and m.driveMovieFolders <> invalid and m.driveMovieFolders[folderName] <> invalid
+        movies = m.driveMovieFolders[folderName]
+    end if
+    if movies = invalid return
+    if type(movies) <> "roArray" return
+    if movies.count() = 0 return
     pushCurrentState("Home > Drive > Movies > " + folderName)
     gridContent = CreateObject("roSGNode", "ContentNode")
     m.gridItems = []
@@ -1566,7 +1605,9 @@ sub openDriveMovieFolderGrid(folderName as String, movies as Object)
 end sub
 
 sub openDriveAllMoviesGrid()
-    if m.driveMovies = invalid or m.driveMovies.count() = 0 return
+    if m.driveMovies = invalid return
+    if type(m.driveMovies) <> "roArray" return
+    if m.driveMovies.count() = 0 return
     pushCurrentState("Home > Drive > Movies > All Movies")
     gridContent = CreateObject("roSGNode", "ContentNode")
     m.gridItems = []
@@ -4088,7 +4129,14 @@ m.currentPlayFilePath = ""
     else if tType = "drive_movies_root"
         openDriveMoviesGrid()
     else if tType = "drive_movie_folder"
-        openDriveMovieFolderGrid(item.folderName, item.movies)
+        fName = safeStr(item.folderName)
+        folderMovies = invalid
+        if m.driveMovieFolders <> invalid and m.driveMovieFolders[fName] <> invalid
+            folderMovies = m.driveMovieFolders[fName]
+        else if item.hasField("movies") and item.movies <> invalid
+            folderMovies = item.movies
+        end if
+        openDriveMovieFolderGrid(fName, folderMovies)
     else if tType = "drive_all_movies"
         openDriveAllMoviesGrid()
     else if tType = "drive_continue_watching"
@@ -4098,7 +4146,7 @@ m.currentPlayFilePath = ""
         seasons = invalid
         if m.driveShows <> invalid and m.driveShows[showName] <> invalid
             seasons = m.driveShows[showName]
-        else if item.seasons <> invalid
+        else if item.hasField("seasons") and item.seasons <> invalid
             seasons = item.seasons
         end if
         if isShowFullyLoaded(seasons)
@@ -4109,7 +4157,15 @@ m.currentPlayFilePath = ""
     else if tType = "drive_season"
         cp = safeStr(item.crumbPrefix)
         if cp = "" then cp = "Home > Drive > "
-        openDriveSeasonEpisodes(item.showName, item.seasonNum, item.episodes, cp)
+        sName = safeStr(item.showName)
+        sNum = safeStr(item.seasonNum)
+        eps = invalid
+        if m.driveShows <> invalid and m.driveShows[sName] <> invalid and m.driveShows[sName][sNum] <> invalid
+            eps = m.driveShows[sName][sNum]
+        else if item.hasField("episodes") and item.episodes <> invalid
+            eps = item.episodes
+        end if
+        openDriveSeasonEpisodes(sName, sNum, eps, cp)
     else if tType = "drive_episode"
         setDriveItemMeta(item)
         playDriveItem(item)
@@ -4230,8 +4286,10 @@ sub onDriveCwResult()
 
         isWatched = (item.watched = true or item.watched = "true" or item.watched = 1 or (dur > 0 and cur >= dur * 0.85))
         if isWatched
-            if Left(title, 2) <> "✓ " and Left(title, 2) <> "✔ "
+            if InStr(1, title, "✓") = 0
                 node.title = "✓ " + title
+            else
+                node.title = title
             end if
             node.shortDescriptionLine1 = "✓ Watched · " + typeLabel + epStr
             node.description = title + " (Watched)"
