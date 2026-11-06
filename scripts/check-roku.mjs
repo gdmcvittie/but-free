@@ -89,6 +89,9 @@ for (let i = 0; i < brsLines.length; i++) {
   if (/\.(left|right|mid)\s*\(/i.test(trimmed)) {
     errors.push(`Line ${lineNo}: Invalid string member method (use Left(), Right(), or Mid() global functions): ${trimmed}`);
   }
+  if (/\.Escape\s*\(/i.test(trimmed)) {
+    errors.push(`Line ${lineNo}: Invalid member method .Escape() (use UrlEncode() or encodePath()): ${trimmed}`);
+  }
   if (/m\.top\.appendChild\s*\(\s*m\.\w*task\w*\s*\)/i.test(trimmed)) {
     errors.push(`Line ${lineNo}: Do not append Task nodes to SceneGraph scene root: ${trimmed}`);
   }

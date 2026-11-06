@@ -898,9 +898,9 @@ sub onDriveLibraryResult()
         for each movie in m.driveMovies
             fName = ""
             if movie.folder <> invalid and movie.folder <> ""
-                fName = movie.folder.toStr()
+                fName = safeStr(movie.folder)
             else if movie.folderPath <> invalid and movie.folderPath <> ""
-                fName = movie.folderPath.toStr()
+                fName = safeStr(movie.folderPath)
             end if
             if fName <> ""
                 topFolder = fName
@@ -1068,8 +1068,7 @@ sub fetchAndOpenDriveShow(showName as String)
     end if
     m.showEpisodesTask = CreateAuthHttpTask()
     m.showEpisodesTask.timeoutMs = 8000
-    urlTransfer = CreateObject("roUrlTransfer")
-    m.showEpisodesTask.url = m.serverUrl + "/api/ondemand/show?name=" + urlTransfer.Escape(showName)
+    m.showEpisodesTask.url = m.serverUrl + "/api/ondemand/show?name=" + encodePath(showName)
     m.showEpisodesTask.observeField("result", "onShowEpisodesResult")
     m.showEpisodesTask.observeField("error", "onShowEpisodesError")
     m.showEpisodesTask.control = "run"
@@ -1569,7 +1568,7 @@ sub openDriveMoviesGrid()
         for each movie in m.driveMovies
             if movie = invalid then continue for
             mFolder = ""
-            if movie.folder <> invalid then mFolder = movie.folder.toStr().trim()
+            if movie.folder <> invalid then mFolder = safeStr(movie.folder).trim()
             if mFolder = ""
                 mNode = buildDriveMovieNode(gridContent, movie)
                 if mNode <> invalid then m.gridItems.push(mNode)
@@ -1596,7 +1595,14 @@ sub openDriveMoviesGrid()
         m.folderBreadcrumb.text = "Home > Drive > Movies (" + Stri(m.gridItems.count()).trim() + ")"
     end if
 
+    m.posterGrid.basePosterSize = [165, 270]
+    m.posterGrid.itemSpacing = [20, 14]
+    m.posterGrid.numColumns = 6
+    m.posterGrid.numRows = 2
+    m.posterGrid.translation = [20, 76]
     m.posterGrid.content = gridContent
+    m.posterGrid.visible = true
+    m.heroGroup.visible = false
     m.posterGrid.setFocus(true)
     if m.gridItems.count() > 0
         m.posterGrid.jumpToItem = 0
@@ -1622,7 +1628,14 @@ sub openDriveMovieFolderGrid(folderName as String, movies as Object)
     end for
 
     m.folderBreadcrumb.text = "Home > Drive > Movies > " + folderName + " (" + Stri(m.gridItems.count()).trim() + ")"
+    m.posterGrid.basePosterSize = [165, 270]
+    m.posterGrid.itemSpacing = [20, 14]
+    m.posterGrid.numColumns = 6
+    m.posterGrid.numRows = 2
+    m.posterGrid.translation = [20, 76]
     m.posterGrid.content = gridContent
+    m.posterGrid.visible = true
+    m.heroGroup.visible = false
     m.posterGrid.setFocus(true)
     if m.gridItems.count() > 0
         m.posterGrid.jumpToItem = 0
@@ -1645,7 +1658,14 @@ sub openDriveAllMoviesGrid()
     end for
 
     m.folderBreadcrumb.text = "Home > Drive > All Movies (" + Stri(m.gridItems.count()).trim() + ")"
+    m.posterGrid.basePosterSize = [165, 270]
+    m.posterGrid.itemSpacing = [20, 14]
+    m.posterGrid.numColumns = 6
+    m.posterGrid.numRows = 2
+    m.posterGrid.translation = [20, 76]
     m.posterGrid.content = gridContent
+    m.posterGrid.visible = true
+    m.heroGroup.visible = false
     m.posterGrid.setFocus(true)
     if m.gridItems.count() > 0
         m.posterGrid.jumpToItem = 0
@@ -4092,7 +4112,8 @@ sub onPosterSelected()
     selectedIdx = m.posterGrid.itemSelected
     if selectedIdx < 0 or selectedIdx >= m.gridItems.count() then return
     item = m.gridItems[selectedIdx]
-    tType = item.targetType
+    if item = invalid return
+    tType = safeStr(getItemField(item, "targetType"))
 
     if tType = "section_header"
         ' section headers are not selectable
