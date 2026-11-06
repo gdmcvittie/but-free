@@ -2663,8 +2663,8 @@ function sendCachedJson(req, res, payload) {
 }
 
 app.get('/api/ondemand', optionalAuth, (req, res) => {
-  const userId = req.user?.id || 'default';
-  const library = getUserFile(userId, 'library.json', {
+  let userId = req.user?.id || 'default';
+  let library = getUserFile(userId, 'library.json', {
     shows: {},
     showsList: [],
     movies: [],
@@ -2674,6 +2674,20 @@ app.get('/api/ondemand', optionalAuth, (req, res) => {
     genresList: [],
     genres: {}
   });
+  if ((!library.shows || Object.keys(library.shows).length === 0) && USERS_DIR && fs.existsSync(USERS_DIR)) {
+    try {
+      const dirs = fs.readdirSync(USERS_DIR);
+      for (const d of dirs) {
+        if (d === 'default') continue;
+        const candidate = getUserFile(d, 'library.json', {});
+        if (candidate.shows && Object.keys(candidate.shows).length > 0) {
+          library = candidate;
+          userId = d;
+          break;
+        }
+      }
+    } catch (_) {}
+  }
   const progress = getUserFile(userId, 'progress.json', {});
 
   // Enrich any movies missing posterUrl from drivePosterCache
@@ -2819,11 +2833,38 @@ app.get('/api/ondemand', optionalAuth, (req, res) => {
 
 // Single show on-demand loader for Roku & lightweight clients
 app.get('/api/ondemand/show', optionalAuth, (req, res) => {
-  const userId = req.user?.id || 'default';
+  let userId = req.user?.id || 'default';
   const showName = (req.query.name || req.query.show || '').trim();
   if (!showName) return res.status(400).json({ error: 'Missing show name' });
-  const library = getUserFile(userId, 'library.json', {});
-  const seasons = library.shows?.[showName];
+  let library = getUserFile(userId, 'library.json', {});
+  if ((!library.shows || Object.keys(library.shows).length === 0) && USERS_DIR && fs.existsSync(USERS_DIR)) {
+    try {
+      const dirs = fs.readdirSync(USERS_DIR);
+      for (const d of dirs) {
+        if (d === 'default') continue;
+        const candidate = getUserFile(d, 'library.json', {});
+        if (candidate.shows && Object.keys(candidate.shows).length > 0) {
+          library = candidate;
+          userId = d;
+          break;
+        }
+      }
+    } catch (_) {}
+  }
+
+  let seasons = library.shows?.[showName];
+  let matchedShowName = showName;
+  if (!seasons && library.shows) {
+    const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const targetNorm = norm(showName);
+    for (const [k, v] of Object.entries(library.shows)) {
+      if (k.toLowerCase() === showName.toLowerCase() || (targetNorm && norm(k) === targetNorm)) {
+        seasons = v;
+        matchedShowName = k;
+        break;
+      }
+    }
+  }
   if (!seasons) return res.status(404).json({ error: 'Show not found' });
 
   const cleanSeasons = {};
@@ -2833,21 +2874,21 @@ app.get('/api/ondemand/show', optionalAuth, (req, res) => {
         driveId: e.driveId || e.id,
         path: e.path || (e.driveId || e.id ? `drive://${e.driveId || e.id}` : null),
         title: e.title,
-        episode: e.episode,
-        season: e.season,
+        episode: typeof e.episode === 'number' ? e.episode : (parseInt(e.episode, 10) || 0),
+        season: typeof e.season === 'number' ? e.season : (parseInt(e.season, 10) || 0),
         filename: e.filename,
         duration: e.duration || 0,
         subtitleUrl: e.subtitleUrl || (e.driveId || e.id ? `/api/stream/drive-subtitle/${e.driveId || e.id}` : null)
-      }));
+      })).sort((a, b) => a.episode - b.episode);
     } else {
       cleanSeasons[sKey] = [];
     }
   }
 
   sendCachedJson(req, res, {
-    showName,
+    showName: matchedShowName,
     seasons: cleanSeasons,
-    posterUrl: library.showsPosters?.[showName] || null
+    posterUrl: library.showsPosters?.[matchedShowName] || library.showsPosters?.[showName] || null
   });
 });
 

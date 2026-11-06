@@ -1055,37 +1055,58 @@ sub fetchAndOpenDriveShow(showName as String)
     m.folderBreadcrumb.text = "Loading " + showName + "..."
     if m.showEpisodesTask <> invalid
         m.showEpisodesTask.control = "stop"
+        if m.showEpisodesTask.getParent() <> invalid then m.top.removeChild(m.showEpisodesTask)
         m.showEpisodesTask = invalid
     end if
     m.showEpisodesTask = CreateAuthHttpTask()
+    m.showEpisodesTask.timeoutMs = 8000
     urlTransfer = CreateObject("roUrlTransfer")
     m.showEpisodesTask.url = m.serverUrl + "/api/ondemand/show?name=" + urlTransfer.Escape(showName)
     m.showEpisodesTask.observeField("result", "onShowEpisodesResult")
     m.showEpisodesTask.observeField("error", "onShowEpisodesError")
+    m.top.appendChild(m.showEpisodesTask)
     m.showEpisodesTask.control = "run"
 end sub
 
 sub onShowEpisodesResult()
     if m.showEpisodesTask = invalid return
     res = m.showEpisodesTask.result
+    if m.showEpisodesTask.getParent() <> invalid then m.top.removeChild(m.showEpisodesTask)
+    m.showEpisodesTask = invalid
     if res = invalid or res = ""
-        m.folderBreadcrumb.text = "Failed to load show episodes"
+        onShowEpisodesError()
         return
     end if
     data = ParseJSON(res)
     if data = invalid or data.seasons = invalid
-        m.folderBreadcrumb.text = "Error parsing show episodes"
+        onShowEpisodesError()
         return
     end if
     showName = m.pendingShowName
     if showName = invalid or showName = "" then showName = safeStr(data.showName)
+    m.pendingShowName = invalid
     if m.driveShows = invalid then m.driveShows = {}
     m.driveShows[showName] = data.seasons
     openDriveShowSeasons(showName, data.seasons)
 end sub
 
 sub onShowEpisodesError()
-    m.folderBreadcrumb.text = "Network error loading show episodes"
+    if m.showEpisodesTask <> invalid
+        if m.showEpisodesTask.getParent() <> invalid then m.top.removeChild(m.showEpisodesTask)
+        m.showEpisodesTask = invalid
+    end if
+    showName = m.pendingShowName
+    m.pendingShowName = invalid
+    if showName <> invalid and showName <> "" and m.driveShows <> invalid and m.driveShows[showName] <> invalid
+        openDriveShowSeasons(showName, m.driveShows[showName])
+        return
+    end if
+    if m.savedGridBreadcrumb <> invalid and m.savedGridBreadcrumb <> ""
+        m.folderBreadcrumb.text = m.savedGridBreadcrumb
+    else
+        m.folderBreadcrumb.text = "Home > Drive > TV Shows"
+    end if
+    showNotification("Library", "Could not load show episodes. Please try again.")
 end sub
 
 sub openDriveShowSeasons(showName as String, seasons as Object, crumbPrefix = "Home > Drive > " as String)
@@ -1095,16 +1116,28 @@ sub openDriveShowSeasons(showName as String, seasons as Object, crumbPrefix = "H
     if seasons = invalid return
     if type(seasons) <> "roAssociativeArray" return
 
-    pushCurrentState(crumbPrefix + showName)
-    gridContent = CreateObject("roSGNode", "ContentNode")
-    m.gridItems = []
-
     seasonKeys = []
     for each sKey in seasons
         sInt = safeInt(sKey)
-        if sInt > 0 then seasonKeys.push(sInt)
+        if sInt >= 0 then seasonKeys.push(sInt)
     end for
     seasonKeys.sort()
+
+    if seasonKeys.count() = 0 return
+
+    ' If show has only 1 season, open its episodes directly!
+    if seasonKeys.count() = 1
+        onlySeasonKey = Stri(seasonKeys[0]).trim()
+        onlyEps = seasons[onlySeasonKey]
+        if onlyEps <> invalid and type(onlyEps) = "roArray" and onlyEps.count() > 0
+            openDriveSeasonEpisodes(showName, onlySeasonKey, onlyEps, crumbPrefix)
+            return
+        end if
+    end if
+
+    pushCurrentState(crumbPrefix + showName)
+    gridContent = CreateObject("roSGNode", "ContentNode")
+    m.gridItems = []
 
     posterUrl = "pkg:/images/tv-shows.jpg"
     if m.driveLibrary <> invalid and m.driveLibrary.showsPosters <> invalid and m.driveLibrary.showsPosters[showName] <> invalid
@@ -1133,25 +1166,14 @@ sub openDriveShowSeasons(showName as String, seasons as Object, crumbPrefix = "H
     end for
 
     ' Add "★ Latest Episode" card if found
-    if latestEpObj <> invalid and latestSeasonNum > 0
-        latestNode = buildDriveEpisodeNode(showName, Stri(latestSeasonNum).trim(), latestEpObj)
+    if latestEpObj <> invalid and latestSeasonNum >= 0
+        latestNode = buildDriveEpisodeNode(showName, Stri(latestSeasonNum).trim(), latestEpObj, gridContent)
         if latestNode <> invalid
-            latestCard = gridContent.CreateChild("ContentNode")
-            latestCard.title = "★ Latest: " + latestNode.title
-            setPosterUrl(latestCard, "pkg:/images/star.jpg")
-            latestCard.shortDescriptionLine1 = "Quick Play · Latest Episode"
-            latestCard.description = "Play latest episode: " + latestNode.title
-            latestCard.addFields({
-                targetType: "drive_episode",
-                showName: showName,
-                seasonNum: Stri(latestSeasonNum).trim(),
-                episodeNum: safeStr(getItemField(latestNode, "episodeNum")),
-                itemTitle: safeStr(getItemField(latestNode, "itemTitle")),
-                mediaPath: safeStr(getItemField(latestNode, "mediaPath")),
-                driveId: safeStr(getItemField(latestNode, "driveId")),
-                filename: safeStr(getItemField(latestNode, "filename"))
-            })
-            m.gridItems.push(latestCard)
+            latestNode.title = "★ Latest: " + latestNode.title
+            setPosterUrl(latestNode, "pkg:/images/star.jpg")
+            latestNode.shortDescriptionLine1 = "Quick Play · Latest Episode"
+            latestNode.description = "Play latest episode: " + latestNode.title
+            m.gridItems.push(latestNode)
         end if
     end if
 
@@ -1177,7 +1199,14 @@ sub openDriveShowSeasons(showName as String, seasons as Object, crumbPrefix = "H
     end for
 
     m.folderBreadcrumb.text = crumbPrefix + showName + " (" + Stri(seasonKeys.count()).trim() + " Seasons)"
+    m.posterGrid.basePosterSize = [165, 270]
+    m.posterGrid.itemSpacing = [20, 14]
+    m.posterGrid.numColumns = 6
+    m.posterGrid.numRows = 2
+    m.posterGrid.translation = [20, 76]
     m.posterGrid.content = gridContent
+    m.posterGrid.visible = true
+    m.heroGroup.visible = false
     m.posterGrid.setFocus(true)
     if m.gridItems.count() > 0
         m.posterGrid.jumpToItem = 0
@@ -1200,36 +1229,24 @@ sub openDriveSeasonEpisodes(showName as String, seasonNum as String, episodes as
     m.gridItems = []
     m.driveAutoPlayNextEnabled = true
 
-    sortedEps = []
-    for each epItem in episodes
-        if epItem <> invalid then sortedEps.push(epItem)
-    end for
-    ' Bubble sort by episode number (BrightScript-safe)
-    n = sortedEps.count()
-    if n > 1
-        for i = 0 to n - 2
-            for j = 0 to n - i - 2
-                eA = safeInt(sortedEps[j].episode)
-                eB = safeInt(sortedEps[j + 1].episode)
-                if eA > eB
-                    tmp = sortedEps[j]
-                    sortedEps[j] = sortedEps[j + 1]
-                    sortedEps[j + 1] = tmp
-                end if
-            end for
-        end for
-    end if
-
-    for each ep in sortedEps
-        node = buildDriveEpisodeNode(showName, seasonNum, ep)
-        if node <> invalid
-            gridContent.appendChild(node)
-            m.gridItems.push(node)
+    for each ep in episodes
+        if ep <> invalid
+            node = buildDriveEpisodeNode(showName, seasonNum, ep, gridContent)
+            if node <> invalid
+                m.gridItems.push(node)
+            end if
         end if
     end for
 
-    m.folderBreadcrumb.text = crumbPrefix + showName + " > S" + seasonNum + " (" + Stri(sortedEps.count()).trim() + " Episodes)"
+    m.folderBreadcrumb.text = crumbPrefix + showName + " > S" + seasonNum + " (" + Stri(m.gridItems.count()).trim() + " Episodes)"
+    m.posterGrid.basePosterSize = [165, 270]
+    m.posterGrid.itemSpacing = [20, 14]
+    m.posterGrid.numColumns = 6
+    m.posterGrid.numRows = 2
+    m.posterGrid.translation = [20, 76]
     m.posterGrid.content = gridContent
+    m.posterGrid.visible = true
+    m.heroGroup.visible = false
     m.posterGrid.setFocus(true)
     if m.gridItems.count() > 0
         m.posterGrid.jumpToItem = 0
@@ -1237,9 +1254,14 @@ sub openDriveSeasonEpisodes(showName as String, seasonNum as String, episodes as
     end if
 end sub
 
-function buildDriveEpisodeNode(showName as String, seasonNum as String, ep as Object) as Object
+function buildDriveEpisodeNode(showName as String, seasonNum as String, ep as Object, parent = invalid as Object) as Object
     if ep = invalid return invalid
-    node = CreateObject("roSGNode", "ContentNode")
+    node = invalid
+    if parent <> invalid
+        node = parent.CreateChild("ContentNode")
+    else
+        node = CreateObject("roSGNode", "ContentNode")
+    end if
     eNum = safeInt(ep.episode)
     eNumStr = Right(Stri(100 + eNum).trim(), 2)
     epTitle = safeStr(ep.title)
@@ -4179,8 +4201,10 @@ m.currentPlayFilePath = ""
         if showName <> ""
             seasons = invalid
             if m.driveShows <> invalid then seasons = m.driveShows[showName]
-            if seasons <> invalid and seasons.count() > 0
+            if isShowFullyLoaded(seasons)
                 openDriveShowSeasons(showName, seasons, "Home > Favorites > ")
+            else if seasons <> invalid and seasons.count() > 0
+                fetchAndOpenDriveShow(showName)
             else
                 ' If not in local Drive library, search popular cloud torrents
                 searchPopularTorrent(item)
