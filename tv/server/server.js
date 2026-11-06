@@ -5995,20 +5995,21 @@ async function getActiveTorrentServer() {
   const configured = (process.env.TORRENT_STREAM_SERVER || process.env.DOWNLOADER_URL || '').replace(/\/+$/, '');
   const candidateUrls = [];
   if (configured) {
-    candidateUrls.push(configured);
     if (configured.includes(':4000')) {
       candidateUrls.push(configured.replace(':4000', ''));
-    } else {
+    }
+    candidateUrls.push(configured);
+    if (!configured.includes(':4000')) {
       candidateUrls.push(`${configured}:4000`);
     }
     if (configured.includes('download.butfree.online')) {
-      candidateUrls.push(configured.replace('download.butfree.online', '74.208.40.118'));
       candidateUrls.push(configured.replace('download.butfree.online', '74.208.40.118').replace(':4000', ''));
+      candidateUrls.push(configured.replace('download.butfree.online', '74.208.40.118'));
     }
   }
   candidateUrls.push('http://download.butfree.online');
-  candidateUrls.push('http://74.208.40.118');
   candidateUrls.push('http://download.butfree.online:4000');
+  candidateUrls.push('http://74.208.40.118');
   candidateUrls.push('http://74.208.40.118:4000');
   candidateUrls.push('http://127.0.0.1:4000');
   candidateUrls.push('http://localhost:4000');
@@ -6016,15 +6017,20 @@ async function getActiveTorrentServer() {
 
   for (const candidate of uniqueCandidates) {
     try {
-      // First try /api/torrent which responds instantly (<100ms) without running slow CLI tools
-      let res = await fetch(`${candidate}/api/torrent`, {
+      let res = await fetch(`${candidate}/api/torrent/status`, {
         headers: getTorrentHeaders(),
-        signal: AbortSignal.timeout(2000)
+        signal: AbortSignal.timeout(3500)
       }).catch(() => null);
+      if (!res || !res.ok) {
+        res = await fetch(`${candidate}/api/status`, {
+          headers: getTorrentHeaders(),
+          signal: AbortSignal.timeout(3500)
+        }).catch(() => null);
+      }
       if (!res || !res.ok) {
         res = await fetch(`${candidate}/health`, {
           headers: getTorrentHeaders(),
-          signal: AbortSignal.timeout(2000)
+          signal: AbortSignal.timeout(3500)
         }).catch(() => null);
       }
       if (res && res.ok) {
@@ -6488,15 +6494,14 @@ async function dispatchTorrentDownload({ userId, magnet, title, kind, meta = {},
   const targetServer = await getActiveTorrentServer();
   const webhookUrl = `${TV_PUBLIC_URL}/api/downloads/webhook`;
 
-  const baseServers = [targetServer];
+  const baseServers = [];
   if (targetServer && targetServer.includes(':4000')) {
     baseServers.push(targetServer.replace(':4000', ''));
-  } else if (targetServer && !targetServer.includes(':')) {
-    baseServers.push(`${targetServer}:4000`);
   }
+  if (targetServer) baseServers.push(targetServer);
   baseServers.push('http://download.butfree.online');
-  baseServers.push('http://74.208.40.118');
   baseServers.push('http://download.butfree.online:4000');
+  baseServers.push('http://74.208.40.118');
   baseServers.push('http://74.208.40.118:4000');
 
   const serversToTry = [];
@@ -6573,15 +6578,14 @@ app.get('/api/downloads', authenticate, async (req, res) => {
   const targetServer = await getActiveTorrentServer();
   const libraryUpdatedAt = userLibraryUpdateTimestamps.get(userId) || 0;
 
-  const baseServers = [targetServer];
+  const baseServers = [];
   if (targetServer && targetServer.includes(':4000')) {
     baseServers.push(targetServer.replace(':4000', ''));
-  } else if (targetServer && !targetServer.includes(':')) {
-    baseServers.push(`${targetServer}:4000`);
   }
+  if (targetServer) baseServers.push(targetServer);
   baseServers.push('http://download.butfree.online');
-  baseServers.push('http://74.208.40.118');
   baseServers.push('http://download.butfree.online:4000');
+  baseServers.push('http://74.208.40.118');
   baseServers.push('http://74.208.40.118:4000');
 
   const serversToTry = [];

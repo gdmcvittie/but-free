@@ -3,7 +3,7 @@ import path from 'node:path';
 import { DOWNLOADS_DIR, config, ROOT_DIR } from './config.js';
 import db from './db.js';
 import googleDrive from './googleDrive.js';
-import { ensureYtDlp, resolveFfmpegDir, runProcess } from './binManager.js';
+import { ensureYtDlp, isYtDlpAvailable, resolveFfmpegDir, runProcess } from './binManager.js';
 import youtubeApi from './youtubeApi.js';
 import { parseBuffer } from 'music-metadata';
 import { sanitizeSegment, sanitizeTitle, isImageFile, extensionOf, stripTrackNumberPrefix, inferGenreFromText } from './libraryParser.js';
@@ -636,13 +636,19 @@ export async function albumTracks(playlistId) {
   if (!playlistId) throw new Error('playlistId is required.');
   const resolved = await resolvePlaylistId(playlistId);
   if (!resolved) throw new Error('Could not find a track list for this album.');
+  let lastRemoteErr = null;
   if (torrentNode.isConfigured()) {
     try {
       const remote = await torrentNode.getRemoteTracks(resolved);
       if (remote && remote.length) return remote;
+      throw new Error('Downloader node returned 0 tracks for this album.');
     } catch (err) {
-      console.warn('[YouTubeMusic] Remote node tracks listing fallback to local:', err.message);
+      lastRemoteErr = err;
+      console.warn('[YouTubeMusic] Remote node tracks listing failed:', err.message);
     }
+  }
+  if (!isYtDlpAvailable()) {
+    throw new Error(lastRemoteErr ? `Could not load album tracks: ${lastRemoteErr.message}` : 'Local yt-dlp is not available and remote download node is not reachable.');
   }
   const bin = await ensureYtDlp();
   const entries = await collectJson(bin, albumArgs(resolved));
@@ -819,6 +825,9 @@ const authArgs = ytAuthArgs(userId);
         return result;
       }
     } catch (err) {
+      if (!isYtDlpAvailable()) {
+        throw new Error(`Could not load playlist: ${err.message}`);
+      }
       console.warn('[YouTubeMusic] Remote node playlist preview fallback to local:', err.message);
     }
   }
@@ -1244,6 +1253,10 @@ export async function downloadTracks(user, entries, meta = {}, onProgress = () =
     return downloadTracksRemote(user, entries, meta, onProgress);
   }
 
+  if (!isYtDlpAvailable()) {
+    throw new Error('Local yt-dlp is not available on this server, and the remote downloader node is not configured.');
+  }
+
   const bin = await ensureYtDlp();
 
   // MP3 transcoding (and metadata/thumbnail embedding) shells out to ffmpeg
@@ -1504,24 +1517,32 @@ export async function downloadAlbum(user, album, onProgress = () => {}) {
     throw new Error('This album has no downloadable playlist.');
   }
   let entries = [];
+  let lastRemoteErr = null;
   if (torrentNode.isConfigured()) {
     try {
       const remote = await torrentNode.getRemoteTracks(resolved);
       if (remote && remote.length) entries = remote;
+      else throw new Error('Downloader node returned 0 tracks for this album.');
     } catch (err) {
-      console.warn('[YouTubeMusic] Remote node tracks listing fallback to local:', err.message);
+      lastRemoteErr = err;
+      console.warn('[YouTubeMusic] Remote node tracks listing failed:', err.message);
     }
   }
-  const bin = entries.length ? null : await ensureYtDlp();
-  const raw = bin ? await collectJson(bin, albumArgs(resolved)) : [];
-  if (!entries.length) entries = raw.map((entry, index) => ({
-    videoId: entry.id,
-    title: entry.title || `Track ${index + 1}`,
-    durationSec: Number.isFinite(entry.duration) ? entry.duration : null,
-    trackNumber: index + 1,
-    thumbnail: entry.thumbnail || null
-  }));
-  if (!entries.length) throw new Error('yt-dlp returned no tracks for this album.');
+  if (!entries.length) {
+    if (!isYtDlpAvailable()) {
+      throw new Error(lastRemoteErr ? `Could not load tracks for album: ${lastRemoteErr.message}` : 'Could not resolve tracks for this album.');
+    }
+    const bin = await ensureYtDlp();
+    const raw = await collectJson(bin, albumArgs(resolved));
+    entries = raw.map((entry, index) => ({
+      videoId: entry.id,
+      title: entry.title || `Track ${index + 1}`,
+      durationSec: Number.isFinite(entry.duration) ? entry.duration : null,
+      trackNumber: index + 1,
+      thumbnail: entry.thumbnail || null
+    }));
+  }
+  if (!entries.length) throw new Error('No tracks found for this album.');
 
   return downloadTracks(user, entries, {
     album: album.album || album.title,
@@ -1688,7 +1709,14 @@ export function jobStatus(id) {
 
 /** All live jobs, newest last - what the UI footer and Downloads view render. */
 export function jobList() {
-  return Array.from(jobs.values(), publicJob);
+  const list = Array.from(jobs.values(), publicJob);
+  for (const job of list) {
+    if (job && job.status === 'queued') {
+      const idx = queue.indexOf(job.id);
+      job.position = idx >= 0 ? idx + 1 : 1;
+    }
+  }
+  return list;
 }
 
 export function cancelJob(id) {

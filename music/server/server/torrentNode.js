@@ -34,7 +34,7 @@ let lastBaseUrlCheck = 0;
 function getCandidateUrls() {
   const configured = (config.torrent.nodeUrl || '').replace(/\/+$/, '');
   const candidates = [];
-  if (configured) {
+  if (configured && !configured.includes('torrent.butfree.online')) {
     if (configured.includes(':4000')) {
       candidates.push(configured.replace(':4000', ''));
     }
@@ -48,8 +48,8 @@ function getCandidateUrls() {
     }
   }
   candidates.push('http://download.butfree.online');
-  candidates.push('http://74.208.40.118');
   candidates.push('http://download.butfree.online:4000');
+  candidates.push('http://74.208.40.118');
   candidates.push('http://74.208.40.118:4000');
   candidates.push('http://127.0.0.1:4000');
   candidates.push('http://localhost:4000');
@@ -122,7 +122,11 @@ async function request(path, options = {}) {
       return data;
     } catch (err) {
       lastErr = err;
-      // If this candidate was refused or timed out, try the next candidate
+      // If this candidate timed out (AbortError), don't hammer remaining aliases of the same server
+      if (err.name === 'AbortError') {
+        throw new Error(`Torrent node at ${base} timed out after ${options.timeoutMs ?? config.torrent.requestTimeoutMs}ms.`);
+      }
+      // If this candidate was refused or unreachable, try the next candidate
       continue;
     }
   }
@@ -163,7 +167,7 @@ export async function enqueueYoutube(payload) {
 }
 
 export async function getRemoteTracks(playlistId) {
-  const data = await request(`/api/youtube/tracks?playlistId=${encodeURIComponent(playlistId)}`, { timeoutMs: 35000 });
+  const data = await request(`/api/youtube/tracks?playlistId=${encodeURIComponent(playlistId)}`, { timeoutMs: 120000 });
   return data?.tracks || [];
 }
 

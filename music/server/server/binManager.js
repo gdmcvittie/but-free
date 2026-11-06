@@ -39,6 +39,22 @@ function ytdlpRunnable(binPath) {
   }
 }
 
+export function isYtDlpAvailable() {
+  if (ytDlpPath && ytdlpRunnable(ytDlpPath)) return true;
+  const localCandidates = [
+    path.join(BIN_DIR, ytDlpName),
+    path.join(ROOT_DIR, 'bin', ytDlpName),
+    path.resolve(ROOT_DIR, '..', '..', 'music', 'server', 'bin', ytDlpName)
+  ];
+  const local = localCandidates.find((c) => {
+    try { return fs.existsSync(c) && fs.statSync(c).size > 0; } catch { return false; }
+  });
+  if (local && ytdlpRunnable(local)) return true;
+  const system = which('yt-dlp');
+  if (system && ytdlpRunnable(system)) return true;
+  return false;
+}
+
 function ytdlpAgeMs(binPath) {
   try {
     return Date.now() - fs.statSync(binPath).mtimeMs;
@@ -204,7 +220,7 @@ export async function ensureYtDlp() {
           const url = isWindows
             ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
             : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
-          const res = await fetch(url, { redirect: 'follow' });
+          const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(30000) });
           if (res.ok) {
             const buf = Buffer.from(await res.arrayBuffer());
             if (buf.length >= 100000) {
@@ -239,7 +255,7 @@ export async function ensureYtDlp() {
       ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
       : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
 
-    const res = await fetch(url, { redirect: 'follow' });
+    const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(30000) });
     if (!res.ok) throw new Error(`yt-dlp download failed (HTTP ${res.status})`);
 
     const buffer = Buffer.from(await res.arrayBuffer());

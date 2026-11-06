@@ -1201,7 +1201,7 @@ app.get('/api/downloads/node', async (req, res) => {
  * anonymous ones, since these routes write directly into a user's library.
  */
 function verifyNodeSecret(req) {
-  const secret = process.env.TORRENT_NODE_WEBHOOK_SECRET || process.env.DOWNLOADER_SECRET_KEY || process.env.NODE_KEY || '';
+  const secret = process.env.TORRENT_NODE_WEBHOOK_SECRET || process.env.TORRENT_NODE_KEY || process.env.DOWNLOADER_SECRET_KEY || process.env.NODE_KEY || '';
   if (!secret) {
     console.error('[Download] TORRENT_NODE_WEBHOOK_SECRET is unset - rejecting node callback.');
     return false;
