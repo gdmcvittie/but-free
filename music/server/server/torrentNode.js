@@ -163,7 +163,7 @@ export async function enqueueYoutube(payload) {
 }
 
 export async function getRemoteTracks(playlistId) {
-  const data = await request(`/api/youtube/tracks?playlistId=${encodeURIComponent(playlistId)}`);
+  const data = await request(`/api/youtube/tracks?playlistId=${encodeURIComponent(playlistId)}`, { timeoutMs: 35000 });
   return data?.tracks || [];
 }
 
