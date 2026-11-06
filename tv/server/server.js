@@ -278,8 +278,9 @@ function checkFfmpegAvailability() {
 
 const PORT = process.env.PORT || process.env.PORT_TV || 3001;
 const RAW_BASE_URL = process.env.BASE_URL || (process.env.PORT ? `http://localhost:${process.env.PORT}` : `http://localhost:${PORT}`);
-const BASE_URL = RAW_BASE_URL.includes('liftedpixel.ca') ? 'https://tv.butfree.online' : RAW_BASE_URL;
-const TV_PUBLIC_URL = ((process.env.TV_URL && !process.env.TV_URL.includes('liftedpixel.ca')) || (process.env.DOMAIN ? `https://tv.${process.env.DOMAIN}` : null) || BASE_URL || 'https://tv.butfree.online').replace(/\/+$/, '');
+const BASE_URL = (typeof RAW_BASE_URL === 'string' && RAW_BASE_URL.includes('liftedpixel.ca')) ? 'https://tv.butfree.online' : RAW_BASE_URL;
+const TV_ENV_URL = (process.env.TV_URL && !process.env.TV_URL.includes('liftedpixel.ca')) ? process.env.TV_URL : null;
+const TV_PUBLIC_URL = String(TV_ENV_URL || (process.env.DOMAIN ? `https://tv.${process.env.DOMAIN}` : null) || BASE_URL || 'https://tv.butfree.online').replace(/\/+$/, '');
 const SESSION_SECRET = process.env.SESSION_SECRET || 'FREEVEE_cloud_secret_jwt_key_2026';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
