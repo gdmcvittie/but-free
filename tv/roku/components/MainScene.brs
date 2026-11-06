@@ -259,21 +259,18 @@ sub loadPlaybackProgress()
     if not isLoggedIn() return
     if m.loadProgTask <> invalid
         m.loadProgTask.control = "stop"
-        if m.loadProgTask.getParent() <> invalid then m.top.removeChild(m.loadProgTask)
         m.loadProgTask = invalid
     end if
     m.loadProgTask = CreateAuthHttpTask()
     m.loadProgTask.url = m.serverUrl + "/api/playback/progress"
     m.loadProgTask.observeField("result", "onPlaybackProgressResult")
     m.loadProgTask.observeField("error", "onPlaybackProgressResult")
-    m.top.appendChild(m.loadProgTask)
     m.loadProgTask.control = "run"
 end sub
 
 sub onPlaybackProgressResult()
     if m.loadProgTask = invalid return
     res = m.loadProgTask.result
-    if m.loadProgTask.getParent() <> invalid then m.top.removeChild(m.loadProgTask)
     m.loadProgTask = invalid
     if res = invalid or res = "" return
     data = ParseJSON(res)
@@ -340,6 +337,25 @@ function getItemProgress(item as Object) as Object
     return p
 end function
 
+function isWatchedProg(prog as Dynamic) as Boolean
+    if prog = invalid return false
+    w = prog.watched
+    if w <> invalid
+        wType = type(w)
+        if wType = "roBoolean" or wType = "Boolean"
+            if w = true return true
+        else if wType = "roString" or wType = "String"
+            if LCase(w) = "true" or w = "1" return true
+        else if wType = "roInt" or wType = "Integer" or wType = "roInteger"
+            if w = 1 return true
+        end if
+    end if
+    dur = safeInt(prog.duration)
+    cur = safeInt(prog.currentTime)
+    if dur > 0 and cur >= (dur * 0.85) return true
+    return false
+end function
+
 sub updateGridItemWatchedStatus(mediaPath as String)
     if m.gridItems = invalid or mediaPath = "" return
     prog = invalid
@@ -351,14 +367,7 @@ sub updateGridItemWatchedStatus(mediaPath as String)
     end if
     if prog = invalid return
 
-    isWatched = (prog.watched = true or prog.watched = "true" or prog.watched = 1)
-    if not isWatched
-        dur = safeInt(prog.duration)
-        cur = safeInt(prog.currentTime)
-        if dur > 0 and cur >= dur * 0.85
-            isWatched = true
-        end if
-    end if
+    isWatched = isWatchedProg(prog)
 
     for each node in m.gridItems
         if node <> invalid
@@ -1055,7 +1064,6 @@ sub fetchAndOpenDriveShow(showName as String)
     m.folderBreadcrumb.text = "Loading " + showName + "..."
     if m.showEpisodesTask <> invalid
         m.showEpisodesTask.control = "stop"
-        if m.showEpisodesTask.getParent() <> invalid then m.top.removeChild(m.showEpisodesTask)
         m.showEpisodesTask = invalid
     end if
     m.showEpisodesTask = CreateAuthHttpTask()
@@ -1064,14 +1072,12 @@ sub fetchAndOpenDriveShow(showName as String)
     m.showEpisodesTask.url = m.serverUrl + "/api/ondemand/show?name=" + urlTransfer.Escape(showName)
     m.showEpisodesTask.observeField("result", "onShowEpisodesResult")
     m.showEpisodesTask.observeField("error", "onShowEpisodesError")
-    m.top.appendChild(m.showEpisodesTask)
     m.showEpisodesTask.control = "run"
 end sub
 
 sub onShowEpisodesResult()
     if m.showEpisodesTask = invalid return
     res = m.showEpisodesTask.result
-    if m.showEpisodesTask.getParent() <> invalid then m.top.removeChild(m.showEpisodesTask)
     m.showEpisodesTask = invalid
     if res = invalid or res = ""
         onShowEpisodesError()
@@ -1092,7 +1098,7 @@ end sub
 
 sub onShowEpisodesError()
     if m.showEpisodesTask <> invalid
-        if m.showEpisodesTask.getParent() <> invalid then m.top.removeChild(m.showEpisodesTask)
+        m.showEpisodesTask.control = "stop"
         m.showEpisodesTask = invalid
     end if
     showName = m.pendingShowName
@@ -1283,12 +1289,10 @@ function buildDriveEpisodeNode(showName as String, seasonNum as String, ep as Ob
     isWatched = false
     currentTime = 0
     if prog <> invalid
-        dur = safeInt(prog.duration)
-        cur = safeInt(prog.currentTime)
-        if (dur > 0 and cur >= dur * 0.85) or prog.watched = true or prog.watched = "true" or prog.watched = 1
-            isWatched = true
-        else if cur > 5
-            currentTime = cur
+        isWatched = isWatchedProg(prog)
+        if not isWatched
+            cur = safeInt(prog.currentTime)
+            if cur > 5 then currentTime = cur
         end if
     end if
 
@@ -1301,8 +1305,9 @@ function buildDriveEpisodeNode(showName as String, seasonNum as String, ep as Ob
         node.shortDescriptionLine1 = "✓ Watched"
     else if currentTime > 0
         remMin = 0
-        if prog.duration <> invalid and prog.duration > currentTime
-            remMin = Int((prog.duration - currentTime) / 60)
+        dur = safeInt(prog.duration)
+        if dur > currentTime
+            remMin = Int((dur - currentTime) / 60)
         end if
         if remMin > 0
             node.shortDescriptionLine1 = Stri(remMin).trim() + "m left"
@@ -1465,12 +1470,10 @@ function buildDriveMovieNode(gridContent as Object, movie as Object) as Object
     isWatched = false
     currentTime = 0
     if prog <> invalid
-        dur = safeInt(prog.duration)
-        cur = safeInt(prog.currentTime)
-        if (dur > 0 and cur >= dur * 0.85) or prog.watched = true or prog.watched = "true" or prog.watched = 1
-            isWatched = true
-        else if cur > 5
-            currentTime = cur
+        isWatched = isWatchedProg(prog)
+        if not isWatched
+            cur = safeInt(prog.currentTime)
+            if cur > 5 then currentTime = cur
         end if
     end if
 
@@ -1485,8 +1488,9 @@ function buildDriveMovieNode(gridContent as Object, movie as Object) as Object
         node.title = rawTitle
         if currentTime > 0
             remMin = 0
-            if prog <> invalid and prog.duration <> invalid and prog.duration > currentTime
-                remMin = Int((prog.duration - currentTime) / 60)
+            dur = safeInt(prog.duration)
+            if dur > currentTime
+                remMin = Int((dur - currentTime) / 60)
             end if
             if remMin > 0
                 node.shortDescriptionLine1 = Stri(remMin).trim() + "m left"
@@ -1818,9 +1822,9 @@ sub onFavoritesResult()
         favImage = safeStr(fav.image)
         if favImage = ""
             setPosterUrl(node, "pkg:/images/no-poster.jpg")
-        else if LCase(favImage).left(4) = "http"
+        else if Left(LCase(favImage), 4) = "http"
             setPosterUrl(node, favImage)
-        else if LCase(favImage).left(4) = "pkg:"
+        else if Left(LCase(favImage), 4) = "pkg:"
             setPosterUrl(node, favImage)
         else
             setPosterUrl(node, m.serverUrl + favImage)
@@ -2152,16 +2156,12 @@ sub postPendingPlaybackProgress()
     m.progressTask.postData = FormatJson(data)
     m.progressTask.observeField("result", "onProgressResult")
     m.progressTask.observeField("error", "onProgressResult")
-    ' Parent the task so device garbage collection cannot drop the request
-    ' while the user is leaving the player.
-    m.top.appendChild(m.progressTask)
     m.progressTask.control = "run"
 end sub
 
 sub onProgressResult()
     if m.progressTask <> invalid
         m.progressTask.control = "stop"
-        if m.progressTask.getParent() <> invalid then m.top.removeChild(m.progressTask)
     end if
     m.progressTask = invalid
     postPendingPlaybackProgress()
@@ -4284,7 +4284,7 @@ sub onDriveCwResult()
         posterUrl = safeStr(item.posterPath)
         if posterUrl = ""
             setPosterUrl(node, "pkg:/images/no-poster.jpg")
-        else if LCase(posterUrl).left(4) = "http"
+        else if Left(LCase(posterUrl), 4) = "http"
             setPosterUrl(node, posterUrl)
         else
             setPosterUrl(node, m.serverUrl + posterUrl)
@@ -4308,7 +4308,7 @@ sub onDriveCwResult()
         cur = safeInt(item.currentTime)
         if dur > 0 then pct = Int((cur / dur) * 100)
 
-        isWatched = (item.watched = true or item.watched = "true" or item.watched = 1 or (dur > 0 and cur >= dur * 0.85))
+        isWatched = isWatchedProg(item)
         if isWatched
             if InStr(1, title, "✓") = 0
                 node.title = "✓ " + title
@@ -4323,8 +4323,9 @@ sub onDriveCwResult()
         end if
 
         cwDriveId = safeStr(item.driveId)
-        if cwDriveId = "" and safeStr(item.path).left(8) = "drive://"
-            cwDriveId = Mid(safeStr(item.path), 9)
+        cwPath = safeStr(item.path)
+        if cwDriveId = "" and Left(cwPath, 8) = "drive://"
+            cwDriveId = Mid(cwPath, 9)
         end if
 
         node.addFields({
@@ -6006,9 +6007,9 @@ function resolvePosterUrl(poster as Dynamic, fallbackIcon as String) as String
     if poster = invalid return fallbackIcon
     pStr = safeStr(poster)
     if pStr = "" return fallbackIcon
-    if LCase(pStr).left(4) = "http"
+    if Left(LCase(pStr), 4) = "http"
         return pStr
-    else if pStr.left(1) = "/"
+    else if Left(pStr, 1) = "/"
         url = m.serverUrl + pStr
         if Instr(1, pStr, "/api/whatson/poster") > 0 and Instr(1, pStr, "thumb=1") = 0
             if Instr(1, pStr, "?") > 0
@@ -6037,21 +6038,39 @@ end function
 
 function safeStr(v as Dynamic) as String
     if v = invalid return ""
-    s = v.toStr()
-    if s = invalid return ""
-    return s
+    vType = type(v)
+    if vType = "roString" or vType = "String" return v
+    if vType = "roInt" or vType = "Integer" or vType = "roInteger" return Stri(v).trim()
+    if vType = "roFloat" or vType = "Float" or vType = "roDouble" or vType = "Double" return Str(v).trim()
+    if vType = "roBoolean" or vType = "Boolean"
+        if v = true return "true"
+        return "false"
+    end if
+    if GetInterface(v, "ifToStr") <> invalid
+        s = v.toStr()
+        if s <> invalid return s
+    end if
+    return ""
 end function
 
 function safeInt(v as Dynamic) as Integer
     if v = invalid return 0
-    s = safeStr(v)
-    if s = "" return 0
-    return Val(s)
+    vType = type(v)
+    if vType = "roInt" or vType = "Integer" or vType = "roInteger" return v
+    if vType = "roFloat" or vType = "Float" or vType = "roDouble" or vType = "Double" return Int(v)
+    if vType = "roString" or vType = "String"
+        if v = "" return 0
+        return Val(v)
+    end if
+    if vType = "roBoolean" or vType = "Boolean"
+        if v = true return 1
+        return 0
+    end if
+    return 0
 end function
 
 function encodePath(p as Dynamic) as String
-    if p = invalid return ""
-    strP = p.toStr()
+    strP = safeStr(p)
     if strP = "" return ""
     ut = CreateObject("roUrlTransfer")
     if ut <> invalid
