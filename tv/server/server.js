@@ -5955,16 +5955,23 @@ async function getActiveTorrentServer() {
   const candidateUrls = [];
   if (configured) {
     candidateUrls.push(configured);
-    if (!configured.includes(':4000')) candidateUrls.push(`${configured}:4000`);
+    if (configured.includes(':4000')) {
+      candidateUrls.push(configured.replace(':4000', ''));
+    } else {
+      candidateUrls.push(`${configured}:4000`);
+    }
     if (configured.includes('download.butfree.online')) {
       candidateUrls.push(configured.replace('download.butfree.online', '74.208.40.118'));
+      candidateUrls.push(configured.replace('download.butfree.online', '74.208.40.118').replace(':4000', ''));
     }
   }
+  candidateUrls.push('http://download.butfree.online');
+  candidateUrls.push('http://74.208.40.118');
   candidateUrls.push('http://download.butfree.online:4000');
   candidateUrls.push('http://74.208.40.118:4000');
   candidateUrls.push('http://127.0.0.1:4000');
   candidateUrls.push('http://localhost:4000');
-  const uniqueCandidates = [...new Set(candidateUrls)];
+  const uniqueCandidates = [...new Set(candidateUrls.filter(Boolean))];
 
   for (const candidate of uniqueCandidates) {
     try {
@@ -5987,7 +5994,7 @@ async function getActiveTorrentServer() {
     } catch (_) {}
   }
 
-  return configured || 'http://download.butfree.online:4000';
+  return configured || 'http://download.butfree.online';
 }
 
 app.get('/api/torrent/status', async (req, res) => {
@@ -6440,11 +6447,26 @@ async function dispatchTorrentDownload({ userId, magnet, title, kind, meta = {},
   const targetServer = await getActiveTorrentServer();
   const webhookUrl = `${TV_PUBLIC_URL}/api/downloads/webhook`;
 
-  const serversToTry = [targetServer];
-  if (targetServer.includes('download.butfree.online')) {
-    serversToTry.push(targetServer.replace('download.butfree.online', '74.208.40.118'));
-  } else if (targetServer.includes('74.208.40.118')) {
-    serversToTry.push(targetServer.replace('74.208.40.118', 'download.butfree.online'));
+  const baseServers = [targetServer];
+  if (targetServer && targetServer.includes(':4000')) {
+    baseServers.push(targetServer.replace(':4000', ''));
+  } else if (targetServer && !targetServer.includes(':')) {
+    baseServers.push(`${targetServer}:4000`);
+  }
+  baseServers.push('http://download.butfree.online');
+  baseServers.push('http://74.208.40.118');
+  baseServers.push('http://download.butfree.online:4000');
+  baseServers.push('http://74.208.40.118:4000');
+
+  const serversToTry = [];
+  for (const s of baseServers) {
+    if (!s) continue;
+    serversToTry.push(s);
+    if (s.includes('download.butfree.online')) {
+      serversToTry.push(s.replace('download.butfree.online', '74.208.40.118'));
+    } else if (s.includes('74.208.40.118')) {
+      serversToTry.push(s.replace('74.208.40.118', 'download.butfree.online'));
+    }
   }
   const uniqueServers = [...new Set(serversToTry)];
 
@@ -6510,11 +6532,26 @@ app.get('/api/downloads', authenticate, async (req, res) => {
   const targetServer = await getActiveTorrentServer();
   const libraryUpdatedAt = userLibraryUpdateTimestamps.get(userId) || 0;
 
-  const serversToTry = [targetServer];
-  if (targetServer.includes('download.butfree.online')) {
-    serversToTry.push(targetServer.replace('download.butfree.online', '74.208.40.118'));
-  } else if (targetServer.includes('74.208.40.118')) {
-    serversToTry.push(targetServer.replace('74.208.40.118', 'download.butfree.online'));
+  const baseServers = [targetServer];
+  if (targetServer && targetServer.includes(':4000')) {
+    baseServers.push(targetServer.replace(':4000', ''));
+  } else if (targetServer && !targetServer.includes(':')) {
+    baseServers.push(`${targetServer}:4000`);
+  }
+  baseServers.push('http://download.butfree.online');
+  baseServers.push('http://74.208.40.118');
+  baseServers.push('http://download.butfree.online:4000');
+  baseServers.push('http://74.208.40.118:4000');
+
+  const serversToTry = [];
+  for (const s of baseServers) {
+    if (!s) continue;
+    serversToTry.push(s);
+    if (s.includes('download.butfree.online')) {
+      serversToTry.push(s.replace('download.butfree.online', '74.208.40.118'));
+    } else if (s.includes('74.208.40.118')) {
+      serversToTry.push(s.replace('74.208.40.118', 'download.butfree.online'));
+    }
   }
   const uniqueServers = [...new Set(serversToTry)];
 

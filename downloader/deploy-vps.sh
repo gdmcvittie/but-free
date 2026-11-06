@@ -96,11 +96,20 @@ pm2 save
 # Setup PM2 startup script so it survives reboots
 $SUDO env PATH=$PATH:/usr/local/bin:/usr/bin pm2 startup systemd -u "$TARGET_USER" --hp "$HOME" 2>/dev/null || true
 
-echo "=== [6/6] Configuring Firewall (UFW) ==="
+echo "=== [6/6] Configuring Firewall (UFW) & Port 80 Forwarding ==="
 $SUDO ufw allow 22/tcp || true
 $SUDO ufw allow OpenSSH || true
+$SUDO ufw allow 80/tcp || true
 $SUDO ufw allow 4000/tcp || true
 $SUDO ufw --force enable || true
+
+# Forward external port 80 to port 4000 so cPanel hosting (which blocks non-standard outbound ports like 4000) can reach the downloader
+$SUDO iptables -t nat -C PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 4000 2>/dev/null || $SUDO iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 4000 || true
+
+# Persist iptables rules across reboots if iptables-persistent is available
+if command -v netfilter-persistent &>/dev/null; then
+  $SUDO netfilter-persistent save 2>/dev/null || true
+fi
 
 SERVER_IP=$(curl -s -4 ifconfig.me || hostname -I | awk '{print $1}')
 
