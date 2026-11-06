@@ -5947,41 +5947,38 @@ function getTorrentHeaders(extra = {}) {
 
 async function getActiveTorrentServer() {
   const now = Date.now();
-  if (cachedTorrentServerUrl && (now - lastTorrentServerCheck < 300000)) {
+  if (cachedTorrentServerUrl && (now - lastTorrentServerCheck < 30000)) {
     return cachedTorrentServerUrl;
   }
 
-  const configured = (process.env.TORRENT_STREAM_SERVER || process.env.DOWNLOADER_URL || process.env.TORRENT_NODE_URL || '').replace(/\/+$/, '');
+  const configured = (process.env.TORRENT_STREAM_SERVER || process.env.DOWNLOADER_URL || '').replace(/\/+$/, '');
   const candidateUrls = [];
-  if (configured && !configured.includes('liftedpixel.ca')) {
+  if (configured) {
     candidateUrls.push(configured);
     if (!configured.includes(':4000')) candidateUrls.push(`${configured}:4000`);
-    if (configured.includes('download.butfree.online')) {
-      candidateUrls.push(configured.replace('download.butfree.online', '74.208.40.118'));
-    }
   }
-  candidateUrls.push('http://download.butfree.online:4000');
   candidateUrls.push('http://74.208.40.118:4000');
+  candidateUrls.push('http://download.butfree.online:4000');
+  if (configured && configured.includes('download.butfree.online')) {
+    candidateUrls.push(configured.replace('download.butfree.online', '74.208.40.118'));
+  }
   candidateUrls.push('http://download.butfree.online');
-  candidateUrls.push('http://74.208.40.118');
   candidateUrls.push('http://127.0.0.1:4000');
   candidateUrls.push('http://localhost:4000');
   candidateUrls.push('http://127.0.0.1:42069');
   candidateUrls.push('http://localhost:42069');
 
-  const uniqueCandidates = [...new Set(candidateUrls.filter(Boolean))];
-
-  for (const candidate of uniqueCandidates) {
+  for (const candidate of candidateUrls) {
     try {
       // First try /api/torrent which responds instantly (<100ms) without running slow CLI tools
       let res = await fetch(`${candidate}/api/torrent`, {
         headers: getTorrentHeaders(),
-        signal: AbortSignal.timeout(1200)
+        signal: AbortSignal.timeout(2500)
       }).catch(() => null);
       if (!res || !res.ok) {
         res = await fetch(`${candidate}/health`, {
           headers: getTorrentHeaders(),
-          signal: AbortSignal.timeout(1200)
+          signal: AbortSignal.timeout(2500)
         }).catch(() => null);
       }
       if (res && res.ok) {
@@ -5992,7 +5989,7 @@ async function getActiveTorrentServer() {
     } catch (_) {}
   }
 
-  return 'http://download.butfree.online:4000';
+  return configured || 'http://download.butfree.online:4000';
 }
 
 app.get('/api/torrent/status', async (req, res) => {
@@ -6008,7 +6005,7 @@ app.get('/api/torrent/status', async (req, res) => {
       });
     } catch (fetchErr) {
       if (serverUrl.includes('download.butfree.online')) {
-        const direct = serverUrl.replace('download.butfree.online', '74.208.40.118');
+        const direct = serverUrl.replace('download.butfree.online', '74.208.22.119');
         testRes = await fetch(`${direct}/api/torrent/status`, {
           headers: getTorrentHeaders(),
           signal: AbortSignal.timeout(5000)
@@ -6139,51 +6136,35 @@ app.post('/api/torrent/stream', async (req, res) => {
   const targetServer = await getActiveTorrentServer();
   console.log(`[Torrent Stream Dispatch]: Sending to ${targetServer}...`);
 
-  const candidates = [
-    targetServer,
-    targetServer.includes('download.butfree.online')
-      ? targetServer.replace('download.butfree.online', '74.208.40.118')
-      : 'http://download.butfree.online:4000',
-    'http://74.208.40.118:4000'
-  ];
-  const uniqueCandidates = [...new Set(candidates.filter(Boolean))];
-
-  let lastError = null;
-  for (const srv of uniqueCandidates) {
-    try {
-      const forwardRes = await fetch(`${srv}/api/torrent/stream`, {
-        method: 'POST',
-        headers: getTorrentHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ url }),
-        signal: AbortSignal.timeout(60000)
-      });
-      const data = await forwardRes.json().catch(() => ({}));
-      if (forwardRes.ok && data.streamUrl) {
-        let streamPath = data.streamUrl || '';
-        if (streamPath.startsWith('http')) {
-          try { streamPath = new URL(streamPath).pathname; } catch (_) {}
-        }
-        cachedTorrentServerUrl = srv;
-        return res.json({
-          success: true,
-          streamUrl: streamPath,
-          title: data.title
-        });
-      } else {
-        return res.status(forwardRes.status || 500).json({
-          error: data.error || `Torrent server returned status ${forwardRes.status}`
-        });
+  try {
+    const forwardRes = await fetch(`${targetServer}/api/torrent/stream`, {
+      method: 'POST',
+      headers: getTorrentHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ url }),
+      signal: AbortSignal.timeout(60000)
+    });
+    const data = await forwardRes.json().catch(() => ({}));
+    if (forwardRes.ok && data.streamUrl) {
+      let streamPath = data.streamUrl || '';
+      if (streamPath.startsWith('http')) {
+        try { streamPath = new URL(streamPath).pathname; } catch (_) {}
       }
-    } catch (err) {
-      lastError = err;
-      console.warn(`[Torrent Stream Dispatch] Failed via ${srv}:`, err.message);
+      return res.json({
+        success: true,
+        streamUrl: streamPath,
+        title: data.title
+      });
+    } else {
+      return res.status(forwardRes.status || 500).json({
+        error: data.error || `Torrent server returned status ${forwardRes.status}`
+      });
     }
+  } catch (err) {
+    const cause = err.cause?.message || err.cause?.code || err.cause || '';
+    const fullError = cause ? `${err.message} (${cause})` : err.message;
+    console.error(`[Torrent Node Error]: ${fullError}`);
+    return res.status(502).json({ error: `Torrent Streamer (${targetServer}) error: ${fullError}` });
   }
-
-  const cause = lastError?.cause?.message || lastError?.cause?.code || lastError?.cause || '';
-  const fullError = cause ? `${lastError?.message} (${cause})` : (lastError?.message || 'Connection failed');
-  console.error(`[Torrent Node Error]: ${fullError}`);
-  return res.status(502).json({ error: `Torrent Streamer (${targetServer}) error: ${fullError}` });
 });
 
 app.post('/api/torrent/stream/:streamId/stop', async (req, res) => {
@@ -6400,17 +6381,12 @@ async function dispatchTorrentDownload({ userId, magnet, title, kind, meta = {},
   try {
     accessToken = await getValidGoogleToken(userId);
   } catch (err) {
-    const resolved = await resolveGoogleToken(userId);
-    if (resolved?.token) {
-      accessToken = resolved.token;
-    } else {
-      return {
-        ok: false,
-        status: 401,
-        error: 'Google Drive authentication required. Please reconnect Google Drive in Settings.',
-        reauth: true
-      };
-    }
+    return {
+      ok: false,
+      status: 401,
+      error: 'Google Drive authentication required. Please reconnect Google Drive in Settings.',
+      reauth: true
+    };
   }
 
   // If canAddChildren was not cached yet, verify with Google Drive API
@@ -6451,56 +6427,37 @@ async function dispatchTorrentDownload({ userId, magnet, title, kind, meta = {},
   const targetServer = await getActiveTorrentServer();
   const webhookUrl = `${TV_PUBLIC_URL}/api/downloads/webhook`;
 
-  const payload = {
-    magnet: normalizeMagnet(magnet, title || ''),
-    title: title || 'Download',
-    kind: effectiveKind,
-    meta: effectiveMeta,
-    driveConfig: {
-      accessToken,
-      rootFolderId: rootFolder.id,
-      tokenRefreshUrl: `${TV_PUBLIC_URL}/api/downloads/token-refresh`
-    },
-    transcodeConfig: effectiveTranscodeConfig,
-    webhookUrl,
-    userId
-  };
+  try {
+    const vpsRes = await fetch(`${targetServer}/api/torrent/download`, {
+      method: 'POST',
+      headers: getTorrentHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        magnet: normalizeMagnet(magnet, title || ''),
+        title: title || 'Download',
+        kind: effectiveKind,
+        meta: effectiveMeta,
+        driveConfig: {
+          accessToken,
+          rootFolderId: rootFolder.id,
+          tokenRefreshUrl: `${TV_PUBLIC_URL}/api/downloads/token-refresh`
+        },
+        transcodeConfig: effectiveTranscodeConfig,
+        webhookUrl,
+        userId
+      })
+    });
 
-  const dispatchCandidates = [
-    targetServer,
-    targetServer.includes('download.butfree.online')
-      ? targetServer.replace('download.butfree.online', '74.208.40.118')
-      : 'http://download.butfree.online:4000',
-    'http://74.208.40.118:4000'
-  ];
-  const uniqueDispatch = [...new Set(dispatchCandidates.filter(Boolean))];
-
-  let lastError = null;
-  for (const srv of uniqueDispatch) {
-    try {
-      const vpsRes = await fetch(`${srv}/api/torrent/download`, {
-        method: 'POST',
-        headers: getTorrentHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(15000)
-      });
-
-      if (!vpsRes.ok) {
-        const errBody = await vpsRes.text();
-        return { ok: false, status: vpsRes.status, error: `Torrent node error: ${errBody}` };
-      }
-
-      const data = await vpsRes.json();
-      cachedTorrentServerUrl = srv;
-      return { ok: true, status: 200, data };
-    } catch (err) {
-      lastError = err;
-      console.warn(`[Downloads Add] Failed dispatching to ${srv}:`, err.message);
+    if (!vpsRes.ok) {
+      const errBody = await vpsRes.text();
+      return { ok: false, status: vpsRes.status, error: `Torrent node error: ${errBody}` };
     }
-  }
 
-  console.error('[Downloads Add] Error dispatching to Torrent VPS:', lastError);
-  return { ok: false, status: 502, error: `Could not reach torrent streaming server: ${lastError?.message || 'Connection failed'}` };
+    const data = await vpsRes.json();
+    return { ok: true, status: 200, data };
+  } catch (err) {
+    console.error('[Downloads Add] Error dispatching to Torrent VPS:', err);
+    return { ok: false, status: 502, error: `Could not reach torrent streaming server: ${err.message}` };
+  }
 }
 
 app.post('/api/downloads/add', authenticate, async (req, res) => {
@@ -6524,30 +6481,20 @@ app.get('/api/downloads', authenticate, async (req, res) => {
   const targetServer = await getActiveTorrentServer();
   const libraryUpdatedAt = userLibraryUpdateTimestamps.get(userId) || 0;
 
-  const candidates = [
-    targetServer,
-    targetServer.includes('download.butfree.online')
-      ? targetServer.replace('download.butfree.online', '74.208.40.118')
-      : 'http://download.butfree.online:4000',
-    'http://74.208.40.118:4000'
-  ];
-  const uniqueCandidates = [...new Set(candidates.filter(Boolean))];
+  try {
+    const vpsRes = await fetch(`${targetServer}/api/torrent/downloads?userId=${encodeURIComponent(userId)}`, {
+      headers: getTorrentHeaders({ 'Accept': 'application/json' }),
+      signal: AbortSignal.timeout(4000)
+    });
 
-  for (const srv of uniqueCandidates) {
-    try {
-      const vpsRes = await fetch(`${srv}/api/torrent/downloads?userId=${encodeURIComponent(userId)}`, {
-        headers: getTorrentHeaders({ 'Accept': 'application/json' }),
-        signal: AbortSignal.timeout(4000)
-      });
-
-      if (vpsRes.ok) {
-        const data = await vpsRes.json();
-        cachedTorrentServerUrl = srv;
-        return res.json({ ...data, libraryUpdatedAt });
-      }
-    } catch (_) {}
+    if (vpsRes.ok) {
+      const data = await vpsRes.json();
+      return res.json({ ...data, libraryUpdatedAt });
+    }
+    res.json({ success: true, downloads: [], libraryUpdatedAt });
+  } catch (err) {
+    res.json({ success: true, downloads: [], libraryUpdatedAt, warning: 'Torrent node unreachable' });
   }
-  res.json({ success: true, downloads: [], libraryUpdatedAt });
 });
 
 app.post('/api/downloads/:id/cancel', authenticate, async (req, res) => {
