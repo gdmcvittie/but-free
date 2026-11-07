@@ -3354,10 +3354,9 @@ app.get(['/api/stream/drive/:fileId', '/api/stream/drive/:fileId/:fileName'], op
       if (!headersSent) {
         res.status(driveResponse.status);
         const forwardHeaders = ['content-range', 'accept-ranges'];
-        // Do NOT send giant content-length on unbounded streams through LiteSpeed (causes 413 Request Entity Too Large)
-        const cl = driveResponse.headers.get('content-length');
-        if (cl && rangeEnd !== null) {
-          res.setHeader('content-length', cl);
+        const cl = driveResponse.headers.get('content-length') || (expectedBytesForThisRequest ? String(expectedBytesForThisRequest) : null);
+        if (cl) {
+          res.setHeader('Content-Length', cl);
         }
         forwardHeaders.forEach(h => {
           const val = driveResponse.headers.get(h);

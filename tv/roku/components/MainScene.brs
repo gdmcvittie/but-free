@@ -1779,14 +1779,17 @@ sub playDriveItem(item as Object)
         isNativeRoku = (Instr(1, lName, ".mp4") > 0 or Instr(1, lName, ".mkv") > 0 or Instr(1, lName, ".m4v") > 0 or Instr(1, lName, ".mov") > 0 or Instr(1, lName, ".webm") > 0)
 
         if isNativeRoku
-            safeName = filename
-            if safeName = invalid or safeName = ""
-                if Instr(1, lName, ".mkv") > 0
-                    safeName = "video.mkv"
-                else
-                    safeName = "video.mp4"
-                end if
+            ext = ".mp4"
+            if Instr(1, lName, ".mkv") > 0
+                ext = ".mkv"
+            else if Instr(1, lName, ".webm") > 0
+                ext = ".webm"
+            else if Instr(1, lName, ".mov") > 0
+                ext = ".mov"
+            else if Instr(1, lName, ".m4v") > 0
+                ext = ".m4v"
             end if
+            safeName = "video" + ext
             streamUrl = m.serverUrl + "/api/stream/drive/" + driveId + "/" + safeName
             if m.authToken <> invalid and m.authToken <> ""
                 streamUrl = streamUrl + "?token=" + m.authToken
@@ -4656,6 +4659,10 @@ sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, file
     isTorrent = (not isDriveHls) and (Instr(1, LCase(streamUrl), "/api/torrent/stream/") > 0 or Instr(1, LCase(streamUrl), "download.butfree.online") > 0 or Instr(1, LCase(streamUrl), "/api/stream/torrent-hls/") > 0 or Instr(1, LCase(streamUrl), "/api/torrent/serve/") > 0)
     isDrive = Instr(1, LCase(streamUrl), "/api/stream/drive/") > 0
     playUrl = streamUrl
+    if Instr(1, playUrl, " ") > 0
+        rSpace = CreateObject("roRegex", " ", "")
+        playUrl = rSpace.ReplaceAll(playUrl, "%20")
+    end if
     m.currentStreamUrl = playUrl
     m.currentStreamTitle = title
     m.pendingPlayUrl = playUrl
