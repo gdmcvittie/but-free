@@ -1674,6 +1674,9 @@ sub openDriveAllMoviesGrid()
 end sub
 
 function getTranscoderUrl() as String
+    if m.serverUrl <> invalid and m.serverUrl <> ""
+        return m.serverUrl
+    end if
     if m.torrentServerUrl <> invalid and m.torrentServerUrl <> ""
         return m.torrentServerUrl
     end if
@@ -4402,7 +4405,7 @@ sub playTorrentStream(linkUrl as String, itemTitle as String)
     m.currentTorrentTitle = itemTitle
 
     m.torrentInitTask = CreateObject("roSGNode", "HttpTask")
-    m.torrentInitTask.url = getTranscoderUrl() + "/api/torrent/stream"
+    m.torrentInitTask.url = m.serverUrl + "/api/torrent/stream"
     m.torrentInitTask.method = "POST"
     m.torrentInitTask.timeoutMs = 90000
     m.torrentInitTask.postData = FormatJson({ url: linkUrl })
@@ -5106,7 +5109,7 @@ sub onVideoStateChange()
                     driveId = Mid(m.currentPlayFilePath, 9)
                 end if
                 if driveId <> ""
-                    fallbackUrl = getTranscoderUrl() + "/api/stream/drive-hls/" + driveId + ".m3u8"
+                    fallbackUrl = m.serverUrl + "/api/stream/drive-hls/" + driveId + ".m3u8"
                     sep = "?"
                     if isLoggedIn()
                         fallbackUrl = fallbackUrl + sep + "token=" + m.authToken
@@ -5143,7 +5146,7 @@ sub onVideoStateChange()
                     tStreamId = after
                 end if
                 if tStreamId <> ""
-                    fallbackUrl = getTranscoderUrl() + "/api/stream/torrent-hls/" + tStreamId + "/" + tFileIdx + ".m3u8"
+                    fallbackUrl = m.serverUrl + "/api/stream/torrent-hls/" + tStreamId + "/" + tFileIdx + ".m3u8"
                 end if
             else if Instr(1, LCase(fallbackUrl), "transcode=true") <= 0 and Instr(1, LCase(fallbackUrl), "transcode=1") <= 0
                 fallbackUrl = appendTranscodeParam(fallbackUrl)

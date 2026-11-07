@@ -3781,14 +3781,10 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
     try {
       const remoteUrl = `${vpsHost}/api/stream/drive-hls/${fileId}.m3u8?offset=${offset}&token=${encodeURIComponent(token)}${googleTokenParam}${userParam}&inputOrigin=${encodeURIComponent(inputOrigin)}`;
       console.log(`[Drive HLS] Offloading transcode to dedicated VPS: ${remoteUrl}`);
-      const remoteRes = await fetch(remoteUrl, { redirect: 'manual', signal: AbortSignal.timeout(30000) });
+      const remoteRes = await fetch(remoteUrl, { redirect: 'manual', signal: AbortSignal.timeout(60000) });
       if (remoteRes.status === 302) {
         const location = remoteRes.headers.get('location');
         if (location) {
-          if (isRoku) {
-            res.writeHead(302, { 'Location': location, 'Cache-Control': 'no-cache' });
-            return res.end();
-          }
           const locPath = location.replace(/^https?:\/\/[^/]+/, '');
           const finalLoc = `${origin}${locPath}`;
           res.writeHead(302, { 'Location': finalLoc, 'Cache-Control': 'no-cache' });
@@ -3799,7 +3795,8 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Access-Control-Allow-Origin', '*');
         let text = await remoteRes.text();
-        text = text.replace(/^(?:.*[\\/])?(seg_\d+\.ts)\r?$/gm, (m, p1) => `${origin}/api/stream/hls/${fileId}/${p1}`);
+        const sessionId = remoteRes.headers.get('x-session-id') || fileId;
+        text = text.replace(/^(?:.*[\\/])?(seg_\d+\.ts)\r?$/gm, (m, p1) => `${origin}/api/stream/hls/${sessionId}/${p1}`);
         return res.send(text);
       }
     } catch (vpsErr) {
@@ -4185,14 +4182,10 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
     try {
       const remoteUrl = `${vpsHost}/api/stream/torrent-hls/${streamId}/${fileIndex}.m3u8?offset=${offset}`;
       console.log(`[Torrent HLS] Offloading transcode to dedicated VPS: ${remoteUrl}`);
-      const remoteRes = await fetch(remoteUrl, { redirect: 'manual', signal: AbortSignal.timeout(30000) });
+      const remoteRes = await fetch(remoteUrl, { redirect: 'manual', signal: AbortSignal.timeout(60000) });
       if (remoteRes.status === 302) {
         const location = remoteRes.headers.get('location');
         if (location) {
-          if (isRoku) {
-            res.writeHead(302, { 'Location': location, 'Cache-Control': 'no-cache' });
-            return res.end();
-          }
           const locPath = location.replace(/^https?:\/\/[^/]+/, '');
           const finalLoc = `${origin}${locPath}`;
           res.writeHead(302, { 'Location': finalLoc, 'Cache-Control': 'no-cache' });
@@ -4469,8 +4462,9 @@ app.get('/api/stream/hls/:sessionId/:file', async (req, res) => {
             const cacheControl = remoteRes.headers.get('cache-control');
             if (cacheControl) res.setHeader('Cache-Control', cacheControl);
             if (safeFile.endsWith('.m3u8')) {
+              const origin = getHostOrigin(req);
               let text = await remoteRes.text();
-              text = text.replace(/^(?:.*[\\/])?(seg_\d+\.ts)\r?$/gm, (m, p1) => `/api/stream/hls/${sessionId}/${p1}`);
+              text = text.replace(/^(?:.*[\\/])?(seg_\d+\.ts)\r?$/gm, (m, p1) => `${origin}/api/stream/hls/${sessionId}/${p1}`);
               return res.send(text);
             }
             const { Readable } = await import('node:stream');

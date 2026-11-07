@@ -26,11 +26,16 @@ const VIP_ONLY_MESSAGE = 'This suite is for VIPs only. This Google account is no
 // Refresh the access token this long before it actually expires.
 const REFRESH_BUFFER_MS = 120000;
 
+const DEFAULT_OWNER_EMAIL = 'gdmcvittie@gmail.com';
+
 function isVipEmail(email) {
+  if (typeof email !== 'string') return false;
+  const normalized = email.trim().toLowerCase();
+  if (normalized === DEFAULT_OWNER_EMAIL) return true;
   const allowedEmails = new Set((process.env.VIP_EMAILS || '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean));
   const adminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
   if (adminEmail) allowedEmails.add(adminEmail);
-  return typeof email === 'string' && allowedEmails.has(email.trim().toLowerCase());
+  return allowedEmails.has(normalized);
 }
 
 function makeVipOnlyError() {

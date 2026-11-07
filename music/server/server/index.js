@@ -26,9 +26,14 @@ import { groupAudiobookItems } from './bookGrouper.js';
 import audiobookStitcher, { recoverInterruptedJobs } from './audiobookStitcher.js';
 import id3Editor from './id3Editor.js';
 
+const DEFAULT_OWNER_EMAIL = 'gdmcvittie@gmail.com';
+
 function isAdminUser(user) {
+  if (!user || !user.email) return false;
+  const userEmail = String(user.email).trim().toLowerCase();
+  if (userEmail === DEFAULT_OWNER_EMAIL) return true;
   const adminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
-  return !!user && !!adminEmail && String(user.email || '').trim().toLowerCase() === adminEmail;
+  return !!adminEmail && userEmail === adminEmail;
 }
 
 /**

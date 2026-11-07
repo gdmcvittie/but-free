@@ -144,6 +144,7 @@ export async function handleDriveHls(req, res) {
     try {
       const waitSessionId = await hlsStartingByKeyOffset.get(lockKey);
       if (waitSessionId) {
+        res.setHeader('X-Session-Id', waitSessionId);
         res.writeHead(302, {
           'Location': `${origin}/api/stream/hls/${waitSessionId}/index.m3u8`,
           'Cache-Control': 'no-cache'
@@ -176,6 +177,7 @@ export async function handleDriveHls(req, res) {
   if (reusableSessionId) {
     console.log(`[VPS Drive HLS] Reusing active transcode session=${reusableSessionId} fileId=${fileId} offset=${offset}s`);
     touchHlsSession(reusableSessionId);
+    res.setHeader('X-Session-Id', reusableSessionId);
     res.writeHead(302, {
       'Location': `${origin}/api/stream/hls/${reusableSessionId}/index.m3u8`,
       'Cache-Control': 'no-cache'
@@ -359,9 +361,10 @@ export async function handleDriveHls(req, res) {
         const segCount = (content.match(/seg_\d+\.ts/g) || []).length;
         const isComplete = content.includes('#EXT-X-ENDLIST');
         const elapsed = Date.now() - waitStarted;
-        if (segCount >= 3 || isComplete || (segCount >= 2 && elapsed > 10000)) {
+        if (segCount >= 2 || isComplete || (segCount >= 1 && elapsed > 6000)) {
           if (resolveLock) { resolveLock(sessionId); hlsStartingByKeyOffset.delete(lockKey); }
           console.log(`[VPS Drive HLS] Ready session=${sessionId} segments=${segCount} (${elapsed}ms)`);
+          res.setHeader('X-Session-Id', sessionId);
           res.writeHead(302, {
             'Location': `${origin}/api/stream/hls/${sessionId}/index.m3u8`,
             'Cache-Control': 'no-cache'
@@ -417,6 +420,7 @@ export async function handleTorrentHls(req, res, activeStreams) {
     try {
       const waitSessionId = await hlsStartingByKeyOffset.get(lockKey);
       if (waitSessionId) {
+        res.setHeader('X-Session-Id', waitSessionId);
         res.writeHead(302, {
           'Location': `${origin}/api/stream/hls/${waitSessionId}/index.m3u8`,
           'Cache-Control': 'no-cache'
@@ -448,6 +452,7 @@ export async function handleTorrentHls(req, res, activeStreams) {
   if (reusableSessionId) {
     console.log(`[VPS Torrent HLS] Reusing active transcode session=${reusableSessionId} streamId=${streamId} offset=${offset}s`);
     touchHlsSession(reusableSessionId);
+    res.setHeader('X-Session-Id', reusableSessionId);
     res.writeHead(302, {
       'Location': `${origin}/api/stream/hls/${reusableSessionId}/index.m3u8`,
       'Cache-Control': 'no-cache'
@@ -589,8 +594,9 @@ export async function handleTorrentHls(req, res, activeStreams) {
         const segCount = (content.match(/seg_\d+\.ts/g) || []).length;
         const isComplete = content.includes('#EXT-X-ENDLIST');
         const elapsed = Date.now() - waitStarted;
-        if (segCount >= 3 || isComplete || (segCount >= 2 && elapsed > 10000)) {
+        if (segCount >= 2 || isComplete || (segCount >= 1 && elapsed > 6000)) {
           if (resolveLock) { resolveLock(sessionId); hlsStartingByKeyOffset.delete(lockKey); }
+          res.setHeader('X-Session-Id', sessionId);
           res.writeHead(302, {
             'Location': `${origin}/api/stream/hls/${sessionId}/index.m3u8`,
             'Cache-Control': 'no-cache'
