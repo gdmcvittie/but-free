@@ -2541,6 +2541,21 @@ sub onServiceCatalogResult()
         if tType = "tv" then typeLabel = "TV Series"
         node.shortDescriptionLine1 = typeLabel + yearStr
 
+        genreStr = ""
+        if item.genres <> invalid and type(item.genres) = "roArray" and item.genres.count() > 0
+            for i = 0 to item.genres.count() - 1
+                gName = safeStr(item.genres[i])
+                if gName <> ""
+                    if genreStr <> "" then genreStr = genreStr + ", "
+                    genreStr = genreStr + gName
+                end if
+                if i >= 2 then exit for
+            end for
+        end if
+        if genreStr <> ""
+            node.shortDescriptionLine2 = genreStr
+        end if
+
         desc = safeStr(item.description)
         if desc = "" then desc = title + " on " + m.currentServiceName
         node.description = desc

@@ -4543,17 +4543,17 @@ const STREAMING_SERVICES = [
   { id: 'plex', name: 'Plex TV', color: '#E5A00D', description: 'Live linear streaming FAST channels from Plex TV.', isLive: true, category: 'Free Live TV' },
 
   // On-Demand Streaming Services
-  { id: 'netflix', name: 'Netflix', color: '#E50914', description: 'Original films, award-winning series, documentaries and comedy specials.', packages: ['nfx', 'nfk'] },
-  { id: 'prime', name: 'Prime Video', color: '#00A8E1', description: 'Amazon Originals, blockbuster movies, hit TV series and live sports.', packages: ['prv', 'amp', 'amz'] },
-  { id: 'disney', name: 'Disney+', color: '#113CCF', description: 'Disney, Pixar, Marvel, Star Wars, National Geographic and Star.', packages: ['dnp', 'dsk'] },
-  { id: 'paramount', name: 'Paramount+', color: '#0064FF', description: 'CBS originals, Showtime hits, blockbuster movies and exclusive series.', packages: ['pmp', 'pmt', 'sho'] },
-  { id: 'apple', name: 'Apple TV+', color: '#000000', description: 'Star-studded Apple Original series, films, kids entertainment and documentaries.', packages: ['atp', 'app'] },
-  { id: 'max', name: 'Max', color: '#002BE7', description: 'HBO prestige dramas, Warner Bros. films, DC Universe and Max Originals.', packages: ['hbo', 'max', 'hbm'] },
-  { id: 'hulu', name: 'Hulu', color: '#1CE783', description: 'Current TV shows, FX on Hulu, Hulu Originals and classic movies.', packages: ['hlu', 'hls'] },
-  { id: 'peacock', name: 'Peacock', color: '#000000', description: 'NBC comedy and drama, Peacock Originals, next-day TV and live sports.', packages: ['pck', 'pku'] },
-  { id: 'citytv', name: 'Citytv', color: '#00529B', description: 'Canadian primetime dramas, comedies, Breakfast Television and reality series.', country: 'CA', packages: ['ctv', 'cpv', 'cta', 'cty'] },
-  { id: 'crave', name: 'Crave', color: '#0047FF', description: 'HBO, Max Originals, Showtime, Hollywood movies and Canadian originals.', country: 'CA', packages: ['crv', 'cst', 'cpv', 'cra'] },
-  { id: 'cbc', name: 'CBC Gem', color: '#E01E26', description: 'Acclaimed Canadian drama, comedy, documentaries, news and Kids programming.', country: 'CA', packages: ['cbc', 'cbg', 'gem', 'cbp'] }
+  { id: 'netflix', name: 'Netflix', color: '#E50914', description: 'Original films, award-winning series, documentaries and comedy specials.', country: 'US', packages: ['nfx', 'nfa', 'nfk'], monetizationTypes: ['FLATRATE'] },
+  { id: 'prime', name: 'Prime Video', color: '#00A8E1', description: 'Amazon Originals, blockbuster movies, hit TV series and live sports.', country: 'US', packages: ['amp'], monetizationTypes: ['FLATRATE', 'ADS'] },
+  { id: 'disney', name: 'Disney+', color: '#113CCF', description: 'Disney, Pixar, Marvel, Star Wars, National Geographic and Star.', country: 'US', packages: ['dnp'], monetizationTypes: ['FLATRATE'] },
+  { id: 'paramount', name: 'Paramount+', color: '#0064FF', description: 'CBS originals, Showtime hits, blockbuster movies and exclusive series.', country: 'US', packages: ['ppp', 'ppe', 'ppa'], monetizationTypes: ['FLATRATE', 'ADS', 'FREE'] },
+  { id: 'apple', name: 'Apple TV+', color: '#000000', description: 'Star-studded Apple Original series, films, kids entertainment and documentaries.', country: 'US', packages: ['atp'], monetizationTypes: ['FLATRATE', 'FREE'] },
+  { id: 'max', name: 'Max', color: '#002BE7', description: 'HBO prestige dramas, Warner Bros. films, DC Universe and Max Originals.', country: 'US', packages: ['mxx'], monetizationTypes: ['FLATRATE'] },
+  { id: 'hulu', name: 'Hulu', color: '#1CE783', description: 'Current TV shows, FX on Hulu, Hulu Originals and classic movies.', country: 'US', packages: ['hlu'], monetizationTypes: ['FLATRATE'] },
+  { id: 'peacock', name: 'Peacock', color: '#000000', description: 'NBC comedy and drama, Peacock Originals, next-day TV and live sports.', country: 'US', packages: ['pct', 'pcp'], monetizationTypes: ['FLATRATE', 'ADS'] },
+  { id: 'citytv', name: 'Citytv', color: '#00529B', description: 'Canadian primetime dramas, comedies, Breakfast Television and reality series.', country: 'CA', packages: ['cty'] },
+  { id: 'crave', name: 'Crave', color: '#0047FF', description: 'HBO, Max Originals, Showtime, Hollywood movies and Canadian originals.', country: 'CA', packages: ['crv', 'cvl'], monetizationTypes: ['FLATRATE', 'FREE'] },
+  { id: 'cbc', name: 'CBC Gem', color: '#E01E26', description: 'Acclaimed Canadian drama, comedy, documentaries, news and Kids programming.', country: 'CA', packages: ['cbc'] }
 ];
 
 // -------------------------------------------------------------
@@ -5143,13 +5143,15 @@ app.get('/api/freetv/proxy', async (req, res) => {
 // -------------------------------------------------------------
 // JustWatch GraphQL Helpers & Poster Proxy
 // -------------------------------------------------------------
+// JustWatch GraphQL Helpers & Poster Proxy
+// -------------------------------------------------------------
 const popularGraphQLQuery = `query PopularTitles($country: Country!, $first: Int!, $filter: TitleFilter, $sortBy: PopularTitlesSorting!) {
   popularTitles(country: $country, first: $first, filter: $filter, sortBy: $sortBy) {
     edges { node {
       __typename
       content(country: $country, language: "en") {
-        ... on MovieContent { title shortDescription originalReleaseYear isReleased runtime posterUrl(profile: S718) }
-        ... on ShowContent { title shortDescription originalReleaseYear isReleased runtime posterUrl(profile: S718) }
+        ... on MovieContent { title shortDescription originalReleaseYear isReleased runtime posterUrl(profile: S718) genres { id shortName translation(language: en) } }
+        ... on ShowContent { title shortDescription originalReleaseYear isReleased runtime posterUrl(profile: S718) genres { id shortName translation(language: en) } }
       }
       watchNowOffer(country: $country, filter: { monetizationTypes: [], packages: ["amz","asd","atp","crv","ctc","dnp","gtv","itu","nfx","pmp","prv","hbo","max","hlu","pck","cpv","cta","cty","gem"] }, platform: WEB) {
         package { clearName shortName }
@@ -5167,6 +5169,7 @@ const newGraphQLQuery = `query GetNewTitles($country: Country!, $first: Int!, $f
           content(country: $country, language: "en") {
             title
             posterUrl(profile: S718)
+            genres { id shortName translation(language: en) }
           }
         }
       }
@@ -5177,11 +5180,36 @@ const newGraphQLQuery = `query GetNewTitles($country: Country!, $first: Int!, $f
         posterUrl(profile: S718)
         runtime
         isReleased
+        genres { id shortName translation(language: en) }
       }
       watchNowOffer(country: $country, filter: { monetizationTypes: [], packages: ["amz","asd","atp","crv","ctc","dnp","gtv","itu","nfx","pmp","prv","hbo","max","hlu","pck","cpv","cta","cty","gem"] }, platform: WEB) {
         package { clearName shortName }
       }
     } }
+  }
+}`;
+
+const fullCatalogGraphQLQuery = `query GetFullServiceCatalog($country: Country!, $first: Int!, $after: String, $filter: TitleFilter) {
+  popularTitles(country: $country, first: $first, after: $after, filter: $filter) {
+    pageInfo { hasNextPage endCursor }
+    totalCount
+    edges {
+      node {
+        __typename
+        content(country: $country, language: "en") {
+          title
+          originalReleaseYear
+          shortDescription
+          posterUrl(profile: S718)
+          runtime
+          isReleased
+          genres { id shortName translation(language: en) }
+        }
+        watchNowOffer(country: $country, platform: WEB) {
+          package { clearName shortName }
+        }
+      }
+    }
   }
 }`;
 
@@ -5212,6 +5240,10 @@ function parseGraphQLNode(e, defaultProvider = '') {
     image = '/api/whatson/poster?url=' + encodeURIComponent(rawImage);
   }
 
+  const rawGenres = c.genres || node.show?.content?.genres || [];
+  const genres = rawGenres.map(g => (typeof g === 'object' ? (g.translation || g.shortName) : g)).filter(Boolean);
+  const genreCodes = rawGenres.map(g => (typeof g === 'object' ? g.shortName : '')).filter(Boolean);
+
   const pkg = node.watchNowOffer && node.watchNowOffer.package;
   return {
     title,
@@ -5220,6 +5252,8 @@ function parseGraphQLNode(e, defaultProvider = '') {
     year: c.originalReleaseYear || null,
     description: c.shortDescription || '',
     provider: pkg ? (pkg.clearName || pkg.shortName || defaultProvider) : defaultProvider,
+    genres,
+    genreCodes,
     released: !!c.isReleased,
     runtime: c.runtime || null
   };
@@ -5375,49 +5409,392 @@ app.get('/api/services/:serviceId', async (req, res) => {
   const cacheFile = path.join(CACHE_DIR, `services_${svc.id}.json`);
   const force = req.query.force === 'true';
 
+  let data = null;
   if (!force && fs.existsSync(cacheFile)) {
     try {
-      const cached = JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
-      if (cached && cached.items && cached.items.length > 0) {
-        return res.json({ success: true, service: svc.name, serviceId: svc.id, items: cached.items });
-      }
-    } catch {}
+      data = JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
+    } catch (e) {
+      console.warn(`[Services] Error reading cache file for ${svc.name}:`, e.message);
+    }
   }
 
+  // If cache is missing, empty, or forced, fetch and build catalog
+  if (!data || !data.items || data.items.length === 0 || force) {
+    try {
+      data = await fetchFullServiceCatalog(svc);
+    } catch (err) {
+      console.error(`[Services] Error building catalog for ${svc.name}:`, err);
+    }
+  }
+
+  if (!data || !data.items) {
+    return res.json({
+      success: true,
+      service: svc.name,
+      serviceId: svc.id,
+      items: [],
+      byType: { movies: [], tv: [] },
+      byGenre: {},
+      genres: [],
+      categories: ['All']
+    });
+  }
+
+  // Apply optional query filters (type, genre, q, limit, offset)
+  let items = data.items;
+  const { type, genre, q, limit, offset } = req.query;
+
+  if (type) {
+    const t = String(type).toLowerCase();
+    if (t === 'movie' || t === 'movies') items = data.byType?.movies || items.filter(i => i.type === 'movie');
+    else if (t === 'tv' || t === 'shows' || t === 'series') items = data.byType?.tv || items.filter(i => i.type === 'tv');
+  }
+
+  if (genre) {
+    const gLower = String(genre).toLowerCase();
+    items = items.filter(i => (i.genres || []).some(g => {
+      const gStr = String(g).toLowerCase();
+      return gStr === gLower || gStr.includes(gLower) || gLower.includes(gStr);
+    }));
+  }
+
+  if (q) {
+    const qLower = String(q).toLowerCase();
+    items = items.filter(i => (i.title || '').toLowerCase().includes(qLower) || (i.description || '').toLowerCase().includes(qLower));
+  }
+
+  const totalLoaded = data.items.length;
+  const totalFiltered = items.length;
+
+  if (limit) {
+    const lim = Math.max(1, parseInt(limit, 10) || 100);
+    const off = Math.max(0, parseInt(offset, 10) || 0);
+    items = items.slice(off, off + lim);
+  }
+
+  return res.json({
+    success: true,
+    service: svc.name,
+    serviceId: svc.id,
+    lastUpdated: data.lastUpdated,
+    totalAvailable: data.totalAvailable || totalLoaded,
+    totalLoaded,
+    totalFiltered,
+    types: data.types || ['movies', 'tv'],
+    genres: data.genres || [],
+    categories: data.categories || ['All'],
+    stats: data.stats || {
+      movies: data.byType?.movies?.length || 0,
+      tv: data.byType?.tv?.length || 0
+    },
+    byType: data.byType || { movies: [], tv: [] },
+    byGenre: data.byGenre || {},
+    items
+  });
+});
+
+// -------------------------------------------------------------
+// Full Catalog Engine & Midnight Daily Sync Scheduler
+// -------------------------------------------------------------
+async function fetchFullServiceCatalog(svc, options = {}) {
+  const maxPages = options.maxPages || 50; // up to 5,000 items per service
+  const country = svc.country || 'US';
+  const packages = svc.packages || [];
+  let cursor = null;
+  const items = [];
+  const seen = new Set();
+  let totalAvailable = 0;
+
+  for (let page = 0; page < maxPages; page++) {
+    const filter = { packages };
+    if (svc.monetizationTypes && svc.monetizationTypes.length > 0) {
+      filter.monetizationTypes = svc.monetizationTypes;
+    }
+
+    try {
+      const res = await fetch('https://apis.justwatch.com/graphql', fetchJustWatchGraphQL(fullCatalogGraphQLQuery, {
+        country,
+        first: 100,
+        after: cursor,
+        filter
+      }));
+
+      if (!res.ok) {
+        console.warn(`[Catalog Sync] HTTP ${res.status} for ${svc.name} page ${page + 1}`);
+        break;
+      }
+
+      const data = await res.json();
+      if (!data.data?.popularTitles) {
+        if (data.errors) console.warn(`[Catalog Sync] GraphQL errors for ${svc.name}:`, data.errors[0]?.message);
+        break;
+      }
+
+      const popular = data.data.popularTitles;
+      totalAvailable = popular.totalCount || 0;
+      const edges = popular.edges || [];
+
+      for (const e of edges) {
+        const parsed = parseGraphQLNode(e, svc.name);
+        if (!parsed) continue;
+
+        const key = `${parsed.title.toLowerCase()}_${parsed.type}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        items.push(parsed);
+      }
+
+      if (!popular.pageInfo?.hasNextPage || !popular.pageInfo?.endCursor) {
+        break;
+      }
+
+      cursor = popular.pageInfo.endCursor;
+      await new Promise(resolve => setTimeout(resolve, 80));
+    } catch (err) {
+      console.warn(`[Catalog Sync] Error on page ${page + 1} for ${svc.name}:`, err.message);
+      break;
+    }
+  }
+
+  // Group by type and by genre
+  const byType = { movies: [], tv: [] };
+  const byGenre = {};
+  const genreSet = new Set();
+  const genreCounts = {};
+
+  for (const it of items) {
+    if (it.type === 'movie') byType.movies.push(it);
+    else if (it.type === 'tv') byType.tv.push(it);
+
+    for (const g of (it.genres || [])) {
+      if (!g) continue;
+      genreSet.add(g);
+      if (!byGenre[g]) byGenre[g] = [];
+      byGenre[g].push(it);
+      genreCounts[g] = (genreCounts[g] || 0) + 1;
+    }
+  }
+
+  const sortedGenres = Array.from(genreSet).sort();
+  const categories = ['All', 'Movies', 'TV Shows', ...sortedGenres];
+
+  const catalogPayload = {
+    service: svc.name,
+    serviceId: svc.id,
+    lastUpdated: new Date().toISOString(),
+    totalAvailable: totalAvailable || items.length,
+    totalLoaded: items.length,
+    types: ['movies', 'tv'],
+    genres: sortedGenres,
+    categories,
+    stats: {
+      movies: byType.movies.length,
+      tv: byType.tv.length,
+      genres: genreCounts
+    },
+    byType,
+    byGenre,
+    items
+  };
+
+  const cacheFile = path.join(CACHE_DIR, `services_${svc.id}.json`);
   try {
-    const packages = svc.packages || [];
-    const country = svc.country || 'US';
-
-    const [popResult, newResult] = await Promise.allSettled([
-      fetch('https://apis.justwatch.com/graphql', fetchJustWatchGraphQL(popularGraphQLQuery, { country, first: 40, filter: { packages }, sortBy: 'POPULAR' })).then(r => r.json()),
-      fetch('https://apis.justwatch.com/graphql', fetchJustWatchGraphQL(newGraphQLQuery, { country, first: 40, filter: { packages } })).then(r => r.json())
-    ]);
-
-    const popEdges = (popResult.status === 'fulfilled' && popResult.value?.data?.popularTitles?.edges) || [];
-    const freshEdges = (newResult.status === 'fulfilled' && newResult.value?.data?.newTitles?.edges) || [];
-
-    const popItems = popEdges.map(e => parseGraphQLNode(e, svc.name)).filter(Boolean);
-    const freshItems = freshEdges.map(e => parseGraphQLNode(e, svc.name)).filter(Boolean);
-
-    const items = [];
-    const seen = new Set();
-    for (const it of [...freshItems, ...popItems]) {
-      const k = `${it.title.toLowerCase()}_${it.type}`;
-      if (!seen.has(k)) {
-        seen.add(k);
-        items.push(it);
-      }
-    }
-
-    if (items.length > 0) {
-      fs.writeFileSync(cacheFile, JSON.stringify({ lastUpdated: new Date().toISOString(), items }, null, 2), 'utf-8');
-      return res.json({ success: true, service: svc.name, serviceId: svc.id, items });
-    }
+    fs.writeFileSync(cacheFile, JSON.stringify(catalogPayload, null, 2), 'utf-8');
+    console.log(`[Catalog Sync] Saved ${svc.name} catalog to ${cacheFile} (${items.length} titles: ${byType.movies.length} movies, ${byType.tv.length} tv, ${sortedGenres.length} genres)`);
   } catch (err) {
-    console.error(`[Services] Error loading ${svc.name}:`, err);
+    console.error(`[Catalog Sync] Failed to write cache file for ${svc.name}:`, err.message);
   }
 
-  res.json({ success: true, service: svc.name, serviceId: svc.id, items: [] });
+  return catalogPayload;
+}
+
+let isSyncingCatalogs = false;
+const catalogSyncStatus = {
+  running: false,
+  lastRun: null,
+  nextRun: null,
+  services: {}
+};
+
+async function syncAllServiceCatalogs(reason = 'scheduled') {
+  if (isSyncingCatalogs) {
+    console.log(`[Catalog Sync] Catalog sync already running (${reason}), skipping duplicate trigger.`);
+    return catalogSyncStatus;
+  }
+
+  isSyncingCatalogs = true;
+  catalogSyncStatus.running = true;
+  catalogSyncStatus.lastRun = new Date().toISOString();
+  console.log(`[Catalog Sync] === Daily Catalog Sync Started (${reason}) at ${catalogSyncStatus.lastRun} ===`);
+
+  const onDemandServices = STREAMING_SERVICES.filter(s => !s.isLive);
+  for (const svc of onDemandServices) {
+    try {
+      console.log(`[Catalog Sync] Fetching catalog for ${svc.name}...`);
+      const payload = await fetchFullServiceCatalog(svc);
+      catalogSyncStatus.services[svc.id] = {
+        name: svc.name,
+        success: true,
+        totalLoaded: payload.totalLoaded,
+        totalAvailable: payload.totalAvailable,
+        moviesCount: payload.byType?.movies?.length || 0,
+        tvCount: payload.byType?.tv?.length || 0,
+        genresCount: payload.genres?.length || 0,
+        lastUpdated: payload.lastUpdated
+      };
+      await new Promise(resolve => setTimeout(resolve, 500));
+    } catch (err) {
+      console.error(`[Catalog Sync] Failed to fetch catalog for ${svc.name}:`, err.message);
+      catalogSyncStatus.services[svc.id] = {
+        name: svc.name,
+        success: false,
+        error: err.message,
+        lastUpdated: new Date().toISOString()
+      };
+    }
+  }
+
+  isSyncingCatalogs = false;
+  catalogSyncStatus.running = false;
+  console.log(`[Catalog Sync] === Catalog Sync Completed at ${new Date().toISOString()} ===`);
+  return catalogSyncStatus;
+}
+
+let midnightTimerId = null;
+function scheduleNextMidnightCatalogSync() {
+  if (midnightTimerId) {
+    clearTimeout(midnightTimerId);
+    midnightTimerId = null;
+  }
+
+  const now = new Date();
+  const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+  const msUntilMidnight = Math.max(1000, nextMidnight.getTime() - now.getTime());
+  catalogSyncStatus.nextRun = nextMidnight.toISOString();
+
+  const hours = (msUntilMidnight / (1000 * 60 * 60)).toFixed(1);
+  console.log(`[Catalog Sync] Next midnight catalogue sync scheduled in ${hours} hours (${nextMidnight.toLocaleString()})`);
+
+  midnightTimerId = setTimeout(async () => {
+    try {
+      await syncAllServiceCatalogs('midnight_cron');
+    } catch (err) {
+      console.error('[Catalog Sync] Error during midnight catalog sync:', err);
+    } finally {
+      scheduleNextMidnightCatalogSync();
+    }
+  }, msUntilMidnight);
+}
+
+function initCatalogSyncCheck() {
+  const onDemandServices = STREAMING_SERVICES.filter(s => !s.isLive);
+  let needsSync = false;
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+  for (const svc of onDemandServices) {
+    const cacheFile = path.join(CACHE_DIR, `services_${svc.id}.json`);
+    if (!fs.existsSync(cacheFile)) {
+      needsSync = true;
+      break;
+    }
+    try {
+      const stats = fs.statSync(cacheFile);
+      if (Date.now() - stats.mtimeMs > ONE_DAY_MS) {
+        needsSync = true;
+        break;
+      }
+      const data = JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
+      if (!data.items || data.items.length < 50 || !data.byType || !data.byGenre) {
+        needsSync = true;
+        break;
+      }
+    } catch (_) {
+      needsSync = true;
+      break;
+    }
+  }
+
+  if (needsSync) {
+    console.log('[Catalog Sync] Found missing, outdated, or ungrouped service catalogues on disk. Scheduling background sync in 10s...');
+    setTimeout(() => {
+      syncAllServiceCatalogs('startup_cache_check').catch(err => {
+        console.error('[Catalog Sync] Startup catalog sync error:', err);
+      });
+    }, 10000);
+  } else {
+    console.log('[Catalog Sync] All streaming service catalogues on disk are fresh and grouped.');
+  }
+}
+
+// Manual trigger endpoint for catalog sync
+app.all('/api/services/sync', async (req, res) => {
+  const { serviceId, force } = { ...req.query, ...req.body };
+  if (serviceId) {
+    const svc = STREAMING_SERVICES.find(s => s.id === serviceId);
+    if (!svc) return res.status(404).json({ success: false, error: 'Service not found' });
+    try {
+      const result = await fetchFullServiceCatalog(svc, { maxPages: 50 });
+      return res.json({
+        success: true,
+        message: `Catalogue synced for ${svc.name}`,
+        service: svc.name,
+        serviceId: svc.id,
+        totalLoaded: result.totalLoaded,
+        totalAvailable: result.totalAvailable,
+        movies: result.byType?.movies?.length || 0,
+        tv: result.byType?.tv?.length || 0,
+        genres: result.genres?.length || 0
+      });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  if (isSyncingCatalogs) {
+    return res.json({
+      success: true,
+      message: 'Catalog sync already running',
+      status: catalogSyncStatus
+    });
+  }
+
+  const wait = req.query.wait === 'true';
+  if (wait) {
+    await syncAllServiceCatalogs('manual_wait_request');
+    return res.json({ success: true, status: catalogSyncStatus });
+  } else {
+    syncAllServiceCatalogs('manual_bg_request');
+    return res.json({
+      success: true,
+      message: 'Catalogue sync initiated in background for all services. Check /api/services/sync/status for progress.',
+      status: catalogSyncStatus
+    });
+  }
+});
+
+app.get('/api/services/sync/status', (req, res) => {
+  res.json({
+    success: true,
+    status: catalogSyncStatus,
+    isSyncing: isSyncingCatalogs,
+    services: STREAMING_SERVICES.filter(s => !s.isLive).map(s => {
+      const cacheFile = path.join(CACHE_DIR, `services_${s.id}.json`);
+      const exists = fs.existsSync(cacheFile);
+      let info = { id: s.id, name: s.name, cached: exists };
+      if (exists) {
+        try {
+          const content = JSON.parse(fs.readFileSync(cacheFile, 'utf-8'));
+          info.lastUpdated = content.lastUpdated;
+          info.totalLoaded = content.totalLoaded || content.items?.length || 0;
+          info.totalAvailable = content.totalAvailable || 0;
+          info.movies = content.byType?.movies?.length || 0;
+          info.tv = content.byType?.tv?.length || 0;
+          info.genres = content.genres?.length || 0;
+        } catch (_) {}
+      }
+      return info;
+    })
+  });
 });
 
 // What's On / Popular titles
@@ -8083,6 +8460,8 @@ httpServer = app.listen(listenTarget, () => {
 
   checkFfmpegAvailability();
   initLoopbackProbe();
+  scheduleNextMidnightCatalogSync();
+  initCatalogSyncCheck();
   console.log(`=============================================`);
   console.log(`🚀 FREEVEE Server running (Port/Pipe: ${listenTarget})`);
   console.log(`🔒 Max Concurrent Downloads: ${MAX_CONCURRENT_DOWNLOADS}`);

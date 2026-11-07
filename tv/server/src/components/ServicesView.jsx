@@ -53,13 +53,13 @@ export default function ServicesView({ onFind, onPlayVideo, favorites = [], onTo
       const items = data.items || data.channels || [];
       setCatalogItems(items);
 
-      if (data.isLive && data.categories && Array.isArray(data.categories)) {
+      if (data.categories && Array.isArray(data.categories) && data.categories.length > 0) {
         setCategories(data.categories);
       } else {
-        const catSet = new Set(['all']);
+        const catSet = new Set(['All', 'Movies', 'TV Shows']);
         items.forEach(it => {
           if (it.category) catSet.add(it.category);
-          if (it.type) catSet.add(it.type);
+          if (it.genres && Array.isArray(it.genres)) it.genres.forEach(g => catSet.add(g));
         });
         setCategories(Array.from(catSet));
       }
@@ -164,7 +164,18 @@ export default function ServicesView({ onFind, onPlayVideo, favorites = [], onTo
       if (isLive) {
         if ((item.category || '').toLowerCase() !== categoryFilter.toLowerCase()) return false;
       } else {
-        if (item.type !== categoryFilter.toLowerCase()) return false;
+        const f = categoryFilter.toLowerCase();
+        if (f === 'movie' || f === 'movies') {
+          if (item.type !== 'movie') return false;
+        } else if (f === 'tv' || f === 'tv shows' || f === 'series' || f === 'shows') {
+          if (item.type !== 'tv') return false;
+        } else {
+          // Genre match
+          const itemGenres = (item.genres || []).map(g => (typeof g === 'string' ? g : g.translation || g.name || '').toLowerCase());
+          if (!itemGenres.some(g => g === f || g.includes(f) || f.includes(g))) {
+            return false;
+          }
+        }
       }
     }
 
@@ -174,7 +185,8 @@ export default function ServicesView({ onFind, onPlayVideo, favorites = [], onTo
       const title = (item.name || item.title || '').toLowerCase();
       const desc = (item.description || item.summary || item.currentProgram?.title || item.currentProgram?.description || '').toLowerCase();
       const cat = (item.category || '').toLowerCase();
-      return title.includes(q) || desc.includes(q) || cat.includes(q);
+      const genresStr = (item.genres || []).join(' ').toLowerCase();
+      return title.includes(q) || desc.includes(q) || cat.includes(q) || genresStr.includes(q);
     }
     return true;
   });
@@ -749,8 +761,13 @@ export default function ServicesView({ onFind, onPlayVideo, favorites = [], onTo
                     </div>
 
                     <div style={{ padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px', flex: 1, justifyContent: 'space-between' }}>
-                      <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                        {item.title}
+                      <div>
+                        <div style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                          {item.title}
+                        </div>
+                        <div style={{ fontSize: '10px', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '2px' }}>
+                          {item.year ? item.year : ''}{item.year && ((item.genres && item.genres.length > 0) || item.runtime) ? ' • ' : ''}{item.genres && item.genres.length > 0 ? item.genres.slice(0, 2).join(', ') : item.runtime ? `${item.runtime}m` : ''}
+                        </div>
                       </div>
                       <button
                         className="action-btn primary"
