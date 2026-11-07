@@ -91,7 +91,7 @@ sub init()
 
     m.playerScreen = m.top.findNode("playerScreen")
     m.video = m.top.findNode("video")
-    m.video.bufferMode = "normal"
+    m.video.bufferMode = "full"
     m.video.observeField("state", "onVideoStateChange")
     m.video.observeField("bufferingStatus", "onBufferingStatusChange")
     m.justExitedPlayer = false
@@ -3812,7 +3812,7 @@ sub tuneGuidePreview(ch as Object)
     content.url = streamUrl
     content.title = title
     content.streamFormat = "hls"
-    content.bufferingTargetSeconds = 8
+    content.bufferingTargetSeconds = 7200
     content.PlayStart = 0
     m.video.content = content
     m.video.control = "play"
@@ -3874,7 +3874,7 @@ sub enterFullscreenFromGuide()
         content.url = streamUrl
         content.title = title
         content.streamFormat = "hls"
-        content.bufferingTargetSeconds = 8
+        content.bufferingTargetSeconds = 7200
         content.PlayStart = 0
         m.video.content = content
     end if
@@ -4569,7 +4569,7 @@ sub playFreeTvStream(streamUrl as String, title as String)
     vidContent.url = streamUrl
     vidContent.title = title
     vidContent.streamFormat = "hls"
-    vidContent.bufferingTargetSeconds = 16
+    vidContent.bufferingTargetSeconds = 7200
     vidContent.PlayStart = 0
 
     m.video.content = vidContent
@@ -4626,7 +4626,7 @@ sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, file
     vidContent = CreateObject("roSGNode", "ContentNode")
     vidContent.url = playUrl
     vidContent.title = title
-    vidContent.bufferingTargetSeconds = 16
+    vidContent.bufferingTargetSeconds = 7200
 
     ' Subtitle & Caption Setup
     m.video.captionMode = "On"
@@ -4873,12 +4873,12 @@ sub startBufferingWatchdog()
     m.lastBufferingPercent = 0
     if m.bufferingWatchdogTimer = invalid
         m.bufferingWatchdogTimer = CreateObject("roSGNode", "Timer")
-        m.bufferingWatchdogTimer.duration = 35
+        m.bufferingWatchdogTimer.duration = 60
         m.bufferingWatchdogTimer.repeat = false
         m.bufferingWatchdogTimer.observeField("fire", "onBufferingWatchdogFired")
         m.top.appendChild(m.bufferingWatchdogTimer)
     end if
-    m.bufferingWatchdogTimer.duration = 35
+    m.bufferingWatchdogTimer.duration = 60
     m.bufferingWatchdogTimer.control = "stop"
     m.bufferingWatchdogTimer.control = "start"
 end sub
@@ -4899,7 +4899,7 @@ sub onBufferingStatusChange()
         m.lastBufferingPercent = pct
         if m.bufferingWatchdogTimer <> invalid and m.bufferingWatchdogTimer.control = "start" then
             m.bufferingWatchdogTimer.control = "stop"
-            m.bufferingWatchdogTimer.duration = 35
+            m.bufferingWatchdogTimer.duration = 60
             m.bufferingWatchdogTimer.control = "start"
         end if
     end if
@@ -4922,7 +4922,7 @@ sub onBufferingWatchdogFired()
         if m.bufferingStallCount < 2 then
             m.folderBreadcrumb.text = "Buffering... (waiting for stream)"
             if m.bufferingWatchdogTimer <> invalid then
-                m.bufferingWatchdogTimer.duration = 35
+                m.bufferingWatchdogTimer.duration = 60
                 m.bufferingWatchdogTimer.control = "start"
             end if
             return
