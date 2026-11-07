@@ -624,10 +624,6 @@ export async function handleTorrentHls(req, res, activeStreams) {
       'index.m3u8'
     );
   }
-      '-hls_segment_filename', 'seg_%05d.ts',
-      'index.m3u8'
-    );
-  }
 
   const ffmpegProcess = spawn(ffmpegCmd, ffmpegArgs, { cwd: hlsDir });
   let ffmpegErrTail = '';
