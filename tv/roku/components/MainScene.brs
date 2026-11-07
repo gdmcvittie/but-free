@@ -1799,10 +1799,7 @@ sub playDriveItem(item as Object)
                 ext = ".mkv"
             end if
             safeName = "video" + ext
-            ' Stream directly from high-speed VPS node
-            streamHost = m.torrentServerUrl
-            if streamHost = invalid or streamHost = "" then streamHost = m.serverUrl
-            streamUrl = streamHost + "/api/stream/drive-direct/" + driveId + "/" + safeName
+            streamUrl = m.serverUrl + "/api/stream/drive/" + driveId + "/" + safeName
             if m.authToken <> invalid and m.authToken <> ""
                 streamUrl = streamUrl + "?token=" + m.authToken
             end if

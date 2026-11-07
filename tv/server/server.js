@@ -1,5 +1,6 @@
 import dns from 'node:dns';
 try { dns.setDefaultResultOrder('ipv4first'); } catch (_) {}
+import { Readable } from 'stream';
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -3243,16 +3244,6 @@ app.get(['/api/stream/drive/:fileId', '/api/stream/drive/:fileId/:fileName'], op
     const forceDownload = req.query.download === '1' || req.query.dl === '1';
     const isRawRequest = req.query.raw === '1' || (req.headers['user-agent'] && req.headers['user-agent'].startsWith('Lavf'));
 
-    // Offload direct video playback to dedicated VPS if available
-    if (!forceDownload && !isRawRequest) {
-      const torrentServer = await getActiveTorrentServer();
-      if (torrentServer) {
-        const token = getAuthToken(req) || req.query.token || '';
-        const safeName = req.params.fileName || 'video.mp4';
-        return res.redirect(302, `${torrentServer}/api/stream/drive-direct/${fileId}/${encodeURIComponent(safeName)}?token=${encodeURIComponent(token)}`);
-      }
-    }
-
     // If client requested auto-transcoding and video is not natively playable, redirect to drive-hls
     if (!forceDownload && !isRawRequest && (req.query.autoTranscode === '1' || req.query.transcode === 'auto')) {
       const playability = await checkMediaPlayability(fileId, req.params.fileName || '', effectiveUserId);
@@ -3399,6 +3390,8 @@ app.get(['/api/stream/drive/:fileId', '/api/stream/drive/:fileId/:fileName'], op
         }
         res.setHeader('Content-Type', cType);
         res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('X-Accel-Buffering', 'no');
+        res.setHeader('Cache-Control', 'no-cache, no-transform');
 
         if (!res.getHeader('accept-ranges')) {
           res.setHeader('Accept-Ranges', 'bytes');
@@ -3410,49 +3403,15 @@ app.get(['/api/stream/drive/:fileId', '/api/stream/drive/:fileId/:fileName'], op
         }
       }
 
-      const reader = driveResponse.body.getReader();
       try {
-        while (true) {
-          if (res.destroyed || res.writableEnded) {
-            try { await reader.cancel(); } catch (_) {}
-            return { completed: false, aborted: true };
-          }
-
-          let readTimer;
-          const readTimeout = new Promise((_, reject) => {
-            readTimer = setTimeout(() => reject(new Error('Google Drive stream stalled (60s timeout)')), 60000);
-          });
-
-          let readResult;
-          try {
-            readResult = await Promise.race([reader.read(), readTimeout]);
-          } finally {
-            clearTimeout(readTimer);
-          }
-
-          const { done, value } = readResult;
-          if (done) break;
-
-          const buf = Buffer.from(value);
-          bytesSent += buf.length;
-          const canWrite = res.write(buf);
-          if (!canWrite) {
-            await new Promise(resolve => res.once('drain', resolve));
-          }
-          if (expectedBytesForThisRequest !== null && bytesSent >= expectedBytesForThisRequest) {
-            break;
-          }
-        }
-
-        // If upstream closed before all requested bytes were delivered, it's a premature termination
-        if (expectedBytesForThisRequest !== null && bytesSent < expectedBytesForThisRequest) {
-          console.warn(`[Stream Drive] Premature EOF from Google Drive at ${bytesSent}/${expectedBytesForThisRequest} bytes (file offset ${currentFileOffset + bytesSent}) for fileId=${fileId}. Resuming...`);
-          return { retryable: true, prematureEof: true };
-        }
-
+        Readable.fromWeb(driveResponse.body).pipe(res);
+        await new Promise((resolve) => {
+          res.on('finish', resolve);
+          res.on('close', resolve);
+          res.on('error', resolve);
+        });
         return { completed: true };
       } catch (err) {
-        try { await reader.cancel(); } catch (_) {}
         if (clientAbortController.signal.aborted || res.destroyed) return { completed: false, aborted: true };
         return { retryable: true, err };
       }
