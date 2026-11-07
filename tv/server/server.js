@@ -1,3 +1,5 @@
+import dns from 'node:dns';
+try { dns.setDefaultResultOrder('ipv4first'); } catch (_) {}
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -3798,6 +3800,9 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
         const sessionId = remoteRes.headers.get('x-session-id') || fileId;
         text = text.replace(/^(?:.*[\\/])?(seg_\d+\.ts)\r?$/gm, (m, p1) => `${origin}/api/stream/hls/${sessionId}/${p1}`);
         return res.send(text);
+      } else {
+        const errText = await remoteRes.text().catch(() => '');
+        console.warn(`[Drive HLS] VPS candidate ${vpsHost} returned HTTP ${remoteRes.status}:`, errText.slice(0, 300));
       }
     } catch (vpsErr) {
       console.warn(`[Drive HLS] VPS candidate ${vpsHost} failed:`, vpsErr.message);

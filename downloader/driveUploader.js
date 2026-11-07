@@ -1,3 +1,5 @@
+import dns from 'node:dns';
+try { dns.setDefaultResultOrder('ipv4first'); } catch (_) {}
 import fs from 'fs';
 import { sanitizeName } from './util.js';
 
@@ -30,6 +32,28 @@ function escapeQuery(value) {
   return String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
+async function fetchWithRetry(url, options = {}, maxRetries = 4) {
+  let lastErr;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fetch(url, options);
+    } catch (err) {
+      lastErr = err;
+      const msg = String(err?.message || '');
+      const cause = String(err?.cause || '');
+      const isTransient = /timeout|connect|econnreset|econnrefused|und_err|fetch failed|network/i.test(msg + ' ' + cause);
+      if (attempt < maxRetries && isTransient) {
+        const delay = Math.min(attempt * 1500, 6000);
+        console.warn(`[DriveUploader] Transient network error connecting to ${url} (attempt ${attempt}/${maxRetries}): ${msg} (${cause || 'no cause'}). Retrying in ${delay}ms...`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
+}
+
 export async function findFolder(accessToken, parentFolderId, folderName, refreshTokenFn) {
   const cleanName = sanitizeName(folderName);
   if (!accessToken || !parentFolderId || !cleanName) return null;
@@ -38,13 +62,13 @@ export async function findFolder(accessToken, parentFolderId, folderName, refres
     + " and mimeType = 'application/vnd.google-apps.folder' and trashed = false";
   const url = `${DRIVE_API}/files?q=${encodeURIComponent(query)}&fields=files(id,name)&pageSize=1&supportsAllDrives=true&includeItemsFromAllDrives=true`;
 
-  let res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  let res = await fetchWithRetry(url, { headers: { Authorization: `Bearer ${accessToken}` } });
 
   if (res.status === 401 && typeof refreshTokenFn === 'function') {
     const refreshed = await refreshTokenFn();
     if (refreshed) {
       accessToken = refreshed;
-      res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      res = await fetchWithRetry(url, { headers: { Authorization: `Bearer ${accessToken}` } });
     }
   }
 
@@ -63,7 +87,7 @@ export async function findOrCreateFolder(accessToken, parentFolderId, folderName
   const existing = await findFolder(accessToken, parentFolderId, cleanName, refreshTokenFn);
   if (existing) return existing;
 
-  const create = () => fetch(`${DRIVE_API}/files?supportsAllDrives=true`, {
+  const create = () => fetchWithRetry(`${DRIVE_API}/files?supportsAllDrives=true`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -194,7 +218,7 @@ export async function uploadFileToGoogleDrive(
   const fileSize = fs.statSync(filePath).size;
   const contentType = mimeFor(filePath);
 
-  const initiate = () => fetch(`${DRIVE_UPLOAD_API}/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,parents`, {
+  const initiate = () => fetchWithRetry(`${DRIVE_UPLOAD_API}/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,parents`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -230,7 +254,7 @@ export async function uploadFileToGoogleDrive(
 
   // Query Drive status using Google's resumable upload status inquiry
   const checkDriveStatus = async () => {
-    let checkRes = await fetch(sessionUri, {
+    let checkRes = await fetchWithRetry(sessionUri, {
       method: 'PUT',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -243,7 +267,7 @@ export async function uploadFileToGoogleDrive(
       const refreshed = await refreshTokenFn();
       if (refreshed) {
         accessToken = refreshed;
-        checkRes = await fetch(sessionUri, {
+        checkRes = await fetchWithRetry(sessionUri, {
           method: 'PUT',
           headers: {
             Authorization: `Bearer ${accessToken}`,

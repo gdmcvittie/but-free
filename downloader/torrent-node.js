@@ -1,3 +1,5 @@
+import dns from 'node:dns';
+try { dns.setDefaultResultOrder('ipv4first'); } catch (_) {}
 import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
@@ -315,7 +317,8 @@ app.get('/api/torrent/downloads', requireAuth, (req, res) => {
 app.get('/api/torrent/download/:id', requireAuth, (req, res) => {
   const job = getTvJob(req.params.id);
   if (!job) return res.status(404).json({ success: false, error: 'Job not found' });
-  res.json({ success: true, job });
+  const { torrent, ffmpegProcess, ...cleanJob } = job;
+  res.json({ success: true, job: cleanJob });
 });
 
 app.post('/api/torrent/download/:id/cancel', requireAuth, (req, res) => {

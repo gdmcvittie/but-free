@@ -1,3 +1,5 @@
+import dns from 'node:dns';
+try { dns.setDefaultResultOrder('ipv4first'); } catch (_) {}
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -231,7 +233,6 @@ export async function handleDriveHls(req, res) {
   let inputUrl;
   const ffmpegArgs = [
     '-threads', CPU_THREADS,
-    '-buffer_size', '10485760',
     '-reconnect', '1',
     '-reconnect_streamed', '1',
     '-reconnect_delay_max', '5',
@@ -483,7 +484,6 @@ export async function handleTorrentHls(req, res, activeStreams) {
 
   const ffmpegArgs = [
     '-threads', CPU_THREADS,
-    '-buffer_size', '10485760',
     '-reconnect', '1',
     '-reconnect_streamed', '1',
     '-reconnect_delay_max', '5',
