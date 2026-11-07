@@ -234,14 +234,15 @@ export async function handleDriveHls(req, res) {
   const ffmpegArgs = [
     '-threads', CPU_THREADS,
     '-thread_type', 'frame+slice',
+    '-multiple_requests', '1',
     '-reconnect', '1',
     '-reconnect_streamed', '1',
     '-reconnect_delay_max', '5',
     '-reconnect_at_eof', '1',
     '-reconnect_on_http_error', '1',
     '-reconnect_on_network_error', '1',
-    '-analyzeduration', '5M',
-    '-probesize', '5M'
+    '-analyzeduration', '10M',
+    '-probesize', '10M'
   ];
 
   if (googleToken) {
@@ -268,15 +269,15 @@ export async function handleDriveHls(req, res) {
     '-sn',
     '-c:v', 'libx264',
     '-preset', 'ultrafast',
-    '-tune', 'zerolatency',
     '-threads', CPU_THREADS,
     '-crf', '26',
     '-maxrate', '1500k',
-    '-bufsize', '2500k',
-    '-force_key_frames', 'expr:gte(t,n_forced*4)',
+    '-bufsize', '3000k',
+    '-g', '48',
+    '-keyint_min', '48',
     '-sc_threshold', '0',
     '-x264-params', 'repeat-headers=1',
-    '-vf', "scale=w='min(640,iw)':h='min(360,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=fast_bilinear",
+    '-vf', "scale=w='min(854,iw)':h='min(480,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=fast_bilinear",
     '-pix_fmt', 'yuv420p',
     '-c:a', 'aac',
     '-b:a', '128k',
@@ -490,14 +491,15 @@ export async function handleTorrentHls(req, res, activeStreams) {
   const ffmpegArgs = [
     '-threads', CPU_THREADS,
     '-thread_type', 'frame+slice',
+    '-multiple_requests', '1',
     '-reconnect', '1',
     '-reconnect_streamed', '1',
     '-reconnect_delay_max', '5',
     '-reconnect_at_eof', '1',
     '-reconnect_on_http_error', '1',
     '-reconnect_on_network_error', '1',
-    '-analyzeduration', '5M',
-    '-probesize', '5M'
+    '-analyzeduration', '10M',
+    '-probesize', '10M'
   ];
 
   if (offset > 0) {
@@ -511,15 +513,15 @@ export async function handleTorrentHls(req, res, activeStreams) {
     '-sn',
     '-c:v', 'libx264',
     '-preset', 'ultrafast',
-    '-tune', 'zerolatency',
     '-threads', CPU_THREADS,
     '-crf', '26',
     '-maxrate', '1500k',
-    '-bufsize', '2500k',
-    '-force_key_frames', 'expr:gte(t,n_forced*4)',
+    '-bufsize', '3000k',
+    '-g', '48',
+    '-keyint_min', '48',
     '-sc_threshold', '0',
     '-x264-params', 'repeat-headers=1',
-    '-vf', "scale=w='min(640,iw)':h='min(360,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=fast_bilinear",
+    '-vf', "scale=w='min(854,iw)':h='min(480,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=fast_bilinear",
     '-pix_fmt', 'yuv420p',
     '-c:a', 'aac',
     '-b:a', '128k',

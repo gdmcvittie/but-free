@@ -1770,43 +1770,20 @@ sub playDriveItem(item as Object)
             end if
         end if
 
-        ' Native hardware playback for Roku-supported containers (MKV, MP4, M4V, MOV, WebM)
-        lName = ""
-        if filename <> invalid then lName = LCase(filename)
-        isNativeRoku = (Instr(1, lName, ".mp4") > 0 or Instr(1, lName, ".mkv") > 0 or Instr(1, lName, ".m4v") > 0 or Instr(1, lName, ".mov") > 0 or Instr(1, lName, ".webm") > 0)
-
-        if isNativeRoku
-            ' Direct hardware playback: 0% VPS CPU, native resolution, zero transcoding delay or buffer stalls
-            safeName = filename
-            if safeName = invalid or safeName = ""
-                if Instr(1, lName, ".mkv") > 0
-                    safeName = "video.mkv"
-                else
-                    safeName = "video.mp4"
-                end if
-            end if
-            streamUrl = m.serverUrl + "/api/stream/drive/" + driveId + "/" + safeName
-            if isLoggedIn()
-                streamUrl = streamUrl + "?token=" + m.authToken
-            end if
-            m.maxPlaybackPosition = offset
-            playVideoUrl(streamUrl, title, offset, filename, false, subUrl)
-        else
-            ' Fallback to HLS transcoding on VPS for legacy containers (AVI, WMV, FLV)
-            streamUrl = m.serverUrl + "/api/stream/drive-hls/" + driveId + ".m3u8"
-            if isLoggedIn()
-                streamUrl = streamUrl + "?token=" + m.authToken
-            end if
-            if offset > 0
-                if Instr(1, streamUrl, "?") > 0
-                    streamUrl = streamUrl + "&offset=" + Stri(Fix(offset)).trim()
-                else
-                    streamUrl = streamUrl + "?offset=" + Stri(Fix(offset)).trim()
-                end if
-            end if
-            m.maxPlaybackPosition = offset
-            playVideoUrl(streamUrl, title, offset, filename, true, subUrl)
+        ' Always transcode Drive content to 480p HLS via dedicated VPS (offloaded by cloud server)
+        streamUrl = m.serverUrl + "/api/stream/drive-hls/" + driveId + ".m3u8"
+        if isLoggedIn()
+            streamUrl = streamUrl + "?token=" + m.authToken
         end if
+        if offset > 0
+            if Instr(1, streamUrl, "?") > 0
+                streamUrl = streamUrl + "&offset=" + Stri(Fix(offset)).trim()
+            else
+                streamUrl = streamUrl + "?offset=" + Stri(Fix(offset)).trim()
+            end if
+        end if
+        m.maxPlaybackPosition = offset
+        playVideoUrl(streamUrl, title, offset, filename, true, subUrl)
     end if
 end sub
 
@@ -3835,7 +3812,7 @@ sub tuneGuidePreview(ch as Object)
     content.url = streamUrl
     content.title = title
     content.streamFormat = "hls"
-    content.bufferingTargetSeconds = 7200
+    content.bufferingTargetSeconds = 8
     content.PlayStart = 0
     m.video.content = content
     m.video.control = "play"
@@ -3897,7 +3874,7 @@ sub enterFullscreenFromGuide()
         content.url = streamUrl
         content.title = title
         content.streamFormat = "hls"
-        content.bufferingTargetSeconds = 7200
+        content.bufferingTargetSeconds = 8
         content.PlayStart = 0
         m.video.content = content
     end if
@@ -4592,7 +4569,7 @@ sub playFreeTvStream(streamUrl as String, title as String)
     vidContent.url = streamUrl
     vidContent.title = title
     vidContent.streamFormat = "hls"
-    vidContent.bufferingTargetSeconds = 7200
+    vidContent.bufferingTargetSeconds = 12
     vidContent.PlayStart = 0
 
     m.video.content = vidContent
@@ -4649,7 +4626,7 @@ sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, file
     vidContent = CreateObject("roSGNode", "ContentNode")
     vidContent.url = playUrl
     vidContent.title = title
-    vidContent.bufferingTargetSeconds = 7200
+    vidContent.bufferingTargetSeconds = 12
 
     ' Subtitle & Caption Setup
     m.video.captionMode = "On"
