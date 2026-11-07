@@ -3181,7 +3181,9 @@ app.get('/api/stream/drive-subtitle/:fileId', optionalAuth, async (req, res) => 
     }
 
     if (!targetSubId) {
-      return res.status(404).send('No subtitle found for video');
+      res.setHeader('Content-Type', 'text/vtt; charset=utf-8');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      return res.status(200).send('WEBVTT\n\n');
     }
 
     const driveUrl = `https://www.googleapis.com/drive/v3/files/${targetSubId}?alt=media`;
@@ -3190,7 +3192,9 @@ app.get('/api/stream/drive-subtitle/:fileId', optionalAuth, async (req, res) => 
     });
 
     if (!driveRes.ok) {
-      return res.status(driveRes.status).send('Failed to fetch subtitle file');
+      res.setHeader('Content-Type', 'text/vtt; charset=utf-8');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      return res.status(200).send('WEBVTT\n\n');
     }
 
     const rawText = await driveRes.text();
@@ -3799,7 +3803,12 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Access-Control-Allow-Origin', '*');
         let text = await remoteRes.text();
-        const sessionId = remoteRes.headers.get('x-session-id') || fileId;
+        let sessionId = remoteRes.headers.get('x-session-id');
+        if (!sessionId) {
+          const match = text.match(/\/api\/stream\/hls\/([a-zA-Z0-9_-]+)\//);
+          if (match) sessionId = match[1];
+          else sessionId = fileId;
+        }
         text = text.replace(/^(?:.*[\\/])?(seg_\d+\.ts)\r?$/gm, (m, p1) => `${origin}/api/stream/hls/${sessionId}/${p1}`);
         return res.send(text);
       } else {
@@ -4466,6 +4475,9 @@ app.get('/api/stream/hls/:sessionId/:file', async (req, res) => {
             const contentType = remoteRes.headers.get('content-type') || (safeFile.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/mp2t');
             res.setHeader('Content-Type', contentType);
             res.setHeader('Access-Control-Allow-Origin', '*');
+            const cl = remoteRes.headers.get('content-length');
+            if (cl) res.setHeader('Content-Length', cl);
+            res.setHeader('Accept-Ranges', 'bytes');
             const cacheControl = remoteRes.headers.get('cache-control');
             if (cacheControl) res.setHeader('Cache-Control', cacheControl);
             if (safeFile.endsWith('.m3u8')) {
@@ -4473,6 +4485,9 @@ app.get('/api/stream/hls/:sessionId/:file', async (req, res) => {
               let text = await remoteRes.text();
               text = text.replace(/^(?:.*[\\/])?(seg_\d+\.ts)\r?$/gm, (m, p1) => `${origin}/api/stream/hls/${sessionId}/${p1}`);
               return res.send(text);
+            }
+            if (req.method === 'HEAD') {
+              return res.end();
             }
             const { Readable } = await import('node:stream');
             if (remoteRes.body) {

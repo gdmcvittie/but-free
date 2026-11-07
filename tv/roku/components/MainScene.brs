@@ -1756,8 +1756,6 @@ sub playDriveItem(item as Object)
         subVal = getItemField(item, "subtitleUrl")
         if subVal <> invalid and safeStr(subVal) <> ""
             subUrl = safeStr(subVal)
-        else
-            subUrl = "/api/stream/drive-subtitle/" + driveId
         end if
         if subUrl <> "" and Left(subUrl, 4) <> "http"
             subUrl = m.serverUrl + subUrl
@@ -4644,7 +4642,6 @@ sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, file
     vidContent.bufferingTargetSeconds = 12
 
     ' Subtitle & Caption Setup
-    m.video.captionMode = "On"
     if subtitleUrl <> "" and subtitleUrl <> invalid
         subTracks = []
         subTracks.push({
@@ -4653,6 +4650,9 @@ sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, file
             Description: "English"
         })
         vidContent.subtitleTracks = subTracks
+        m.video.captionMode = "On"
+    else
+        m.video.captionMode = "Off"
     end if
     if forceHls
         vidContent.streamFormat = "hls"
@@ -5125,6 +5125,7 @@ sub onVideoStateChange()
         errMsg = ""
         if m.video.errorCode <> invalid then errCode = Stri(m.video.errorCode).trim()
         if m.video.errorMsg <> invalid then errMsg = m.video.errorMsg
+        print "[Video Error] code="; errCode; " msg="; errMsg; " url="; m.currentStreamUrl
 
         if m.triedTranscodeFallback <> true and m.currentStreamUrl <> invalid and m.currentStreamUrl <> ""
             m.triedTranscodeFallback = true

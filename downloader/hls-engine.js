@@ -259,9 +259,10 @@ export async function handleDriveHls(req, res) {
     console.log(`[VPS Drive HLS] Starting transcode session=${sessionId} fileId=${fileId} offset=${offset}s inputUrl=${inputOrigin}/api/stream/drive/${fileId}`);
   }
 
-  // Fast probe to detect if video is HEVC/H.264 for high-speed lossless stream-copy
+  // Fast probe to detect if video is H.264 (8-bit) for high-speed lossless stream-copy into MPEG-TS.
+  // Note: Roku OS strictly requires H.264 in MPEG-TS (.ts) containers; HEVC in .ts is unsupported.
   const forceReencode = req.query.forceTranscode === '1' || req.query.reencode === '1';
-  let canCopyVideo = !forceReencode;
+  let canCopyVideo = false;
   let canCopyAudio = false;
 
   let probe = null;
@@ -276,8 +277,8 @@ export async function handleDriveHls(req, res) {
   }
 
   if (probe && probe.videoCodec) {
-    canCopyVideo = !forceReencode && (probe.videoCodec === 'hevc' || probe.videoCodec === 'h264');
-    canCopyAudio = (probe.audioCodec === 'aac');
+    canCopyVideo = !forceReencode && (probe.videoCodec === 'h264' && !probe.is10Bit);
+    canCopyAudio = (probe.audioCodec === 'aac' || probe.audioCodec === 'mp3');
   }
 
   if (offset > 0) {
@@ -304,7 +305,7 @@ export async function handleDriveHls(req, res) {
       'index.m3u8'
     );
   } else {
-    console.log(`[VPS Drive HLS] Fallback 480p transcode session=${sessionId} fileId=${fileId} video=${probe?.videoCodec || 'unknown'}`);
+    console.log(`[VPS Drive HLS] Transcoding to H.264 (Roku-compatible) session=${sessionId} fileId=${fileId} srcVideo=${probe?.videoCodec || 'unknown'} srcAudio=${probe?.audioCodec || 'unknown'}`);
     ffmpegArgs.push(
       '-i', inputUrl,
       '-map', '0:v:0',
@@ -312,19 +313,19 @@ export async function handleDriveHls(req, res) {
       '-sn',
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
+      '-tune', 'fastdecode',
       '-threads', CPU_THREADS,
       '-crf', '26',
-      '-maxrate', '1500k',
-      '-bufsize', '3000k',
+      '-maxrate', '2000k',
+      '-bufsize', '4000k',
       '-g', '48',
       '-keyint_min', '48',
       '-sc_threshold', '0',
       '-x264-params', 'repeat-headers=1',
       '-vf', "scale=w='min(854,iw)':h='min(480,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=fast_bilinear",
       '-pix_fmt', 'yuv420p',
-      '-c:a', 'aac',
-      '-b:a', '128k',
-      '-ac', '2',
+      '-c:a', canCopyAudio ? 'copy' : 'aac',
+      ...(canCopyAudio ? [] : ['-b:a', '128k', '-ac', '2']),
       '-max_muxing_queue_size', '2048',
       '-hls_time', '4',
       '-t', String(HLS_CHUNK_SECONDS),
@@ -546,9 +547,10 @@ export async function handleTorrentHls(req, res, activeStreams) {
     '-probesize', '10M'
   ];
 
-  // Fast probe to detect if torrent video is HEVC/H.264 for high-speed stream-copy
+  // Fast probe to detect if torrent video is H.264 (8-bit) for high-speed lossless stream-copy into MPEG-TS.
+  // Note: Roku OS strictly requires H.264 in MPEG-TS (.ts) containers; HEVC in .ts is unsupported.
   const forceReencode = req.query.forceTranscode === '1' || req.query.reencode === '1';
-  let canCopyVideo = !forceReencode;
+  let canCopyVideo = false;
   let canCopyAudio = false;
 
   let probe = null;
@@ -563,8 +565,8 @@ export async function handleTorrentHls(req, res, activeStreams) {
   }
 
   if (probe && probe.videoCodec) {
-    canCopyVideo = !forceReencode && (probe.videoCodec === 'hevc' || probe.videoCodec === 'h264');
-    canCopyAudio = (probe.audioCodec === 'aac');
+    canCopyVideo = !forceReencode && (probe.videoCodec === 'h264' && !probe.is10Bit);
+    canCopyAudio = (probe.audioCodec === 'aac' || probe.audioCodec === 'mp3');
   }
 
   if (offset > 0) {
@@ -591,7 +593,7 @@ export async function handleTorrentHls(req, res, activeStreams) {
       'index.m3u8'
     );
   } else {
-    console.log(`[VPS Torrent HLS] Fallback 480p transcode session=${sessionId} streamId=${streamId} video=${probe?.videoCodec || 'unknown'}`);
+    console.log(`[VPS Torrent HLS] Transcoding to H.264 (Roku-compatible) session=${sessionId} streamId=${streamId} srcVideo=${probe?.videoCodec || 'unknown'} srcAudio=${probe?.audioCodec || 'unknown'}`);
     ffmpegArgs.push(
       '-i', inputUrl,
       '-map', '0:v:0',
@@ -599,25 +601,29 @@ export async function handleTorrentHls(req, res, activeStreams) {
       '-sn',
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
+      '-tune', 'fastdecode',
       '-threads', CPU_THREADS,
       '-crf', '26',
-      '-maxrate', '1500k',
-      '-bufsize', '3000k',
+      '-maxrate', '2000k',
+      '-bufsize', '4000k',
       '-g', '48',
       '-keyint_min', '48',
       '-sc_threshold', '0',
       '-x264-params', 'repeat-headers=1',
       '-vf', "scale=w='min(854,iw)':h='min(480,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=fast_bilinear",
       '-pix_fmt', 'yuv420p',
-      '-c:a', 'aac',
-      '-b:a', '128k',
-      '-ac', '2',
+      '-c:a', canCopyAudio ? 'copy' : 'aac',
+      ...(canCopyAudio ? [] : ['-b:a', '128k', '-ac', '2']),
       '-max_muxing_queue_size', '2048',
       '-hls_time', '4',
       '-t', String(HLS_CHUNK_SECONDS),
       '-hls_playlist_type', 'event',
       '-hls_list_size', '0',
       '-hls_flags', 'independent_segments',
+      '-hls_segment_filename', 'seg_%05d.ts',
+      'index.m3u8'
+    );
+  }
       '-hls_segment_filename', 'seg_%05d.ts',
       'index.m3u8'
     );
