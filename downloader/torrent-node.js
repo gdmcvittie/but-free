@@ -1046,13 +1046,15 @@ app.get(['/api/dashboard', '/api/torrent/dashboard'], requireAuth, (req, res) =>
   });
 });
 
-// Restart PM2 process
+// Restart PM2 process & update from git
 const handleRestart = (req, res) => {
-  console.log('[Downloader] Process restart requested via API.');
-  res.json({ success: true, message: 'Unified downloader server is restarting…' });
+  console.log('[Downloader] Process restart & git pull requested via API.');
+  res.json({ success: true, message: 'Unified downloader server is updating from git and restarting…' });
   setTimeout(() => {
-    exec('pm2 restart butfree-downloader || pm2 restart all', { timeout: 3000 }, () => {});
-    setTimeout(() => process.exit(0), 1500);
+    exec('git pull origin main && (pm2 restart butfree-downloader || pm2 restart all)', { timeout: 30000 }, (err, stdout, stderr) => {
+      console.log('[Downloader Restart] git pull:', stdout || stderr);
+    });
+    setTimeout(() => process.exit(0), 4000);
   }, 300);
 };
 

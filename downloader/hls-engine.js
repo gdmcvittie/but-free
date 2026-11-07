@@ -260,6 +260,10 @@ export async function handleDriveHls(req, res) {
   }
 
   // Fast probe to detect if video is HEVC/H.264 for high-speed lossless stream-copy
+  const forceReencode = req.query.forceTranscode === '1' || req.query.reencode === '1';
+  let canCopyVideo = !forceReencode;
+  let canCopyAudio = false;
+
   let probe = null;
   const probeKey = `drive:${fileId}`;
   if (hlsProbeCache.has(probeKey)) {
@@ -271,23 +275,23 @@ export async function handleDriveHls(req, res) {
     } catch (_) {}
   }
 
-  const forceReencode = req.query.forceTranscode === '1' || req.query.reencode === '1';
-  const canCopyVideo = !forceReencode && (probe?.videoCodec === 'hevc' || probe?.videoCodec === 'h264');
-  const canCopyAudio = (probe?.audioCodec === 'aac');
+  if (probe && probe.videoCodec) {
+    canCopyVideo = !forceReencode && (probe.videoCodec === 'hevc' || probe.videoCodec === 'h264');
+    canCopyAudio = (probe.audioCodec === 'aac');
+  }
 
   if (offset > 0) {
     ffmpegArgs.push('-ss', offset.toString());
   }
 
   if (canCopyVideo) {
-    console.log(`[VPS Drive HLS] Ultra-fast REMUX stream-copy session=${sessionId} fileId=${fileId} video=${probe.videoCodec} audio=${probe?.audioCodec || 'unknown'}`);
+    console.log(`[VPS Drive HLS] Ultra-fast REMUX stream-copy session=${sessionId} fileId=${fileId} video=${probe?.videoCodec || 'copy'} audio=${canCopyAudio ? 'copy' : 'aac'}`);
     ffmpegArgs.push(
       '-i', inputUrl,
       '-map', '0:v:0',
       '-map', '0:a:0?',
       '-sn',
       '-c:v', 'copy',
-      ...(probe.videoCodec === 'hevc' ? ['-bsf:v', 'hevc_mp4toannexb'] : ['-bsf:v', 'h264_mp4toannexb']),
       '-c:a', canCopyAudio ? 'copy' : 'aac',
       ...(canCopyAudio ? [] : ['-b:a', '128k', '-ac', '2']),
       '-max_muxing_queue_size', '4096',
@@ -543,6 +547,10 @@ export async function handleTorrentHls(req, res, activeStreams) {
   ];
 
   // Fast probe to detect if torrent video is HEVC/H.264 for high-speed stream-copy
+  const forceReencode = req.query.forceTranscode === '1' || req.query.reencode === '1';
+  let canCopyVideo = !forceReencode;
+  let canCopyAudio = false;
+
   let probe = null;
   const probeKey = `torrent:${streamId}:${fileIndex || '0'}`;
   if (hlsProbeCache.has(probeKey)) {
@@ -554,23 +562,23 @@ export async function handleTorrentHls(req, res, activeStreams) {
     } catch (_) {}
   }
 
-  const forceReencode = req.query.forceTranscode === '1' || req.query.reencode === '1';
-  const canCopyVideo = !forceReencode && (probe?.videoCodec === 'hevc' || probe?.videoCodec === 'h264');
-  const canCopyAudio = (probe?.audioCodec === 'aac');
+  if (probe && probe.videoCodec) {
+    canCopyVideo = !forceReencode && (probe.videoCodec === 'hevc' || probe.videoCodec === 'h264');
+    canCopyAudio = (probe.audioCodec === 'aac');
+  }
 
   if (offset > 0) {
     ffmpegArgs.push('-ss', offset.toString());
   }
 
   if (canCopyVideo) {
-    console.log(`[VPS Torrent HLS] Ultra-fast REMUX stream-copy session=${sessionId} streamId=${streamId} video=${probe.videoCodec} audio=${probe?.audioCodec || 'unknown'}`);
+    console.log(`[VPS Torrent HLS] Ultra-fast REMUX stream-copy session=${sessionId} streamId=${streamId} video=${probe?.videoCodec || 'copy'} audio=${canCopyAudio ? 'copy' : 'aac'}`);
     ffmpegArgs.push(
       '-i', inputUrl,
       '-map', '0:v:0',
       '-map', '0:a:0?',
       '-sn',
       '-c:v', 'copy',
-      ...(probe.videoCodec === 'hevc' ? ['-bsf:v', 'hevc_mp4toannexb'] : ['-bsf:v', 'h264_mp4toannexb']),
       '-c:a', canCopyAudio ? 'copy' : 'aac',
       ...(canCopyAudio ? [] : ['-b:a', '128k', '-ac', '2']),
       '-max_muxing_queue_size', '4096',
@@ -803,7 +811,7 @@ export async function probeMediaCodecs(inputUrl, googleToken = '') {
     const timer = setTimeout(() => {
       try { probe.kill('SIGKILL'); } catch (_) {}
       resolve({ videoCodec: '', audioCodec: '', nativelyPlayable: false, needsTranscode: true, reason: 'timeout' });
-    }, 6000);
+    }, 12000);
 
     probe.stderr.on('data', d => { stderr += d.toString(); });
     probe.on('close', () => {

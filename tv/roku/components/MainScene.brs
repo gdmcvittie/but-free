@@ -4873,12 +4873,12 @@ sub startBufferingWatchdog()
     m.lastBufferingPercent = 0
     if m.bufferingWatchdogTimer = invalid
         m.bufferingWatchdogTimer = CreateObject("roSGNode", "Timer")
-        m.bufferingWatchdogTimer.duration = 60
+        m.bufferingWatchdogTimer.duration = 180
         m.bufferingWatchdogTimer.repeat = false
         m.bufferingWatchdogTimer.observeField("fire", "onBufferingWatchdogFired")
         m.top.appendChild(m.bufferingWatchdogTimer)
     end if
-    m.bufferingWatchdogTimer.duration = 60
+    m.bufferingWatchdogTimer.duration = 180
     m.bufferingWatchdogTimer.control = "stop"
     m.bufferingWatchdogTimer.control = "start"
 end sub
@@ -4894,12 +4894,15 @@ sub onBufferingStatusChange()
     status = m.video.bufferingStatus
     pct = 0
     if status.percentage <> invalid then pct = status.percentage
+    if m.folderBreadcrumb <> invalid and pct > 0
+        m.folderBreadcrumb.text = "Buffering... " + Stri(pct).trim() + "%"
+    end if
     ' If buffering percentage is actively progressing or positive, refresh watchdog to allow download to finish
-    if pct > m.lastBufferingPercent or (pct > 0 and m.bufferingWatchdogTimer <> invalid and m.bufferingWatchdogTimer.duration < 15) then
+    if pct > m.lastBufferingPercent or pct > 0 then
         m.lastBufferingPercent = pct
         if m.bufferingWatchdogTimer <> invalid and m.bufferingWatchdogTimer.control = "start" then
             m.bufferingWatchdogTimer.control = "stop"
-            m.bufferingWatchdogTimer.duration = 60
+            m.bufferingWatchdogTimer.duration = 180
             m.bufferingWatchdogTimer.control = "start"
         end if
     end if
@@ -4916,22 +4919,30 @@ sub onBufferingWatchdogFired()
 
         if m.bufferingStallCount = invalid then m.bufferingStallCount = 0
         m.bufferingStallCount = m.bufferingStallCount + 1
-        print "[Watchdog] Buffering stalled (stall #"; m.bufferingStallCount; ") for 25s at offset: "; curOffset
+        print "[Watchdog] Buffering stalled (stall #"; m.bufferingStallCount; ") for 180s at offset: "; curOffset
 
-        ' First stall detection: allow an extra 15s grace period before tearing down playback
-        if m.bufferingStallCount < 2 then
-            m.folderBreadcrumb.text = "Buffering... (waiting for stream)"
+        ' Allow ample grace period (up to 4 stall intervals = ~10 minutes) before attempting hard recovery
+        if m.bufferingStallCount < 4 then
+            pctText = ""
+            if m.lastBufferingPercent <> invalid and m.lastBufferingPercent > 0
+                pctText = " (" + Stri(m.lastBufferingPercent).trim() + "%)"
+            end if
+            m.folderBreadcrumb.text = "Buffering stream" + pctText + "..."
             if m.bufferingWatchdogTimer <> invalid then
-                m.bufferingWatchdogTimer.duration = 60
+                m.bufferingWatchdogTimer.duration = 180
                 m.bufferingWatchdogTimer.control = "start"
             end if
             return
         end if
 
-        ' Maximum 1 hard recovery attempt to prevent endless restart loops
-        if m.bufferingStallCount > 2 then
-            print "[Watchdog] Maximum recovery attempts reached for offset "; curOffset; ". Not retrying."
-            m.folderBreadcrumb.text = "Stream interrupted. Press Back to exit."
+        ' Maximum recovery attempts reached: inform user but keep player open so they can decide or press Back
+        if m.bufferingStallCount > 5 then
+            print "[Watchdog] Maximum recovery attempts reached for offset "; curOffset; ". Waiting for network..."
+            m.folderBreadcrumb.text = "Stream waiting for server buffer. Press Back to exit."
+            if m.bufferingWatchdogTimer <> invalid then
+                m.bufferingWatchdogTimer.duration = 180
+                m.bufferingWatchdogTimer.control = "start"
+            end if
             return
         end if
 
