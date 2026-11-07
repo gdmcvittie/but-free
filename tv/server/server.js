@@ -3349,7 +3349,7 @@ app.get(['/api/stream/drive/:fileId', '/api/stream/drive/:fileId/:fileName'], op
 
       if (!headersSent) {
         res.status(driveResponse.status);
-        const forwardHeaders = ['content-range', 'accept-ranges', 'content-disposition'];
+        const forwardHeaders = ['content-range', 'accept-ranges'];
         // Do NOT send giant content-length on unbounded streams through LiteSpeed (causes 413 Request Entity Too Large)
         const cl = driveResponse.headers.get('content-length');
         if (cl && rangeEnd !== null) {
@@ -3363,6 +3363,8 @@ app.get(['/api/stream/drive/:fileId', '/api/stream/drive/:fileId/:fileName'], op
         if (forceDownload) {
           const dlName = String(req.params.fileName || `video-${fileId}`).replace(/["\r\n]/g, '');
           res.setHeader('Content-Disposition', `attachment; filename="${dlName}"`);
+        } else {
+          res.setHeader('Content-Disposition', 'inline');
         }
 
         let cType = driveResponse.headers.get('content-type');

@@ -1770,20 +1770,40 @@ sub playDriveItem(item as Object)
             end if
         end if
 
-        ' Always transcode Drive content to HLS via dedicated VPS (offloaded by cloud server)
-        streamUrl = m.serverUrl + "/api/stream/drive-hls/" + driveId + ".m3u8"
-        if isLoggedIn()
-            streamUrl = streamUrl + "?token=" + m.authToken
+        ' Native hardware playback for Roku-supported containers (MKV, MP4, M4V, MOV, WebM)
+        ext = ""
+        if filename <> invalid and filename <> ""
+            dotPos = InstrRev(filename, ".")
+            if dotPos > 0 then ext = LCase(Mid(filename, dotPos))
         end if
-        if offset > 0
-            if Instr(1, streamUrl, "?") > 0
-                streamUrl = streamUrl + "&offset=" + Stri(Fix(offset)).trim()
-            else
-                streamUrl = streamUrl + "?offset=" + Stri(Fix(offset)).trim()
+        isNativeRoku = (ext = ".mp4" or ext = ".mkv" or ext = ".m4v" or ext = ".mov" or ext = ".webm")
+
+        if isNativeRoku
+            ' Direct hardware playback: 0% VPS CPU, native resolution, zero transcoding delay or buffer stalls
+            safeName = filename
+            if safeName = invalid or safeName = "" then safeName = "video" + ext
+            streamUrl = m.serverUrl + "/api/stream/drive/" + driveId + "/" + safeName
+            if isLoggedIn()
+                streamUrl = streamUrl + "?token=" + m.authToken
             end if
+            m.maxPlaybackPosition = offset
+            playVideoUrl(streamUrl, title, offset, filename, false, subUrl)
+        else
+            ' Fallback to HLS transcoding on VPS for legacy containers (AVI, WMV, FLV)
+            streamUrl = m.serverUrl + "/api/stream/drive-hls/" + driveId + ".m3u8"
+            if isLoggedIn()
+                streamUrl = streamUrl + "?token=" + m.authToken
+            end if
+            if offset > 0
+                if Instr(1, streamUrl, "?") > 0
+                    streamUrl = streamUrl + "&offset=" + Stri(Fix(offset)).trim()
+                else
+                    streamUrl = streamUrl + "?offset=" + Stri(Fix(offset)).trim()
+                end if
+            end if
+            m.maxPlaybackPosition = offset
+            playVideoUrl(streamUrl, title, offset, filename, true, subUrl)
         end if
-        m.maxPlaybackPosition = offset
-        playVideoUrl(streamUrl, title, offset, filename, true, subUrl)
     end if
 end sub
 
@@ -5107,6 +5127,17 @@ sub onVideoStateChange()
                 driveId = ""
                 if m.currentPlayFilePath <> invalid and Len(m.currentPlayFilePath) >= 8 and Left(m.currentPlayFilePath, 8) = "drive://"
                     driveId = Mid(m.currentPlayFilePath, 9)
+                end if
+                if driveId = ""
+                    uTokens = fallbackUrl.split("/")
+                    for ui = 0 to uTokens.count() - 1
+                        if uTokens[ui] = "drive" and ui + 1 < uTokens.count()
+                            driveId = uTokens[ui + 1]
+                            qIdx = Instr(1, driveId, "?")
+                            if qIdx > 0 then driveId = Left(driveId, qIdx - 1)
+                            exit for
+                        end if
+                    end for
                 end if
                 if driveId <> ""
                     fallbackUrl = m.serverUrl + "/api/stream/drive-hls/" + driveId + ".m3u8"

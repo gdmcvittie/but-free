@@ -233,6 +233,7 @@ export async function handleDriveHls(req, res) {
   let inputUrl;
   const ffmpegArgs = [
     '-threads', CPU_THREADS,
+    '-thread_type', 'frame+slice',
     '-reconnect', '1',
     '-reconnect_streamed', '1',
     '-reconnect_delay_max', '5',
@@ -275,7 +276,7 @@ export async function handleDriveHls(req, res) {
     '-force_key_frames', 'expr:gte(t,n_forced*4)',
     '-sc_threshold', '0',
     '-x264-params', 'repeat-headers=1',
-    '-vf', "scale=w='min(854,iw)':h='min(480,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=fast_bilinear",
+    '-vf', "scale=w='min(640,iw)':h='min(360,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=fast_bilinear",
     '-pix_fmt', 'yuv420p',
     '-c:a', 'aac',
     '-b:a', '128k',
@@ -293,11 +294,15 @@ export async function handleDriveHls(req, res) {
   const ffmpegProcess = spawn(ffmpegCmd, ffmpegArgs, { cwd: hlsDir });
   let ffmpegErrTail = '';
   const ffmpegLogPath = path.join(hlsDir, 'ffmpeg.log');
-  try { fs.writeFileSync(ffmpegLogPath, `[${new Date().toISOString()}] spawn ${ffmpegCmd} ${ffmpegArgs.join(' ')}\n`); } catch (_) {}
+  let logStream = null;
+  try {
+    logStream = fs.createWriteStream(ffmpegLogPath, { flags: 'a' });
+    logStream.write(`[${new Date().toISOString()}] spawn ${ffmpegCmd} ${ffmpegArgs.join(' ')}\n`);
+  } catch (_) {}
 
   ffmpegProcess.stderr.on('data', (d) => {
     ffmpegErrTail = (ffmpegErrTail + d.toString()).slice(-2000);
-    try { fs.appendFileSync(ffmpegLogPath, d.toString()); } catch (_) {}
+    if (logStream) { try { logStream.write(d); } catch (_) {} }
     if (sessionTotalDurationSec === null) {
       const parsedDur = parseFfmpegDuration(d.toString());
       if (parsedDur) {
@@ -333,6 +338,7 @@ export async function handleDriveHls(req, res) {
   ffmpegProcess.on('exit', (code, signal) => {
     ffmpegExited = true;
     ffmpegExitCode = code;
+    if (logStream) { try { logStream.end(); } catch (_) {} }
     console.log(`[VPS Drive HLS] FFmpeg exited session=${sessionId} code=${code} signal=${signal}`);
     try {
       if (fs.existsSync(m3u8Path)) {
@@ -361,7 +367,7 @@ export async function handleDriveHls(req, res) {
         const segCount = (content.match(/seg_\d+\.ts/g) || []).length;
         const isComplete = content.includes('#EXT-X-ENDLIST');
         const elapsed = Date.now() - waitStarted;
-        if (segCount >= 4 || isComplete || (segCount >= 3 && elapsed > 8000)) {
+        if (segCount >= 2 || isComplete || (segCount >= 1 && elapsed > 5000)) {
           if (resolveLock) { resolveLock(sessionId); hlsStartingByKeyOffset.delete(lockKey); }
           console.log(`[VPS Drive HLS] Ready session=${sessionId} segments=${segCount} (${elapsed}ms)`);
           res.setHeader('X-Session-Id', sessionId);
@@ -483,6 +489,7 @@ export async function handleTorrentHls(req, res, activeStreams) {
 
   const ffmpegArgs = [
     '-threads', CPU_THREADS,
+    '-thread_type', 'frame+slice',
     '-reconnect', '1',
     '-reconnect_streamed', '1',
     '-reconnect_delay_max', '5',
@@ -512,7 +519,7 @@ export async function handleTorrentHls(req, res, activeStreams) {
     '-force_key_frames', 'expr:gte(t,n_forced*4)',
     '-sc_threshold', '0',
     '-x264-params', 'repeat-headers=1',
-    '-vf', "scale=w='min(854,iw)':h='min(480,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=fast_bilinear",
+    '-vf', "scale=w='min(640,iw)':h='min(360,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=fast_bilinear",
     '-pix_fmt', 'yuv420p',
     '-c:a', 'aac',
     '-b:a', '128k',
@@ -592,7 +599,7 @@ export async function handleTorrentHls(req, res, activeStreams) {
         const segCount = (content.match(/seg_\d+\.ts/g) || []).length;
         const isComplete = content.includes('#EXT-X-ENDLIST');
         const elapsed = Date.now() - waitStarted;
-        if (segCount >= 4 || isComplete || (segCount >= 3 && elapsed > 8000)) {
+        if (segCount >= 2 || isComplete || (segCount >= 1 && elapsed > 5000)) {
           if (resolveLock) { resolveLock(sessionId); hlsStartingByKeyOffset.delete(lockKey); }
           res.setHeader('X-Session-Id', sessionId);
           res.writeHead(302, {
