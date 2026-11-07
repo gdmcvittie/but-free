@@ -4569,7 +4569,7 @@ sub playFreeTvStream(streamUrl as String, title as String)
     vidContent.url = streamUrl
     vidContent.title = title
     vidContent.streamFormat = "hls"
-    vidContent.bufferingTargetSeconds = 12
+    vidContent.bufferingTargetSeconds = 16
     vidContent.PlayStart = 0
 
     m.video.content = vidContent
@@ -4626,7 +4626,7 @@ sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, file
     vidContent = CreateObject("roSGNode", "ContentNode")
     vidContent.url = playUrl
     vidContent.title = title
-    vidContent.bufferingTargetSeconds = 12
+    vidContent.bufferingTargetSeconds = 16
 
     ' Subtitle & Caption Setup
     m.video.captionMode = "On"

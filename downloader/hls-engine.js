@@ -12,7 +12,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const cpuCount = os.cpus()?.length || 2;
-const CPU_THREADS = String(process.env.MAX_TRANSCODE_THREADS || Math.max(2, cpuCount > 2 ? cpuCount - 1 : cpuCount));
+const CPU_THREADS = String(process.env.MAX_TRANSCODE_THREADS || '0');
 
 const CACHE_DIR = process.env.DOWNLOADER_CACHE_DIR || process.env.CACHE_DIR || path.join(__dirname, 'downloads');
 const HLS_CACHE_DIR = path.join(CACHE_DIR, 'hls');
@@ -275,10 +275,9 @@ export async function handleDriveHls(req, res) {
     '-force_key_frames', 'expr:gte(t,n_forced*4)',
     '-sc_threshold', '0',
     '-x264-params', 'repeat-headers=1',
-    '-vf', "scale=-2:'min(720,2*trunc(ih/2))':flags=fast_bilinear",
+    '-vf', "scale=w='min(1280,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=fast_bilinear",
     '-pix_fmt', 'yuv420p',
     '-c:a', 'aac',
-    '-ar', '44100',
     '-b:a', '128k',
     '-ac', '2',
     '-max_muxing_queue_size', '2048',
@@ -362,7 +361,7 @@ export async function handleDriveHls(req, res) {
         const segCount = (content.match(/seg_\d+\.ts/g) || []).length;
         const isComplete = content.includes('#EXT-X-ENDLIST');
         const elapsed = Date.now() - waitStarted;
-        if (segCount >= 2 || isComplete || (segCount >= 1 && elapsed > 6000)) {
+        if (segCount >= 3 || isComplete || (segCount >= 2 && elapsed > 6000)) {
           if (resolveLock) { resolveLock(sessionId); hlsStartingByKeyOffset.delete(lockKey); }
           console.log(`[VPS Drive HLS] Ready session=${sessionId} segments=${segCount} (${elapsed}ms)`);
           res.setHeader('X-Session-Id', sessionId);
@@ -513,10 +512,9 @@ export async function handleTorrentHls(req, res, activeStreams) {
     '-force_key_frames', 'expr:gte(t,n_forced*4)',
     '-sc_threshold', '0',
     '-x264-params', 'repeat-headers=1',
-    '-vf', "scale=-2:'min(720,2*trunc(ih/2))':flags=fast_bilinear",
+    '-vf', "scale=w='min(1280,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=fast_bilinear",
     '-pix_fmt', 'yuv420p',
     '-c:a', 'aac',
-    '-ar', '44100',
     '-b:a', '128k',
     '-ac', '2',
     '-max_muxing_queue_size', '2048',
@@ -594,7 +592,7 @@ export async function handleTorrentHls(req, res, activeStreams) {
         const segCount = (content.match(/seg_\d+\.ts/g) || []).length;
         const isComplete = content.includes('#EXT-X-ENDLIST');
         const elapsed = Date.now() - waitStarted;
-        if (segCount >= 2 || isComplete || (segCount >= 1 && elapsed > 6000)) {
+        if (segCount >= 3 || isComplete || (segCount >= 2 && elapsed > 6000)) {
           if (resolveLock) { resolveLock(sessionId); hlsStartingByKeyOffset.delete(lockKey); }
           res.setHeader('X-Session-Id', sessionId);
           res.writeHead(302, {
