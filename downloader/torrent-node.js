@@ -62,6 +62,7 @@ import {
   gameNodeStatus
 } from './gameDownloadManager.js';
 import {
+  handleDriveDirect,
   handleDriveHls,
   handleTorrentHls,
   handleServeHlsFile,
@@ -916,8 +917,9 @@ app.post('/api/torrent/stream/:streamId/stop', stopStreamRoute);
 app.delete('/api/torrent/stream/:streamId', stopStreamRoute);
 
 // -------------------------------------------------------------
-// High-Performance HLS Video Transcoding (Google Drive & Torrents)
+// High-Performance HLS & Direct Video Streaming (Google Drive & Torrents)
 // -------------------------------------------------------------
+app.all(['/api/stream/drive-direct/:fileId', '/api/stream/drive-direct/:fileId/:fileName', '/api/stream/drive/:fileId', '/api/stream/drive/:fileId/:fileName'], handleDriveDirect);
 app.get('/api/stream/probe', handleStreamProbe);
 app.get('/api/stream/drive-hls/status', (req, res) => res.json(getHlsStatus()));
 app.all('/api/stream/drive-hls/stop', handleDriveHlsStop);

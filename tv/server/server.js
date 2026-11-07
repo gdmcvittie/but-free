@@ -3215,6 +3215,17 @@ app.get('/api/stream/drive-subtitle/:fileId', optionalAuth, async (req, res) => 
   }
 });
 
+app.all(['/api/stream/drive-direct/:fileId', '/api/stream/drive-direct/:fileId/:fileName'], optionalAuth, async (req, res) => {
+  const { fileId } = req.params;
+  const torrentServer = await getActiveTorrentServer();
+  const token = getAuthToken(req) || req.query.token || '';
+  const safeName = req.params.fileName || 'video.mp4';
+  if (torrentServer) {
+    return res.redirect(302, `${torrentServer}/api/stream/drive-direct/${fileId}/${encodeURIComponent(safeName)}?token=${encodeURIComponent(token)}`);
+  }
+  return res.redirect(302, `/api/stream/drive/${fileId}/${encodeURIComponent(safeName)}?token=${encodeURIComponent(token)}`);
+});
+
 app.get(['/api/stream/drive/:fileId', '/api/stream/drive/:fileId/:fileName'], optionalAuth, async (req, res) => {
   const { fileId } = req.params;
   let effectiveUserId = req.user?.id;
@@ -3231,6 +3242,16 @@ app.get(['/api/stream/drive/:fileId', '/api/stream/drive/:fileId/:fileName'], op
     const initialRange = req.headers.range || null;
     const forceDownload = req.query.download === '1' || req.query.dl === '1';
     const isRawRequest = req.query.raw === '1' || (req.headers['user-agent'] && req.headers['user-agent'].startsWith('Lavf'));
+
+    // Offload direct video playback to dedicated VPS if available
+    if (!forceDownload && !isRawRequest) {
+      const torrentServer = await getActiveTorrentServer();
+      if (torrentServer) {
+        const token = getAuthToken(req) || req.query.token || '';
+        const safeName = req.params.fileName || 'video.mp4';
+        return res.redirect(302, `${torrentServer}/api/stream/drive-direct/${fileId}/${encodeURIComponent(safeName)}?token=${encodeURIComponent(token)}`);
+      }
+    }
 
     // If client requested auto-transcoding and video is not natively playable, redirect to drive-hls
     if (!forceDownload && !isRawRequest && (req.query.autoTranscode === '1' || req.query.transcode === 'auto')) {
@@ -3384,6 +3405,9 @@ app.get(['/api/stream/drive/:fileId', '/api/stream/drive/:fileId/:fileName'], op
         }
         headersSent = true;
         console.warn(`[Stream Drive] HEADERS SENT status=${driveResponse.status} ctype=${cType} total=${totalFileSize} requested=${expectedBytesForThisRequest} atOffset=${currentFileOffset}`);
+        if (req.method === 'HEAD') {
+          return res.end();
+        }
       }
 
       const reader = driveResponse.body.getReader();

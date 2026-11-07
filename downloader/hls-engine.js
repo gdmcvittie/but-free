@@ -5,6 +5,7 @@ import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import { spawn } from 'child_process';
+import { Readable } from 'stream';
 import { fileURLToPath } from 'url';
 import { resolveFfmpeg } from './transcoder.js';
 
@@ -322,7 +323,7 @@ export async function handleDriveHls(req, res) {
       '-keyint_min', '48',
       '-sc_threshold', '0',
       '-x264-params', 'repeat-headers=1:threads=2:sliced-threads=1:sync-lookahead=0:rc-lookahead=0:subme=0:me=dia',
-      '-vf', "scale=-2:'min(360,ih)':flags=fast_bilinear",
+      '-vf', "scale=-2:'min(480,ih)':flags=fast_bilinear",
       '-pix_fmt', 'yuv420p',
       '-c:a', canCopyAudio ? 'copy' : 'aac',
       ...(canCopyAudio ? [] : ['-b:a', '128k', '-ac', '2']),
@@ -413,7 +414,8 @@ export async function handleDriveHls(req, res) {
         const segCount = (content.match(/seg_\d+\.ts/g) || []).length;
         const isComplete = content.includes('#EXT-X-ENDLIST');
         const elapsed = Date.now() - waitStarted;
-        if (segCount >= 3 || isComplete || (segCount >= 2 && elapsed > 8000)) {
+        const minSegs = canCopyVideo ? 3 : 5;
+        if (segCount >= minSegs || isComplete || (segCount >= 2 && elapsed > 15000)) {
           if (resolveLock) { resolveLock(sessionId); hlsStartingByKeyOffset.delete(lockKey); }
           console.log(`[VPS Drive HLS] Ready session=${sessionId} segments=${segCount} (${elapsed}ms)`);
           res.setHeader('X-Session-Id', sessionId);
@@ -610,7 +612,7 @@ export async function handleTorrentHls(req, res, activeStreams) {
       '-keyint_min', '48',
       '-sc_threshold', '0',
       '-x264-params', 'repeat-headers=1:threads=2:sliced-threads=1:sync-lookahead=0:rc-lookahead=0:subme=0:me=dia',
-      '-vf', "scale=-2:'min(360,ih)':flags=fast_bilinear",
+      '-vf', "scale=-2:'min(480,ih)':flags=fast_bilinear",
       '-pix_fmt', 'yuv420p',
       '-c:a', canCopyAudio ? 'copy' : 'aac',
       ...(canCopyAudio ? [] : ['-b:a', '128k', '-ac', '2']),
@@ -690,7 +692,8 @@ export async function handleTorrentHls(req, res, activeStreams) {
         const segCount = (content.match(/seg_\d+\.ts/g) || []).length;
         const isComplete = content.includes('#EXT-X-ENDLIST');
         const elapsed = Date.now() - waitStarted;
-        if (segCount >= 3 || isComplete || (segCount >= 2 && elapsed > 8000)) {
+        const minSegs = canCopyVideo ? 3 : 5;
+        if (segCount >= minSegs || isComplete || (segCount >= 2 && elapsed > 15000)) {
           if (resolveLock) { resolveLock(sessionId); hlsStartingByKeyOffset.delete(lockKey); }
           res.setHeader('X-Session-Id', sessionId);
           res.writeHead(302, {
@@ -889,5 +892,172 @@ export function getHlsStatus() {
       driExists: fs.existsSync('/dev/dri')
     }
   };
+}
+
+// -------------------------------------------------------------
+// Direct Google Drive Hardware Streaming (Zero CPU, Full Line Speed)
+// -------------------------------------------------------------
+export async function handleDriveDirect(req, res) {
+  const fileId = req.params.fileId;
+  const fileName = req.params.fileName || req.query.filename || '';
+  const token = req.query.token || req.headers.authorization?.replace('Bearer ', '') || req.headers['x-auth-token'] || '';
+  const user = req.query.user || req.query.userId || '';
+  const inputOrigin = (req.query.inputOrigin || 'https://tv.butfree.online').replace(/\/+$/, '');
+
+  if (!fileId) {
+    return res.status(400).send('Missing fileId');
+  }
+
+  // Handle CORS preflight
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', '*');
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+
+  // Resolve googleToken
+  let googleToken = req.query.googleToken || '';
+  async function fetchToken(forceRefresh = false) {
+    try {
+      const qParts = [];
+      if (token) qParts.push(`token=${encodeURIComponent(token)}`);
+      if (user) qParts.push(`user=${encodeURIComponent(user)}`);
+      if (forceRefresh) qParts.push('refresh=1');
+      const q = qParts.length > 0 ? `?${qParts.join('&')}` : '';
+      const tRes = await fetch(`${inputOrigin}/api/drive/token${q}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        signal: AbortSignal.timeout(5000)
+      });
+      if (tRes.ok) {
+        const tData = await tRes.json();
+        if (tData?.googleToken) return tData.googleToken;
+      }
+    } catch (_) {}
+    return '';
+  }
+
+  if (!googleToken) {
+    googleToken = await fetchToken(false);
+  }
+
+  if (!googleToken) {
+    return res.status(401).send('No valid Google Drive authorization token available');
+  }
+
+  const driveUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+  const rangeHeader = req.headers.range;
+
+  // Determine Content-Type based on extension
+  let contentType = 'video/mp4';
+  const lowerName = fileName.toLowerCase();
+  if (lowerName.endsWith('.mkv')) contentType = 'video/x-matroska';
+  else if (lowerName.endsWith('.webm')) contentType = 'video/webm';
+  else if (lowerName.endsWith('.mov')) contentType = 'video/quicktime';
+  else if (lowerName.endsWith('.m4v')) contentType = 'video/mp4';
+  else if (lowerName.endsWith('.mp3')) contentType = 'audio/mpeg';
+  else if (lowerName.endsWith('.m4a')) contentType = 'audio/mp4';
+  else if (lowerName.endsWith('.flac')) contentType = 'audio/flac';
+
+  // HEAD request handler for Roku player preflight inspection
+  if (req.method === 'HEAD') {
+    try {
+      let headRes = await fetch(driveUrl, {
+        method: 'HEAD',
+        headers: { Authorization: `Bearer ${googleToken}` },
+        signal: AbortSignal.timeout(8000)
+      });
+      if (headRes.status === 401 || headRes.status === 403) {
+        googleToken = await fetchToken(true);
+        if (googleToken) {
+          headRes = await fetch(driveUrl, {
+            method: 'HEAD',
+            headers: { Authorization: `Bearer ${googleToken}` },
+            signal: AbortSignal.timeout(8000)
+          });
+        }
+      }
+      res.setHeader('Accept-Ranges', 'bytes');
+      const driveType = headRes.headers.get('content-type');
+      if (driveType && !driveType.includes('octet-stream')) {
+        contentType = driveType;
+      }
+      res.setHeader('Content-Type', contentType);
+      const cl = headRes.headers.get('content-length');
+      if (cl) res.setHeader('Content-Length', cl);
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      return res.status(200).end();
+    } catch (e) {
+      return res.status(500).end();
+    }
+  }
+
+  // GET request streaming
+  const clientAbortController = new AbortController();
+  req.on('close', () => {
+    if (!res.writableEnded) clientAbortController.abort();
+  });
+
+  async function streamFromDrive(retry = true) {
+    const driveHeaders = {
+      Authorization: `Bearer ${googleToken}`,
+      'Accept': '*/*'
+    };
+    if (rangeHeader) {
+      driveHeaders['Range'] = rangeHeader;
+    }
+
+    let driveRes;
+    try {
+      driveRes = await fetch(driveUrl, {
+        headers: driveHeaders,
+        signal: clientAbortController.signal
+      });
+    } catch (err) {
+      if (clientAbortController.signal.aborted) return;
+      if (!res.headersSent) res.status(502).send('Failed connecting to Google Drive');
+      return;
+    }
+
+    if ((driveRes.status === 401 || driveRes.status === 403) && retry) {
+      console.log(`[VPS Drive Direct] Token expired (HTTP ${driveRes.status}). Refreshing token...`);
+      googleToken = await fetchToken(true);
+      if (googleToken) {
+        return streamFromDrive(false);
+      }
+    }
+
+    if (!driveRes.ok && driveRes.status !== 206) {
+      console.error(`[VPS Drive Direct] Upstream error: ${driveRes.status} ${driveRes.statusText}`);
+      if (!res.headersSent) res.status(driveRes.status).send(`Drive upstream error: ${driveRes.statusText}`);
+      return;
+    }
+
+    res.status(driveRes.status);
+    res.setHeader('Accept-Ranges', 'bytes');
+    const driveType = driveRes.headers.get('content-type');
+    if (driveType && !driveType.includes('octet-stream')) {
+      contentType = driveType;
+    }
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.setHeader('X-Accel-Buffering', 'no');
+
+    const cl = driveRes.headers.get('content-length');
+    if (cl) res.setHeader('Content-Length', cl);
+
+    const cr = driveRes.headers.get('content-range');
+    if (cr) res.setHeader('Content-Range', cr);
+
+    console.log(`[VPS Drive Direct] Streaming fileId=${fileId} status=${driveRes.status} range=${rangeHeader || 'all'} length=${cl || 'unknown'} type=${contentType}`);
+
+    try {
+      Readable.fromWeb(driveRes.body).pipe(res);
+    } catch (err) {
+      if (!res.writableEnded) res.end();
+    }
+  }
+
+  return streamFromDrive(true);
 }
 
