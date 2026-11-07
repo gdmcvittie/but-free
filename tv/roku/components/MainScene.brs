@@ -1771,17 +1771,20 @@ sub playDriveItem(item as Object)
         end if
 
         ' Native hardware playback for Roku-supported containers (MKV, MP4, M4V, MOV, WebM)
-        ext = ""
-        if filename <> invalid and filename <> ""
-            dotPos = InstrRev(filename, ".")
-            if dotPos > 0 then ext = LCase(Mid(filename, dotPos))
-        end if
-        isNativeRoku = (ext = ".mp4" or ext = ".mkv" or ext = ".m4v" or ext = ".mov" or ext = ".webm")
+        lName = ""
+        if filename <> invalid then lName = LCase(filename)
+        isNativeRoku = (Instr(1, lName, ".mp4") > 0 or Instr(1, lName, ".mkv") > 0 or Instr(1, lName, ".m4v") > 0 or Instr(1, lName, ".mov") > 0 or Instr(1, lName, ".webm") > 0)
 
         if isNativeRoku
             ' Direct hardware playback: 0% VPS CPU, native resolution, zero transcoding delay or buffer stalls
             safeName = filename
-            if safeName = invalid or safeName = "" then safeName = "video" + ext
+            if safeName = invalid or safeName = ""
+                if Instr(1, lName, ".mkv") > 0
+                    safeName = "video.mkv"
+                else
+                    safeName = "video.mp4"
+                end if
+            end if
             streamUrl = m.serverUrl + "/api/stream/drive/" + driveId + "/" + safeName
             if isLoggedIn()
                 streamUrl = streamUrl + "?token=" + m.authToken
