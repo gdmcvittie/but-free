@@ -4645,7 +4645,7 @@ sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, file
     vidContent = CreateObject("roSGNode", "ContentNode")
     vidContent.url = playUrl
     vidContent.title = title
-    vidContent.bufferingTargetSeconds = 12
+    vidContent.bufferingTargetSeconds = 30
 
     ' Subtitle & Caption Setup
     if subtitleUrl <> "" and subtitleUrl <> invalid

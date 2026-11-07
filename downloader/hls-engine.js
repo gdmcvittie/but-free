@@ -315,14 +315,14 @@ export async function handleDriveHls(req, res) {
       '-preset', 'ultrafast',
       '-tune', 'fastdecode',
       '-threads', CPU_THREADS,
-      '-crf', '26',
-      '-maxrate', '2000k',
-      '-bufsize', '4000k',
+      '-crf', '28',
+      '-maxrate', '1500k',
+      '-bufsize', '3000k',
       '-g', '48',
       '-keyint_min', '48',
       '-sc_threshold', '0',
-      '-x264-params', 'repeat-headers=1:threads=2:sliced-threads=1:sync-lookahead=0:rc-lookahead=0',
-      '-vf', "scale=-2:'min(480,ih)':flags=fast_bilinear",
+      '-x264-params', 'repeat-headers=1:threads=2:sliced-threads=1:sync-lookahead=0:rc-lookahead=0:subme=0:me=dia',
+      '-vf', "scale=-2:'min(360,ih)':flags=fast_bilinear",
       '-pix_fmt', 'yuv420p',
       '-c:a', canCopyAudio ? 'copy' : 'aac',
       ...(canCopyAudio ? [] : ['-b:a', '128k', '-ac', '2']),
@@ -413,7 +413,7 @@ export async function handleDriveHls(req, res) {
         const segCount = (content.match(/seg_\d+\.ts/g) || []).length;
         const isComplete = content.includes('#EXT-X-ENDLIST');
         const elapsed = Date.now() - waitStarted;
-        if (segCount >= 2 || isComplete || (segCount >= 1 && elapsed > 5000)) {
+        if (segCount >= 3 || isComplete || (segCount >= 2 && elapsed > 8000)) {
           if (resolveLock) { resolveLock(sessionId); hlsStartingByKeyOffset.delete(lockKey); }
           console.log(`[VPS Drive HLS] Ready session=${sessionId} segments=${segCount} (${elapsed}ms)`);
           res.setHeader('X-Session-Id', sessionId);
@@ -603,14 +603,14 @@ export async function handleTorrentHls(req, res, activeStreams) {
       '-preset', 'ultrafast',
       '-tune', 'fastdecode',
       '-threads', CPU_THREADS,
-      '-crf', '26',
-      '-maxrate', '2000k',
-      '-bufsize', '4000k',
+      '-crf', '28',
+      '-maxrate', '1500k',
+      '-bufsize', '3000k',
       '-g', '48',
       '-keyint_min', '48',
       '-sc_threshold', '0',
-      '-x264-params', 'repeat-headers=1:threads=2:sliced-threads=1:sync-lookahead=0:rc-lookahead=0',
-      '-vf', "scale=-2:'min(480,ih)':flags=fast_bilinear",
+      '-x264-params', 'repeat-headers=1:threads=2:sliced-threads=1:sync-lookahead=0:rc-lookahead=0:subme=0:me=dia',
+      '-vf', "scale=-2:'min(360,ih)':flags=fast_bilinear",
       '-pix_fmt', 'yuv420p',
       '-c:a', canCopyAudio ? 'copy' : 'aac',
       ...(canCopyAudio ? [] : ['-b:a', '128k', '-ac', '2']),
@@ -690,7 +690,7 @@ export async function handleTorrentHls(req, res, activeStreams) {
         const segCount = (content.match(/seg_\d+\.ts/g) || []).length;
         const isComplete = content.includes('#EXT-X-ENDLIST');
         const elapsed = Date.now() - waitStarted;
-        if (segCount >= 2 || isComplete || (segCount >= 1 && elapsed > 5000)) {
+        if (segCount >= 3 || isComplete || (segCount >= 2 && elapsed > 8000)) {
           if (resolveLock) { resolveLock(sessionId); hlsStartingByKeyOffset.delete(lockKey); }
           res.setHeader('X-Session-Id', sessionId);
           res.writeHead(302, {
