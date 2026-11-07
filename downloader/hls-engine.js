@@ -24,6 +24,7 @@ const HLS_IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes of inactivity before p
 export const activeHlsSessions = new Map();
 const hlsActiveByKey = new Map();
 const hlsStartingByKeyOffset = new Map();
+const hlsProbeCache = new Map();
 
 function isPidAlive(pid) {
   if (!pid || typeof pid !== 'number') return false;
@@ -258,39 +259,78 @@ export async function handleDriveHls(req, res) {
     console.log(`[VPS Drive HLS] Starting transcode session=${sessionId} fileId=${fileId} offset=${offset}s inputUrl=${inputOrigin}/api/stream/drive/${fileId}`);
   }
 
+  // Fast probe to detect if video is HEVC/H.264 for high-speed lossless stream-copy
+  let probe = null;
+  const probeKey = `drive:${fileId}`;
+  if (hlsProbeCache.has(probeKey)) {
+    probe = hlsProbeCache.get(probeKey);
+  } else {
+    try {
+      probe = await probeMediaCodecs(inputUrl, googleToken);
+      if (probe && probe.videoCodec) hlsProbeCache.set(probeKey, probe);
+    } catch (_) {}
+  }
+
+  const forceReencode = req.query.forceTranscode === '1' || req.query.reencode === '1';
+  const canCopyVideo = !forceReencode && (probe?.videoCodec === 'hevc' || probe?.videoCodec === 'h264');
+  const canCopyAudio = (probe?.audioCodec === 'aac');
+
   if (offset > 0) {
     ffmpegArgs.push('-ss', offset.toString());
   }
 
-  ffmpegArgs.push(
-    '-i', inputUrl,
-    '-map', '0:v:0',
-    '-map', '0:a:0?',
-    '-sn',
-    '-c:v', 'libx264',
-    '-preset', 'ultrafast',
-    '-threads', CPU_THREADS,
-    '-crf', '26',
-    '-maxrate', '1500k',
-    '-bufsize', '3000k',
-    '-g', '48',
-    '-keyint_min', '48',
-    '-sc_threshold', '0',
-    '-x264-params', 'repeat-headers=1',
-    '-vf', "scale=w='min(854,iw)':h='min(480,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=fast_bilinear",
-    '-pix_fmt', 'yuv420p',
-    '-c:a', 'aac',
-    '-b:a', '128k',
-    '-ac', '2',
-    '-max_muxing_queue_size', '2048',
-    '-hls_time', '4',
-    '-t', String(HLS_CHUNK_SECONDS),
-    '-hls_playlist_type', 'event',
-    '-hls_list_size', '0',
-    '-hls_flags', 'independent_segments',
-    '-hls_segment_filename', 'seg_%05d.ts',
-    'index.m3u8'
-  );
+  if (canCopyVideo) {
+    console.log(`[VPS Drive HLS] Ultra-fast REMUX stream-copy session=${sessionId} fileId=${fileId} video=${probe.videoCodec} audio=${probe?.audioCodec || 'unknown'}`);
+    ffmpegArgs.push(
+      '-i', inputUrl,
+      '-map', '0:v:0',
+      '-map', '0:a:0?',
+      '-sn',
+      '-c:v', 'copy',
+      ...(probe.videoCodec === 'hevc' ? ['-bsf:v', 'hevc_mp4toannexb'] : ['-bsf:v', 'h264_mp4toannexb']),
+      '-c:a', canCopyAudio ? 'copy' : 'aac',
+      ...(canCopyAudio ? [] : ['-b:a', '128k', '-ac', '2']),
+      '-max_muxing_queue_size', '4096',
+      '-hls_time', '4',
+      '-t', String(HLS_CHUNK_SECONDS),
+      '-hls_playlist_type', 'event',
+      '-hls_list_size', '0',
+      '-hls_flags', 'independent_segments',
+      '-hls_segment_filename', 'seg_%05d.ts',
+      'index.m3u8'
+    );
+  } else {
+    console.log(`[VPS Drive HLS] Fallback 480p transcode session=${sessionId} fileId=${fileId} video=${probe?.videoCodec || 'unknown'}`);
+    ffmpegArgs.push(
+      '-i', inputUrl,
+      '-map', '0:v:0',
+      '-map', '0:a:0?',
+      '-sn',
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-threads', CPU_THREADS,
+      '-crf', '26',
+      '-maxrate', '1500k',
+      '-bufsize', '3000k',
+      '-g', '48',
+      '-keyint_min', '48',
+      '-sc_threshold', '0',
+      '-x264-params', 'repeat-headers=1',
+      '-vf', "scale=w='min(854,iw)':h='min(480,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=fast_bilinear",
+      '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      '-ac', '2',
+      '-max_muxing_queue_size', '2048',
+      '-hls_time', '4',
+      '-t', String(HLS_CHUNK_SECONDS),
+      '-hls_playlist_type', 'event',
+      '-hls_list_size', '0',
+      '-hls_flags', 'independent_segments',
+      '-hls_segment_filename', 'seg_%05d.ts',
+      'index.m3u8'
+    );
+  }
 
   const ffmpegProcess = spawn(ffmpegCmd, ffmpegArgs, { cwd: hlsDir });
   let ffmpegErrTail = '';
@@ -502,39 +542,78 @@ export async function handleTorrentHls(req, res, activeStreams) {
     '-probesize', '10M'
   ];
 
+  // Fast probe to detect if torrent video is HEVC/H.264 for high-speed stream-copy
+  let probe = null;
+  const probeKey = `torrent:${streamId}:${fileIndex || '0'}`;
+  if (hlsProbeCache.has(probeKey)) {
+    probe = hlsProbeCache.get(probeKey);
+  } else {
+    try {
+      probe = await probeMediaCodecs(inputUrl);
+      if (probe && probe.videoCodec) hlsProbeCache.set(probeKey, probe);
+    } catch (_) {}
+  }
+
+  const forceReencode = req.query.forceTranscode === '1' || req.query.reencode === '1';
+  const canCopyVideo = !forceReencode && (probe?.videoCodec === 'hevc' || probe?.videoCodec === 'h264');
+  const canCopyAudio = (probe?.audioCodec === 'aac');
+
   if (offset > 0) {
     ffmpegArgs.push('-ss', offset.toString());
   }
 
-  ffmpegArgs.push(
-    '-i', inputUrl,
-    '-map', '0:v:0',
-    '-map', '0:a:0?',
-    '-sn',
-    '-c:v', 'libx264',
-    '-preset', 'ultrafast',
-    '-threads', CPU_THREADS,
-    '-crf', '26',
-    '-maxrate', '1500k',
-    '-bufsize', '3000k',
-    '-g', '48',
-    '-keyint_min', '48',
-    '-sc_threshold', '0',
-    '-x264-params', 'repeat-headers=1',
-    '-vf', "scale=w='min(854,iw)':h='min(480,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=fast_bilinear",
-    '-pix_fmt', 'yuv420p',
-    '-c:a', 'aac',
-    '-b:a', '128k',
-    '-ac', '2',
-    '-max_muxing_queue_size', '2048',
-    '-hls_time', '4',
-    '-t', String(HLS_CHUNK_SECONDS),
-    '-hls_playlist_type', 'event',
-    '-hls_list_size', '0',
-    '-hls_flags', 'independent_segments',
-    '-hls_segment_filename', 'seg_%05d.ts',
-    'index.m3u8'
-  );
+  if (canCopyVideo) {
+    console.log(`[VPS Torrent HLS] Ultra-fast REMUX stream-copy session=${sessionId} streamId=${streamId} video=${probe.videoCodec} audio=${probe?.audioCodec || 'unknown'}`);
+    ffmpegArgs.push(
+      '-i', inputUrl,
+      '-map', '0:v:0',
+      '-map', '0:a:0?',
+      '-sn',
+      '-c:v', 'copy',
+      ...(probe.videoCodec === 'hevc' ? ['-bsf:v', 'hevc_mp4toannexb'] : ['-bsf:v', 'h264_mp4toannexb']),
+      '-c:a', canCopyAudio ? 'copy' : 'aac',
+      ...(canCopyAudio ? [] : ['-b:a', '128k', '-ac', '2']),
+      '-max_muxing_queue_size', '4096',
+      '-hls_time', '4',
+      '-t', String(HLS_CHUNK_SECONDS),
+      '-hls_playlist_type', 'event',
+      '-hls_list_size', '0',
+      '-hls_flags', 'independent_segments',
+      '-hls_segment_filename', 'seg_%05d.ts',
+      'index.m3u8'
+    );
+  } else {
+    console.log(`[VPS Torrent HLS] Fallback 480p transcode session=${sessionId} streamId=${streamId} video=${probe?.videoCodec || 'unknown'}`);
+    ffmpegArgs.push(
+      '-i', inputUrl,
+      '-map', '0:v:0',
+      '-map', '0:a:0?',
+      '-sn',
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-threads', CPU_THREADS,
+      '-crf', '26',
+      '-maxrate', '1500k',
+      '-bufsize', '3000k',
+      '-g', '48',
+      '-keyint_min', '48',
+      '-sc_threshold', '0',
+      '-x264-params', 'repeat-headers=1',
+      '-vf', "scale=w='min(854,iw)':h='min(480,ih)':force_original_aspect_ratio=decrease:flags=fast_bilinear,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=fast_bilinear",
+      '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      '-ac', '2',
+      '-max_muxing_queue_size', '2048',
+      '-hls_time', '4',
+      '-t', String(HLS_CHUNK_SECONDS),
+      '-hls_playlist_type', 'event',
+      '-hls_list_size', '0',
+      '-hls_flags', 'independent_segments',
+      '-hls_segment_filename', 'seg_%05d.ts',
+      'index.m3u8'
+    );
+  }
 
   const ffmpegProcess = spawn(ffmpegCmd, ffmpegArgs, { cwd: hlsDir });
   let ffmpegErrTail = '';
@@ -793,7 +872,12 @@ export function getHlsStatus() {
   }
   return {
     activeHlsCount: sessions.length,
-    hlsSessions: sessions
+    hlsSessions: sessions,
+    system: {
+      cpus: os.cpus()?.length || 0,
+      cpuModel: os.cpus()?.[0]?.model || 'unknown',
+      driExists: fs.existsSync('/dev/dri')
+    }
   };
 }
 
