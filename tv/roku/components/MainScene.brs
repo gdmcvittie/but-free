@@ -4809,24 +4809,30 @@ end sub
 sub stopActiveTorrentStream()
     url = safeStr(m.currentStreamUrl)
     if url = "" then url = safeStr(m.pendingTorrentHlsUrl)
-    if url = "" then return
 
     streamId = ""
     isTorrentHls = false
 
-    segPos = Instr(1, url, "/api/torrent/serve/")
-    if segPos > 0
-        after = Mid(url, segPos + Len("/api/torrent/serve/"))
-        segEnd = Instr(1, after, "/")
-        if segEnd > 0 then streamId = Left(after, segEnd - 1)
-    else
-        segPos = Instr(1, url, "/api/stream/torrent-hls/")
+    if url <> ""
+        segPos = Instr(1, url, "/api/torrent/serve/")
         if segPos > 0
-            isTorrentHls = true
-            after = Mid(url, segPos + Len("/api/stream/torrent-hls/"))
+            after = Mid(url, segPos + Len("/api/torrent/serve/"))
             segEnd = Instr(1, after, "/")
             if segEnd > 0 then streamId = Left(after, segEnd - 1)
+        else
+            segPos = Instr(1, url, "/api/stream/torrent-hls/")
+            if segPos > 0
+                isTorrentHls = true
+                after = Mid(url, segPos + Len("/api/stream/torrent-hls/"))
+                segEnd = Instr(1, after, "/")
+                if segEnd > 0 then streamId = Left(after, segEnd - 1)
+            end if
         end if
+    end if
+
+    if streamId = "" and m.pendingTorrentStreamId <> invalid and m.pendingTorrentStreamId <> ""
+        streamId = m.pendingTorrentStreamId
+        isTorrentHls = true
     end if
 
     if streamId = "" then return
@@ -4928,6 +4934,10 @@ end sub
 
 sub stopAllActiveStreams()
     stopBufferingWatchdog()
+    if m.torrentInitTask <> invalid
+        m.torrentInitTask.control = "stop"
+        m.torrentInitTask = invalid
+    end if
     if m.torrentHlsWarmupTask <> invalid
         m.torrentHlsWarmupTask.control = "stop"
         m.torrentHlsWarmupTask = invalid
@@ -6118,10 +6128,9 @@ sub onVideoStateChange()
                     end for
                 end if
                 if driveId <> ""
-                    ' Always transcode Google Drive videos on local transcoder
-                    localTranscoder = getLocalTranscoderUrl()
-                    if localTranscoder = "" then localTranscoder = "http://192.168.0.15:4300"
-                    fallbackUrl = localTranscoder + "/api/stream/drive-hls/" + driveId + ".m3u8"
+                    ' Fallback to Cloud VPS Transcoder if local transcoder failed
+                    vpsHost = getTranscoderUrl()
+                    fallbackUrl = vpsHost + "/api/stream/drive-hls/" + driveId + ".m3u8"
                     sep = "?"
                     if m.authToken <> invalid and m.authToken <> ""
                         fallbackUrl = fallbackUrl + sep + "token=" + m.authToken
@@ -6257,7 +6266,11 @@ function onKeyEvent(key as String, press as Boolean) as Boolean
     if m.state = "player"
         if m.justEnteredPlayer = true
             if not press then m.justEnteredPlayer = false
-            return true
+            if k = "back"
+                m.justEnteredPlayer = false
+            else
+                return true
+            end if
         end if
         if k = "back"
             if press
@@ -6415,6 +6428,30 @@ function onKeyEvent(key as String, press as Boolean) as Boolean
         end if
     else if key = "back"
         if m.state = "grid"
+            ' If a torrent is currently initializing or buffering/warming up, cancel it immediately on Back
+            if m.torrentInitTask <> invalid or m.torrentHlsWarmupTask <> invalid or m.pendingTorrentLocalAttempt = true
+                print "[Torrent] Back pressed during stream startup. Cancelling stream."
+                if m.torrentInitTask <> invalid
+                    m.torrentInitTask.control = "stop"
+                    m.torrentInitTask = invalid
+                end if
+                if m.torrentHlsWarmupTask <> invalid
+                    m.torrentHlsWarmupTask.control = "stop"
+                    m.torrentHlsWarmupTask = invalid
+                end if
+                stopAllActiveStreams()
+                m.pendingTorrentHlsUrl = ""
+                m.pendingTorrentStreamId = ""
+                m.pendingTorrentFileIndex = ""
+                m.pendingTorrentLocalAttempt = false
+                if m.savedGridBreadcrumb <> invalid and m.savedGridBreadcrumb <> ""
+                    m.folderBreadcrumb.text = m.savedGridBreadcrumb
+                else
+                    m.folderBreadcrumb.text = ""
+                end if
+                return true
+            end if
+
             if m.cwGrid.hasFocus() and m.navStack.count() > 0
                 m.posterGrid.setFocus(true)
                 return true
