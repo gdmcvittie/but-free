@@ -62,6 +62,7 @@ const PORT = parseInt(process.env.PORT || '4300', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 const BASE_URL = (process.env.BASE_URL || '').replace(/\/$/, '');
 const MAIN_SERVER_URL = (process.env.MAIN_SERVER_URL || 'https://tv.butfree.online').replace(/\/$/, '');
+const TORRENT_SERVER_URL = (process.env.TORRENT_SERVER_URL || 'http://download.butfree.online:4000').replace(/\/$/, '');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const MEDIA_DIR = process.env.MEDIA_DIR || path.join(__dirname, 'media');
@@ -290,9 +291,18 @@ async function probeMediaCodecs(inputUrl, googleToken = '') {
 
     let output = '';
     const proc = spawn(FFPROBE, args);
+    const timer = setTimeout(() => {
+      try { killProcessTree(proc); } catch (_) {}
+      resolve(null);
+    }, 12000);
+
     proc.stdout.on('data', (d) => { output += d.toString(); });
-    proc.on('error', () => resolve(null));
+    proc.on('error', () => {
+      clearTimeout(timer);
+      resolve(null);
+    });
     proc.on('close', (code) => {
+      clearTimeout(timer);
       if (code !== 0 || !output) return resolve(null);
       try {
         const data = JSON.parse(output);
@@ -323,6 +333,7 @@ function touchHlsSession(sessionId) {
   if (!session) return;
   session.lastActive = Date.now();
   if (session.idleTimer) clearTimeout(session.idleTimer);
+  if (session.heartbeatInterval) clearInterval(session.heartbeatInterval);
   session.idleTimer = setTimeout(() => cleanupHlsSession(sessionId), HLS_IDLE_TIMEOUT_MS);
 }
 
@@ -346,7 +357,7 @@ function cleanupHlsSession(sessionId) {
 function stopAllSessionsForFile(fileId) {
   let count = 0;
   for (const [sid, session] of activeHlsSessions) {
-    if (!fileId || fileId === 'all' || session.fileId === fileId) {
+    if (!fileId || fileId === 'all' || session.fileId === fileId || session.streamId === fileId) {
       cleanupHlsSession(sid);
       count++;
     }
@@ -572,22 +583,24 @@ function servePlaylistDirect(sessionId, req, res) {
 
 
 // ---------- Stop Transcoding Route ----------
-app.all(['/api/stream/drive-hls/stop', '/api/stream/stop', '/api/stream/clear'], (req, res) => {
-  let fileId = (req.body && req.body.fileId) || req.query.fileId || '';
+app.all(['/api/stream/drive-hls/stop', '/api/stream/torrent-hls/stop', '/api/stream/stop', '/api/stream/clear'], (req, res) => {
+  let fileId = (req.body && (req.body.fileId || req.body.streamId)) || req.query.fileId || req.query.streamId || '';
   if (fileId.endsWith('.m3u8')) fileId = fileId.replace(/\.m3u8$/, '');
   const clearAll = Boolean(req.body?.clearAll || req.query?.clearAll || !fileId);
   const targetId = clearAll ? '' : fileId;
   const stoppedCount = stopAllSessionsForFile(targetId);
-  console.log(`[Drive Transcoder Stop] Stopped and cleared ${stoppedCount} transcode session(s) fileId=${targetId || 'ALL'}`);
+  console.log(`[Transcoder Stop] Stopped and cleared ${stoppedCount} transcode session(s) id=${targetId || 'ALL'}`);
   res.json({ success: true, stopped: true, stoppedCount });
 });
 
-app.get('/api/stream/drive-hls/status', (req, res) => {
+app.get(['/api/stream/drive-hls/status', '/api/stream/torrent-hls/status'], (req, res) => {
   const sessions = [];
   for (const [sid, s] of activeHlsSessions) {
     sessions.push({
       id: sid,
+      type: s.type || (s.streamId ? 'torrent' : 'drive'),
       fileId: s.fileId,
+      streamId: s.streamId,
       offset: s.offset,
       running: Boolean(s.proc && s.proc.exitCode === null),
       startedAt: s.startedAt,
@@ -832,6 +845,261 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
   };
   waitForSegments();
 });
+
+// ---------- LIVE Torrent HLS Transcoding Route ----------
+app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hls/:streamId/:fileIndex.m3u8'], async (req, res) => {
+  let { streamId, fileIndex } = req.params;
+  if (!streamId) return res.status(400).send('Missing streamId');
+  if (fileIndex && fileIndex.endsWith('.m3u8')) fileIndex = fileIndex.replace(/\.m3u8$/, '');
+  fileIndex = fileIndex || '0';
+
+  // Guard against relative segment requests mistakenly hitting torrent-hls
+  if (/^seg_\d+\.ts$/.test(streamId)) {
+    for (const [sid, s] of activeHlsSessions) {
+      if (s && s.dir) {
+        const segPath = path.join(s.dir, streamId);
+        if (fs.existsSync(segPath)) {
+          touchHlsSession(sid);
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+          res.setHeader('Access-Control-Allow-Headers', '*');
+          res.setHeader('Content-Type', 'video/mp2t');
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          return fs.createReadStream(segPath).pipe(res);
+        }
+      }
+    }
+    return res.status(404).send('Invalid streamId or segment not found');
+  }
+
+  const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+  const lockKey = `torrent:${streamId}:${fileIndex}:${offset}`;
+
+  console.log(`[Torrent HLS] Incoming request streamId=${streamId} fileIndex=${fileIndex} offset=${offset}s from ${req.ip}`);
+
+  // Deduplication: if another request is currently starting this exact transcode, await it
+  if (hlsStartingLocks.has(lockKey)) {
+    try {
+      const existingSid = await hlsStartingLocks.get(lockKey);
+      if (existingSid && activeHlsSessions.has(existingSid)) {
+        touchHlsSession(existingSid);
+        return servePlaylistDirect(existingSid, req, res);
+      }
+    } catch (_) {}
+  }
+
+  // Check if an existing session can be reused (same streamId, fileIndex, offset within 5 seconds)
+  for (const [sid, session] of activeHlsSessions) {
+    if (session.streamId === streamId && String(session.fileIndex) === String(fileIndex) && Math.abs(session.offset - offset) <= 5) {
+      const m3u8Path = path.join(session.dir, 'index.m3u8');
+      if (fs.existsSync(m3u8Path)) {
+        console.log(`[Torrent HLS] Reusing active session=${sid} for streamId=${streamId}`);
+        touchHlsSession(sid);
+        return servePlaylistDirect(sid, req, res);
+      }
+    }
+  }
+
+  // Preempt any older running transcode sessions so this PC concentrates CPU power on current stream
+  for (const [sid, session] of activeHlsSessions) {
+    if (session.streamId !== streamId) {
+      console.log(`[Torrent HLS] Preempting background session=${sid} for new streamId=${streamId}`);
+      cleanupHlsSession(sid);
+    }
+  }
+
+  // Lock
+  let resolveLock;
+  const startPromise = new Promise((r) => { resolveLock = r; });
+  hlsStartingLocks.set(lockKey, startPromise);
+
+  const sessionId = crypto.randomUUID();
+  const sessionDir = path.join(HLS_CACHE_DIR, sessionId);
+  try {
+    fs.mkdirSync(sessionDir, { recursive: true });
+  } catch (err) {
+    hlsStartingLocks.delete(lockKey);
+    return res.status(500).send('Failed to create transcode cache directory');
+  }
+
+  const m3u8Path = path.join(sessionDir, 'index.m3u8');
+
+  // Primary input URL is the torrent server direct stream
+  const inputUrl = `${TORRENT_SERVER_URL}/api/torrent/serve/${streamId}/${fileIndex}`;
+  console.log(`[Torrent HLS] Streaming inputUrl=${inputUrl} session=${sessionId}`);
+
+  const ffmpegArgs = [
+    '-threads', '4',
+    '-thread_type', 'frame+slice',
+    '-multiple_requests', '1',
+    '-reconnect', '1',
+    '-reconnect_streamed', '1',
+    '-reconnect_delay_max', '5',
+    '-reconnect_at_eof', '1',
+    '-reconnect_on_http_error', '1',
+    '-reconnect_on_network_error', '1',
+    '-analyzeduration', '10M',
+    '-probesize', '10M'
+  ];
+
+  // Probe media codecs to see if video can be stream-copied (0% CPU)
+  let canCopyVideo = false;
+  let canCopyAudio = false;
+  const probeKey = `torrent:${streamId}:${fileIndex}`;
+  let probe = probeCache.get(probeKey);
+  if (!probe) {
+    try {
+      probe = await probeMediaCodecs(inputUrl);
+      if (probe && probe.videoCodec) probeCache.set(probeKey, probe);
+    } catch (_) {}
+  }
+  if (probe && probe.videoCodec) {
+    canCopyVideo = (probe.videoCodec === 'h264' && !probe.is10Bit);
+    canCopyAudio = (probe.audioCodec === 'aac' || probe.audioCodec === 'mp3') && (probe.channels <= 2);
+  }
+
+  // Fast seek offset
+  if (offset > 0) {
+    ffmpegArgs.push('-ss', offset.toString());
+  }
+
+  if (canCopyVideo) {
+    console.log(`[Torrent HLS] Fast remux stream-copy mode (0% CPU) session=${sessionId} video=${probe?.videoCodec} audio=${canCopyAudio ? 'copy' : 'aac'}`);
+    ffmpegArgs.push(
+      '-i', inputUrl,
+      '-map', '0:v:0',
+      '-map', '0:a:0?',
+      '-sn',
+      '-c:v', 'copy',
+      '-c:a', canCopyAudio ? 'copy' : 'aac',
+      ...(canCopyAudio ? [] : ['-b:a', '128k', '-ac', '2']),
+      '-muxdelay', '0',
+      '-muxpreload', '0',
+      '-max_muxing_queue_size', '4096',
+      '-hls_time', '4',
+      '-hls_playlist_type', 'event',
+      '-hls_list_size', '0',
+      '-hls_flags', 'independent_segments',
+      '-hls_segment_filename', 'seg_%05d.ts',
+      'index.m3u8'
+    );
+  } else {
+    console.log(`[Torrent HLS] Transcoding to H.264 (VPS-matched Roku settings) session=${sessionId} srcVideo=${probe?.videoCodec || 'unknown'} srcAudio=${probe?.audioCodec || 'unknown'}`);
+    ffmpegArgs.push(
+      '-i', inputUrl,
+      '-map', '0:v:0',
+      '-map', '0:a:0?',
+      '-sn',
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-tune', 'fastdecode',
+      '-threads', '4',
+      '-crf', '28',
+      '-maxrate', '1500k',
+      '-bufsize', '3000k',
+      '-g', '48',
+      '-keyint_min', '48',
+      '-sc_threshold', '0',
+      '-x264-params', 'repeat-headers=1:threads=2:sliced-threads=1:sync-lookahead=0:rc-lookahead=0:subme=0:me=dia',
+      '-vf', "scale=-2:'min(480,ih)':flags=fast_bilinear",
+      '-pix_fmt', 'yuv420p',
+      '-c:a', canCopyAudio ? 'copy' : 'aac',
+      ...(canCopyAudio ? [] : ['-b:a', '128k', '-ac', '2']),
+      '-muxdelay', '0',
+      '-muxpreload', '0',
+      '-max_muxing_queue_size', '2048',
+      '-hls_time', '4',
+      '-hls_playlist_type', 'event',
+      '-hls_list_size', '0',
+      '-hls_flags', 'independent_segments',
+      '-hls_segment_filename', 'seg_%05d.ts',
+      'index.m3u8'
+    );
+  }
+
+  const ffmpegProc = spawn(FFMPEG, ffmpegArgs, { cwd: sessionDir });
+  let ffmpegErrTail = '';
+  ffmpegProc.stderr.on('data', (d) => {
+    ffmpegErrTail = (ffmpegErrTail + d.toString()).slice(-2000);
+  });
+
+  // Keep-alive heartbeat: periodically ping the torrent server so it knows this stream is active
+  const heartbeatInterval = setInterval(() => {
+    if (ffmpegProc.exitCode !== null) {
+      clearInterval(heartbeatInterval);
+      return;
+    }
+    fetch(`${TORRENT_SERVER_URL}/api/torrent/stream/${streamId}/touch`, { method: 'POST' }).catch(() => {});
+  }, 20000);
+
+  const sessionObj = {
+    id: sessionId,
+    fileId: streamId,
+    streamId,
+    fileIndex,
+    offset,
+    dir: sessionDir,
+    proc: ffmpegProc,
+    startedAt: Date.now(),
+    lastActive: Date.now(),
+    idleTimer: null,
+    heartbeatInterval,
+  };
+  activeHlsSessions.set(sessionId, sessionObj);
+  touchHlsSession(sessionId);
+
+  ffmpegProc.on('error', (err) => {
+    clearInterval(heartbeatInterval);
+    console.error(`[Torrent HLS] FFmpeg spawn error:`, err.message);
+    if (resolveLock) { resolveLock(null); hlsStartingLocks.delete(lockKey); }
+    cleanupHlsSession(sessionId);
+    if (!res.headersSent) res.status(500).send('Transcoding failed to start: ' + err.message);
+  });
+
+  ffmpegProc.on('exit', (code) => {
+    clearInterval(heartbeatInterval);
+    console.log(`[Torrent HLS] FFmpeg finished session=${sessionId} exitCode=${code}`);
+    try {
+      if (fs.existsSync(m3u8Path)) {
+        let content = fs.readFileSync(m3u8Path, 'utf8');
+        if (!content.includes('#EXT-X-ENDLIST')) {
+          content = content.trimEnd() + '\n#EXT-X-ENDLIST\n';
+          fs.writeFileSync(m3u8Path, content);
+        }
+      }
+    } catch (_) {}
+  });
+
+  // Wait for initial segments before redirecting Roku
+  const waitStarted = Date.now();
+  const waitForSegments = () => {
+    try {
+      if (fs.existsSync(m3u8Path)) {
+        const content = fs.readFileSync(m3u8Path, 'utf8');
+        const segCount = (content.match(/seg_\d+\.ts/g) || []).length;
+        const isComplete = content.includes('#EXT-X-ENDLIST');
+        const elapsed = Date.now() - waitStarted;
+        const minSegs = canCopyVideo ? 2 : 3;
+
+        if (segCount >= minSegs || isComplete || (segCount >= 1 && elapsed > 8000)) {
+          if (resolveLock) { resolveLock(sessionId); hlsStartingLocks.delete(lockKey); }
+          console.log(`[Torrent HLS] Stream ready session=${sessionId} segments=${segCount} (${elapsed}ms)`);
+          return servePlaylistDirect(sessionId, req, res);
+        }
+      }
+    } catch (_) {}
+
+    if (Date.now() - waitStarted > 45000) {
+      if (resolveLock) { resolveLock(null); hlsStartingLocks.delete(lockKey); }
+      cleanupHlsSession(sessionId);
+      if (!res.headersSent) res.status(504).send('Transcoding initial buffer timed out: ' + ffmpegErrTail);
+      return;
+    }
+    setTimeout(waitForSegments, 250);
+  };
+  waitForSegments();
+});
+
 
 // ---------- Serve HLS Files (.m3u8 playlists and .ts segments) ----------
 app.get(['/api/stream/hls/:sessionId/:file', '/api/stream/hls/:sessionId'], (req, res) => {

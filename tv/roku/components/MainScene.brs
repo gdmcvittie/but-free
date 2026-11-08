@@ -4803,6 +4803,7 @@ end sub
 ' Tell the torrent streamer and cloud transcoder to stop the current torrent stream.
 sub stopActiveTorrentStream()
     url = safeStr(m.currentStreamUrl)
+    if url = "" then url = safeStr(m.pendingTorrentHlsUrl)
     if url = "" then return
 
     streamId = ""
@@ -4825,7 +4826,20 @@ sub stopActiveTorrentStream()
 
     if streamId = "" then return
 
-    ' 1. Stop HLS transcode on dedicated VPS
+    ' 1. Stop HLS transcode on local LAN transcoder
+    localTranscoder = getLocalTranscoderUrl()
+    if localTranscoder = ""
+        localTranscoder = "http://192.168.0.15:4300"
+    end if
+    if isTorrentHls and localTranscoder <> ""
+        localStopTask = CreateObject("roSGNode", "HttpTask")
+        localStopTask.url = localTranscoder + "/api/stream/torrent-hls/stop?streamId=" + streamId
+        localStopTask.method = "POST"
+        localStopTask.postData = FormatJson({ streamId: streamId })
+        localStopTask.control = "run"
+    end if
+
+    ' 2. Stop HLS transcode on dedicated VPS
     if isTorrentHls
         cloudStopTask = CreateObject("roSGNode", "HttpTask")
         cloudStopTask.url = getTranscoderUrl() + "/api/stream/torrent-hls/stop"
@@ -4835,7 +4849,7 @@ sub stopActiveTorrentStream()
         cloudStopTask.control = "run"
     end if
 
-    ' 2. Tell the cloud server / dedicated torrent streamer to stop and clear the torrent from memory/cache
+    ' 3. Tell the cloud server / dedicated torrent streamer to stop and clear the torrent from memory/cache
     task = CreateObject("roSGNode", "HttpTask")
     task.url = getTranscoderUrl() + "/api/torrent/stream/" + streamId + "/stop"
     task.method = "POST"
@@ -5348,11 +5362,19 @@ sub onTorrentInitResult()
         end if
         playVideoUrl(streamUrl, title, 0, "", false)
     else if streamId <> ""
-        ' Route through dedicated VPS HLS transcoder
-        hlsUrl = getTranscoderUrl() + "/api/stream/torrent-hls/" + streamId + "/" + fileIndex + ".m3u8"
+        ' Check for local LAN transcoder first (offload torrent HLS to local PC)
+        localTranscoder = getLocalTranscoderUrl()
+        if localTranscoder = ""
+            localTranscoder = "http://192.168.0.15:4300"
+        end if
+
+        hlsUrl = localTranscoder + "/api/stream/torrent-hls/" + streamId + "/" + fileIndex + ".m3u8"
         m.pendingTorrentHlsUrl = hlsUrl
+        m.pendingTorrentStreamId = streamId
+        m.pendingTorrentFileIndex = fileIndex
+        m.pendingTorrentLocalAttempt = true
         m.pendingTorrentTitle = title
-        m.folderBreadcrumb.text = "Preparing stream... (buffering initial video)"
+        m.folderBreadcrumb.text = "Preparing stream via local transcoder... (buffering initial video)"
 
         if m.torrentHlsWarmupTask <> invalid
             m.torrentHlsWarmupTask.control = "stop"
@@ -5391,6 +5413,27 @@ sub onTorrentHlsWarmupResult()
 end sub
 
 sub onTorrentHlsWarmupError()
+    if m.pendingTorrentLocalAttempt = true and m.pendingTorrentStreamId <> invalid and m.pendingTorrentStreamId <> ""
+        print "[Torrent HLS] Local transcoder failed, falling back to cloud VPS transcoder..."
+        m.pendingTorrentLocalAttempt = false
+        fallbackHlsUrl = getTranscoderUrl() + "/api/stream/torrent-hls/" + m.pendingTorrentStreamId + "/" + m.pendingTorrentFileIndex + ".m3u8"
+        m.pendingTorrentHlsUrl = fallbackHlsUrl
+        m.folderBreadcrumb.text = "Local transcoder unavailable. Falling back to cloud stream..."
+
+        if m.torrentHlsWarmupTask <> invalid
+            m.torrentHlsWarmupTask.control = "stop"
+            m.torrentHlsWarmupTask = invalid
+        end if
+        m.torrentHlsWarmupTask = CreateObject("roSGNode", "HttpTask")
+        m.torrentHlsWarmupTask.url = fallbackHlsUrl
+        m.torrentHlsWarmupTask.method = "GET"
+        m.torrentHlsWarmupTask.timeoutMs = 90000
+        m.torrentHlsWarmupTask.observeField("result", "onTorrentHlsWarmupResult")
+        m.torrentHlsWarmupTask.observeField("error", "onTorrentHlsWarmupError")
+        m.torrentHlsWarmupTask.control = "run"
+        return
+    end if
+
     errMsg = "Error preparing stream playlist"
     if m.torrentHlsWarmupTask <> invalid and m.torrentHlsWarmupTask.error <> invalid and m.torrentHlsWarmupTask.error <> ""
         if m.torrentHlsWarmupTask.error = "timeout"
