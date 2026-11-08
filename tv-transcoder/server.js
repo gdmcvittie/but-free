@@ -278,8 +278,8 @@ async function probeMediaCodecs(inputUrl, googleToken = '') {
       '-print_format', 'json',
       '-show_streams',
       '-show_format',
-      '-probesize', '5M',
-      '-analyzeduration', '5M',
+      '-probesize', '2M',
+      '-analyzeduration', '2M',
       '-reconnect', '1',
       '-reconnect_streamed', '1',
       '-reconnect_delay_max', '3'
@@ -294,7 +294,7 @@ async function probeMediaCodecs(inputUrl, googleToken = '') {
     const timer = setTimeout(() => {
       try { killProcessTree(proc); } catch (_) {}
       resolve(null);
-    }, 12000);
+    }, 8000);
 
     proc.stdout.on('data', (d) => { output += d.toString(); });
     proc.on('error', () => {
@@ -683,8 +683,8 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
     '-reconnect_at_eof', '1',
     '-reconnect_on_http_error', '1',
     '-reconnect_on_network_error', '1',
-    '-analyzeduration', '10M',
-    '-probesize', '10M'
+    '-analyzeduration', '3M',
+    '-probesize', '3M'
   ];
 
   if (googleToken) {
@@ -1056,7 +1056,11 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
     if (!res.headersSent) res.status(500).send('Transcoding failed to start: ' + err.message);
   });
 
+  let ffmpegExited = false;
+  let ffmpegExitCode = null;
   ffmpegProc.on('exit', (code) => {
+    ffmpegExited = true;
+    ffmpegExitCode = code;
     clearInterval(heartbeatInterval);
     console.log(`[Torrent HLS] FFmpeg finished session=${sessionId} exitCode=${code}`);
     try {
@@ -1073,15 +1077,23 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
   // Wait for initial segments before redirecting Roku
   const waitStarted = Date.now();
   const waitForSegments = () => {
+    if (ffmpegExited && ffmpegExitCode !== 0 && ffmpegExitCode !== null) {
+      console.error(`[Torrent HLS] FFmpeg failed session=${sessionId} code=${ffmpegExitCode}: ${ffmpegErrTail}`);
+      if (resolveLock) { resolveLock(null); hlsStartingLocks.delete(lockKey); }
+      cleanupHlsSession(sessionId);
+      if (!res.headersSent) res.status(500).send('Transcoding failed: ' + ffmpegErrTail);
+      return;
+    }
+
     try {
       if (fs.existsSync(m3u8Path)) {
         const content = fs.readFileSync(m3u8Path, 'utf8');
         const segCount = (content.match(/seg_\d+\.ts/g) || []).length;
         const isComplete = content.includes('#EXT-X-ENDLIST');
         const elapsed = Date.now() - waitStarted;
-        const minSegs = canCopyVideo ? 2 : 3;
+        const minSegs = canCopyVideo ? 2 : 2;
 
-        if (segCount >= minSegs || isComplete || (segCount >= 1 && elapsed > 8000)) {
+        if (segCount >= minSegs || isComplete || (segCount >= 1 && elapsed > 5000)) {
           if (resolveLock) { resolveLock(sessionId); hlsStartingLocks.delete(lockKey); }
           console.log(`[Torrent HLS] Stream ready session=${sessionId} segments=${segCount} (${elapsed}ms)`);
           return servePlaylistDirect(sessionId, req, res);
@@ -1089,7 +1101,7 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
       }
     } catch (_) {}
 
-    if (Date.now() - waitStarted > 45000) {
+    if (Date.now() - waitStarted > 85000) {
       if (resolveLock) { resolveLock(null); hlsStartingLocks.delete(lockKey); }
       cleanupHlsSession(sessionId);
       if (!res.headersSent) res.status(504).send('Transcoding initial buffer timed out: ' + ffmpegErrTail);

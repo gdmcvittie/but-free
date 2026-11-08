@@ -2185,7 +2185,12 @@ function getLocalTranscoderUrl() as String
     if m.localTranscoderStatus = "connected" and m.localTranscoderUrl <> invalid and m.localTranscoderUrl <> ""
         return m.localTranscoderUrl
     end if
-    return ""
+    reg = CreateObject("roRegistrySection", "FREEVEE")
+    if reg.Exists("localTranscoderUrl")
+        cached = reg.Read("localTranscoderUrl")
+        if cached <> invalid and cached <> "" then return cached
+    end if
+    return "http://192.168.0.15:4300"
 end function
 
 function getTranscoderUrl() as String
@@ -5374,7 +5379,7 @@ sub onTorrentInitResult()
         m.pendingTorrentFileIndex = fileIndex
         m.pendingTorrentLocalAttempt = true
         m.pendingTorrentTitle = title
-        m.folderBreadcrumb.text = "Preparing stream via local transcoder... (buffering initial video)"
+        m.folderBreadcrumb.text = "Buffering stream via local transcoder..."
 
         if m.torrentHlsWarmupTask <> invalid
             m.torrentHlsWarmupTask.control = "stop"
@@ -5413,12 +5418,17 @@ sub onTorrentHlsWarmupResult()
 end sub
 
 sub onTorrentHlsWarmupError()
+    errStr = ""
+    if m.torrentHlsWarmupTask <> invalid and m.torrentHlsWarmupTask.error <> invalid
+        errStr = m.torrentHlsWarmupTask.error
+    end if
+
     if m.pendingTorrentLocalAttempt = true and m.pendingTorrentStreamId <> invalid and m.pendingTorrentStreamId <> ""
-        print "[Torrent HLS] Local transcoder failed, falling back to cloud VPS transcoder..."
+        print "[Torrent HLS] Local transcoder error (" + errStr + "), falling back to cloud VPS transcoder..."
         m.pendingTorrentLocalAttempt = false
         fallbackHlsUrl = getTranscoderUrl() + "/api/stream/torrent-hls/" + m.pendingTorrentStreamId + "/" + m.pendingTorrentFileIndex + ".m3u8"
         m.pendingTorrentHlsUrl = fallbackHlsUrl
-        m.folderBreadcrumb.text = "Local transcoder unavailable. Falling back to cloud stream..."
+        m.folderBreadcrumb.text = "Local transcoder buffer error. Retrying with cloud stream..."
 
         if m.torrentHlsWarmupTask <> invalid
             m.torrentHlsWarmupTask.control = "stop"
@@ -5435,11 +5445,11 @@ sub onTorrentHlsWarmupError()
     end if
 
     errMsg = "Error preparing stream playlist"
-    if m.torrentHlsWarmupTask <> invalid and m.torrentHlsWarmupTask.error <> invalid and m.torrentHlsWarmupTask.error <> ""
-        if m.torrentHlsWarmupTask.error = "timeout"
+    if errStr <> ""
+        if errStr = "timeout"
             errMsg = "Stream prep timed out (peers/transcoding took >90s)"
         else
-            errMsg = "Stream prep error: " + m.torrentHlsWarmupTask.error
+            errMsg = "Stream prep error: " + errStr
         end if
     end if
     m.folderBreadcrumb.text = errMsg
