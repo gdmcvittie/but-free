@@ -129,6 +129,14 @@ sub init()
     m.currentEpisodeList = invalid
     m.currentEpisodeIndex = -1
     m.prefetchShowTask = invalid
+    m.currentServiceId = ""
+    m.currentServiceName = ""
+    m.currentServicePoster = ""
+    m.currentServiceTv = []
+    m.currentServiceMovies = []
+    m.currentServiceGenres = []
+    m.currentServiceByGenre = {}
+    m.currentServiceAll = []
     m.driveMovieFolders = {}
     m.driveMovieFolderList = []
     m.pairingCode = ""
@@ -3026,6 +3034,11 @@ sub openServiceCatalogGrid(serviceId as String, serviceName as String, servicePo
     m.currentServiceId = serviceId
     m.currentServiceName = serviceName
     m.currentServicePoster = servicePoster
+    m.currentServiceTv = []
+    m.currentServiceMovies = []
+    m.currentServiceGenres = []
+    m.currentServiceByGenre = {}
+    m.currentServiceAll = []
 
     m.serviceCatalogTask = CreateObject("roSGNode", "HttpTask")
     m.serviceCatalogTask.url = m.serverUrl + "/api/services/" + serviceId
@@ -3037,6 +3050,7 @@ end sub
 sub onServiceCatalogResult()
     if m.serviceCatalogTask = invalid return
     result = m.serviceCatalogTask.result
+    m.serviceCatalogTask = invalid
     if result = invalid or result = ""
         m.folderBreadcrumb.text = "Failed to load catalog for " + m.currentServiceName
         return
@@ -3047,74 +3061,231 @@ sub onServiceCatalogResult()
         return
     end if
 
+    ' Extract or organize items
+    m.currentServiceTv = []
+    m.currentServiceMovies = []
+    m.currentServiceByGenre = {}
+    m.currentServiceGenres = []
+    m.currentServiceAll = []
+
+    ' 1. Types
+    if data.byType <> invalid and (type(data.byType) = "roAssociativeArray" or type(data.byType) = "AssociativeArray")
+        if data.byType.tv <> invalid and (type(data.byType.tv) = "roArray" or type(data.byType.tv) = "Array")
+            m.currentServiceTv = data.byType.tv
+        end if
+        if data.byType.movies <> invalid and (type(data.byType.movies) = "roArray" or type(data.byType.movies) = "Array")
+            m.currentServiceMovies = data.byType.movies
+        end if
+    end if
+
+    ' If byType was empty or missing, derive from data.items
+    if m.currentServiceTv.count() = 0 and m.currentServiceMovies.count() = 0
+        for each itm in data.items
+            if itm <> invalid
+                iType = LCase(safeStr(itm.type))
+                if iType = "tv" or iType = "series" or iType = "show"
+                    m.currentServiceTv.push(itm)
+                else
+                    m.currentServiceMovies.push(itm)
+                end if
+            end if
+        end for
+    end if
+
+    ' All items
+    if data.items <> invalid and (type(data.items) = "roArray" or type(data.items) = "Array")
+        m.currentServiceAll = data.items
+    else
+        for each itm in m.currentServiceTv
+            m.currentServiceAll.push(itm)
+        end for
+        for each itm in m.currentServiceMovies
+            m.currentServiceAll.push(itm)
+        end for
+    end if
+
+    ' 2. Genres
+    if data.byGenre <> invalid and (type(data.byGenre) = "roAssociativeArray" or type(data.byGenre) = "AssociativeArray") and data.genres <> invalid and (type(data.genres) = "roArray" or type(data.genres) = "Array") and data.genres.count() > 0
+        m.currentServiceByGenre = data.byGenre
+        m.currentServiceGenres = data.genres
+    else
+        ' Derive genres from all items
+        genreMap = {}
+        for each itm in m.currentServiceAll
+            if itm <> invalid and itm.genres <> invalid and (type(itm.genres) = "roArray" or type(itm.genres) = "Array")
+                for each g in itm.genres
+                    gName = safeStr(g).trim()
+                    if gName <> ""
+                        if not genreMap.DoesExist(gName)
+                            genreMap[gName] = []
+                            m.currentServiceGenres.push(gName)
+                        end if
+                        genreMap[gName].push(itm)
+                    end if
+                end for
+            end if
+        end for
+        m.currentServiceGenres.sort()
+        m.currentServiceByGenre = genreMap
+    end if
+
+    openServiceHubGrid()
+end sub
+
+sub onServiceCatalogError()
+    m.folderBreadcrumb.text = "Error loading catalog for " + m.currentServiceName
+end sub
+
+' Displays the organized Hub for the chosen service: TV Series, Movies, Genres, All Titles
+sub openServiceHubGrid()
     gridContent = CreateObject("roSGNode", "ContentNode")
     m.gridItems = []
-    totalCount = 0
 
-    for each item in data.items
-        node = gridContent.CreateChild("ContentNode")
-        title = safeStr(item.title)
-        if title = "" then title = "Untitled"
-        node.title = title
+    svcName = m.currentServiceName
+    svcPoster = m.currentServicePoster
+    if svcPoster = "" then svcPoster = "pkg:/images/no-poster.jpg"
 
-        tType = safeStr(item.type)
-        if tType = "" then tType = "movie"
+    ' 1. TV Series tile
+    if m.currentServiceTv <> invalid and m.currentServiceTv.count() > 0
+        tvNode = gridContent.CreateChild("ContentNode")
+        tvNode.title = "TV Series"
+        setPosterUrl(tvNode, "pkg:/images/tv-shows.jpg")
+        tvNode.shortDescriptionLine1 = Stri(m.currentServiceTv.count()).trim() + " Series"
+        tvNode.description = "Browse TV series available on " + svcName
+        tvNode.addFields({
+            targetType: "service_section_tv"
+        })
+        m.gridItems.push(tvNode)
+    end if
 
-        yearStr = ""
-        yStr = safeStr(item.year)
-        if yStr <> "" and yStr <> "0" then yearStr = " (" + yStr + ")"
+    ' 2. Movies tile
+    if m.currentServiceMovies <> invalid and m.currentServiceMovies.count() > 0
+        moviesNode = gridContent.CreateChild("ContentNode")
+        moviesNode.title = "Movies"
+        setPosterUrl(moviesNode, "pkg:/images/movies.jpg")
+        moviesNode.shortDescriptionLine1 = Stri(m.currentServiceMovies.count()).trim() + " Movies"
+        moviesNode.description = "Browse movies available on " + svcName
+        moviesNode.addFields({
+            targetType: "service_section_movies"
+        })
+        m.gridItems.push(moviesNode)
+    end if
 
-        typeLabel = "Movie"
-        if tType = "tv" then typeLabel = "TV Series"
-        node.shortDescriptionLine1 = typeLabel + yearStr
+    ' 3. Genres tile
+    if m.currentServiceGenres <> invalid and m.currentServiceGenres.count() > 0
+        genresNode = gridContent.CreateChild("ContentNode")
+        genresNode.title = "Genres"
+        setPosterUrl(genresNode, "pkg:/images/star.jpg")
+        genresNode.shortDescriptionLine1 = Stri(m.currentServiceGenres.count()).trim() + " Genres"
+        genresNode.description = "Browse by genre (Action, Comedy, Drama, Sci-Fi...)"
+        genresNode.addFields({
+            targetType: "service_section_genres"
+        })
+        m.gridItems.push(genresNode)
+    end if
 
-        genreStr = ""
-        if item.genres <> invalid and type(item.genres) = "roArray" and item.genres.count() > 0
-            for i = 0 to item.genres.count() - 1
-                gName = safeStr(item.genres[i])
-                if gName <> ""
-                    if genreStr <> "" then genreStr = genreStr + ", "
-                    genreStr = genreStr + gName
-                end if
-                if i >= 2 then exit for
-            end for
-        end if
-        if genreStr <> ""
-            node.shortDescriptionLine2 = genreStr
-        end if
+    ' 4. All Titles tile
+    if m.currentServiceAll <> invalid and m.currentServiceAll.count() > 0
+        allNode = gridContent.CreateChild("ContentNode")
+        allNode.title = "All Titles"
+        setPosterUrl(allNode, svcPoster)
+        allNode.shortDescriptionLine1 = Stri(m.currentServiceAll.count()).trim() + " Titles"
+        allNode.description = "Browse all titles available on " + svcName
+        allNode.addFields({
+            targetType: "service_section_all"
+        })
+        m.gridItems.push(allNode)
+    end if
 
-        desc = safeStr(item.description)
-        if desc = "" then desc = title + " on " + m.currentServiceName
-        node.description = desc
+    if m.gridItems.count() = 0
+        m.folderBreadcrumb.text = "No titles available for " + svcName
+        return
+    end if
 
-        imgUrl = safeStr(item.image)
-        fallbackUrl = m.serverUrl + "/api/poster/card?name=" + encodePath(title)
-        pUrl = resolvePosterUrl(imgUrl, fallbackUrl)
-        setPosterUrl(node, pUrl)
+    m.folderBreadcrumb.text = "Home > Services > " + svcName
+    applyStandardPosterGridSettings()
+    m.posterGrid.content = gridContent
+    m.posterGrid.visible = true
+    m.heroGroup.visible = false
+    m.posterGrid.setFocus(true)
+    if m.gridItems.count() > 0
+        m.posterGrid.jumpToItem = 0
+        onPosterFocused()
+    end if
+end sub
 
-        if tType = "tv"
-            node.addFields({
-                targetType: "service_tv_item",
-                itemTitle: title,
-                itemType: "tv",
-                serviceName: m.currentServiceName,
-                posterUrl: pUrl
-            })
-        else
-            node.addFields({
-                targetType: "service_movie_item",
-                itemTitle: title,
-                itemType: "movie",
-                serviceName: m.currentServiceName,
-                posterUrl: pUrl
-            })
-        end if
+function buildServiceMediaNode(gridContent as Object, item as Object) as Object
+    if item = invalid or gridContent = invalid return invalid
+    node = gridContent.CreateChild("ContentNode")
+    title = safeStr(item.title)
+    if title = "" then title = "Untitled"
+    node.title = title
 
-        m.gridItems.push(node)
-        totalCount = totalCount + 1
+    tType = safeStr(item.type)
+    if tType = "" then tType = "movie"
+
+    yearStr = ""
+    yStr = safeStr(item.year)
+    if yStr <> "" and yStr <> "0" then yearStr = " (" + yStr + ")"
+
+    typeLabel = "Movie"
+    if tType = "tv" then typeLabel = "TV Series"
+    node.shortDescriptionLine1 = typeLabel + yearStr
+
+    genreStr = ""
+    if item.genres <> invalid and (type(item.genres) = "roArray" or type(item.genres) = "Array") and item.genres.count() > 0
+        for i = 0 to item.genres.count() - 1
+            gName = safeStr(item.genres[i])
+            if gName <> ""
+                if genreStr <> "" then genreStr = genreStr + ", "
+                genreStr = genreStr + gName
+            end if
+            if i >= 2 then exit for
+        end for
+    end if
+    if genreStr <> ""
+        node.shortDescriptionLine2 = genreStr
+    end if
+
+    desc = safeStr(item.description)
+    if desc = "" then desc = title + " on " + m.currentServiceName
+    node.description = desc
+
+    imgUrl = safeStr(item.image)
+    fallbackUrl = m.serverUrl + "/api/poster/card?name=" + encodePath(title)
+    pUrl = resolvePosterUrl(imgUrl, fallbackUrl)
+    setPosterUrl(node, pUrl)
+
+    if tType = "tv"
+        node.addFields({
+            targetType: "service_tv_item",
+            itemTitle: title,
+            itemType: "tv",
+            serviceName: m.currentServiceName,
+            posterUrl: pUrl
+        })
+    else
+        node.addFields({
+            targetType: "service_movie_item",
+            itemTitle: title,
+            itemType: "movie",
+            serviceName: m.currentServiceName,
+            posterUrl: pUrl
+        })
+    end if
+    return node
+end function
+
+sub openServiceTvSeriesGrid()
+    if m.currentServiceTv = invalid or m.currentServiceTv.count() = 0 return
+    pushCurrentState("Home > Services > " + m.currentServiceName + " > TV Series")
+    gridContent = CreateObject("roSGNode", "ContentNode")
+    m.gridItems = []
+    for each item in m.currentServiceTv
+        node = buildServiceMediaNode(gridContent, item)
+        if node <> invalid then m.gridItems.push(node)
     end for
-
-    m.folderBreadcrumb.text = "Home > Services > " + m.currentServiceName + " (" + Stri(totalCount).trim() + " Titles)"
+    m.folderBreadcrumb.text = "Home > Services > " + m.currentServiceName + " > TV Series (" + Stri(m.gridItems.count()).trim() + ")"
     applyStandardPosterGridSettings()
     m.posterGrid.content = gridContent
     m.posterGrid.setFocus(true)
@@ -3124,8 +3295,114 @@ sub onServiceCatalogResult()
     end if
 end sub
 
-sub onServiceCatalogError()
-    m.folderBreadcrumb.text = "Error loading catalog for " + m.currentServiceName
+sub openServiceMoviesGrid()
+    if m.currentServiceMovies = invalid or m.currentServiceMovies.count() = 0 return
+    pushCurrentState("Home > Services > " + m.currentServiceName + " > Movies")
+    gridContent = CreateObject("roSGNode", "ContentNode")
+    m.gridItems = []
+    for each item in m.currentServiceMovies
+        node = buildServiceMediaNode(gridContent, item)
+        if node <> invalid then m.gridItems.push(node)
+    end for
+    m.folderBreadcrumb.text = "Home > Services > " + m.currentServiceName + " > Movies (" + Stri(m.gridItems.count()).trim() + ")"
+    applyStandardPosterGridSettings()
+    m.posterGrid.content = gridContent
+    m.posterGrid.setFocus(true)
+    if m.gridItems.count() > 0
+        m.posterGrid.jumpToItem = 0
+        onPosterFocused()
+    end if
+end sub
+
+sub openServiceGenresGrid()
+    if m.currentServiceGenres = invalid or m.currentServiceGenres.count() = 0 return
+    pushCurrentState("Home > Services > " + m.currentServiceName + " > Genres")
+    gridContent = CreateObject("roSGNode", "ContentNode")
+    m.gridItems = []
+    svcPoster = m.currentServicePoster
+    if svcPoster = "" then svcPoster = "pkg:/images/no-poster.jpg"
+
+    for each gName in m.currentServiceGenres
+        gItems = invalid
+        if m.currentServiceByGenre <> invalid and m.currentServiceByGenre.DoesExist(gName)
+            gItems = m.currentServiceByGenre[gName]
+        end if
+        gCount = 0
+        if gItems <> invalid and (type(gItems) = "roArray" or type(gItems) = "Array") then gCount = gItems.count()
+        if gCount = 0 then continue for
+
+        node = gridContent.CreateChild("ContentNode")
+        node.title = gName
+        node.shortDescriptionLine1 = Stri(gCount).trim() + " Titles"
+        node.description = "Browse " + gName + " titles on " + m.currentServiceName
+
+        ' Use poster of the top title in this genre, fallback to service poster
+        pUrl = svcPoster
+        if gItems.count() > 0 and gItems[0] <> invalid
+            topImg = safeStr(gItems[0].image)
+            if topImg <> ""
+                pUrl = resolvePosterUrl(topImg, svcPoster)
+            end if
+        end if
+        setPosterUrl(node, pUrl)
+
+        node.addFields({
+            targetType: "service_genre_item",
+            genreName: gName
+        })
+        m.gridItems.push(node)
+    end for
+
+    m.folderBreadcrumb.text = "Home > Services > " + m.currentServiceName + " > Genres (" + Stri(m.gridItems.count()).trim() + ")"
+    applyStandardPosterGridSettings()
+    m.posterGrid.content = gridContent
+    m.posterGrid.setFocus(true)
+    if m.gridItems.count() > 0
+        m.posterGrid.jumpToItem = 0
+        onPosterFocused()
+    end if
+end sub
+
+sub openServiceGenreTitlesGrid(genreName as String)
+    if genreName = "" or m.currentServiceByGenre = invalid return
+    if not m.currentServiceByGenre.DoesExist(genreName) return
+    gItems = m.currentServiceByGenre[genreName]
+    if gItems = invalid or gItems.count() = 0 return
+
+    pushCurrentState("Home > Services > " + m.currentServiceName + " > Genres > " + genreName)
+    gridContent = CreateObject("roSGNode", "ContentNode")
+    m.gridItems = []
+    for each item in gItems
+        node = buildServiceMediaNode(gridContent, item)
+        if node <> invalid then m.gridItems.push(node)
+    end for
+    m.folderBreadcrumb.text = "Home > Services > " + m.currentServiceName + " > " + genreName + " (" + Stri(m.gridItems.count()).trim() + ")"
+    applyStandardPosterGridSettings()
+    m.posterGrid.content = gridContent
+    m.posterGrid.setFocus(true)
+    if m.gridItems.count() > 0
+        m.posterGrid.jumpToItem = 0
+        onPosterFocused()
+    end if
+end sub
+
+sub openServiceAllTitlesGrid()
+    if m.currentServiceAll = invalid or m.currentServiceAll.count() = 0 return
+    pushCurrentState("Home > Services > " + m.currentServiceName + " > All Titles")
+    gridContent = CreateObject("roSGNode", "ContentNode")
+    m.gridItems = []
+    for each item in m.currentServiceAll
+        node = buildServiceMediaNode(gridContent, item)
+        if node <> invalid then m.gridItems.push(node)
+    end for
+    m.folderBreadcrumb.text = "Home > Services > " + m.currentServiceName + " > All Titles (" + Stri(m.gridItems.count()).trim() + ")"
+    applyStandardPosterGridSettings()
+    m.posterGrid.content = gridContent
+    m.posterGrid.setFocus(true)
+    if m.gridItems.count() > 0
+        m.posterGrid.jumpToItem = 0
+        onPosterFocused()
+    end if
 end sub
 
 sub openServiceTvSeasonsGrid(showTitle as String, showPoster as String)
@@ -4705,6 +4982,18 @@ sub onPosterSelected()
         if item.hasField("serviceName") and item.serviceName <> invalid then sName = item.serviceName.toStr()
         if item.hasField("servicePoster") and item.servicePoster <> invalid then sPoster = item.servicePoster.toStr()
         openServiceCatalogGrid(sId, sName, sPoster)
+    else if tType = "service_section_tv"
+        openServiceTvSeriesGrid()
+    else if tType = "service_section_movies"
+        openServiceMoviesGrid()
+    else if tType = "service_section_genres"
+        openServiceGenresGrid()
+    else if tType = "service_section_all"
+        openServiceAllTitlesGrid()
+    else if tType = "service_genre_item"
+        gName = ""
+        if item.hasField("genreName") and item.genreName <> invalid then gName = item.genreName.toStr()
+        openServiceGenreTitlesGrid(gName)
     else if tType = "service_movie_item"
         handleMovieLaunch(item)
     else if tType = "service_tv_item"
