@@ -128,6 +128,7 @@ sub init()
     m.driveAutoPlayNextEnabled = false
     m.currentEpisodeList = invalid
     m.currentEpisodeIndex = -1
+    m.prefetchShowTask = invalid
     m.driveMovieFolders = {}
     m.driveMovieFolderList = []
     m.pairingCode = ""
@@ -1458,6 +1459,52 @@ sub onShowEpisodesError()
     showNotification("Library", "Could not load show episodes. Please try again.")
 end sub
 
+sub prefetchDriveShow(showName as String)
+    if showName = "" or not isLoggedIn() return
+    if m.driveShows <> invalid and m.driveShows.DoesExist(showName)
+        if isShowFullyLoaded(m.driveShows[showName]) return
+    end if
+    if m.prefetchShowTask <> invalid
+        m.prefetchShowTask.control = "stop"
+        m.prefetchShowTask = invalid
+    end if
+    m.prefetchShowTask = CreateAuthHttpTask()
+    m.prefetchShowTask.timeoutMs = 12000
+    m.prefetchShowTask.url = m.serverUrl + "/api/ondemand/show?name=" + encodePath(showName)
+    m.prefetchShowTask.observeField("result", "onPrefetchShowResult")
+    m.prefetchShowTask.observeField("error", "onPrefetchShowResult")
+    m.prefetchShowTask.control = "run"
+end sub
+
+sub onPrefetchShowResult()
+    if m.prefetchShowTask = invalid return
+    res = m.prefetchShowTask.result
+    m.prefetchShowTask = invalid
+    if res = invalid or res = "" return
+    data = ParseJSON(res)
+    if data = invalid or data.seasons = invalid return
+    showName = safeStr(data.showName)
+    if showName = "" return
+    if m.driveShows = invalid then m.driveShows = {}
+
+    cleanSeasons = {}
+    if data.seasons <> invalid and (type(data.seasons) = "roAssociativeArray" or type(data.seasons) = "AssociativeArray")
+        for each sKey in data.seasons
+            eps = data.seasons[sKey]
+            if eps <> invalid and (type(eps) = "roArray" or type(eps) = "Array")
+                cleanEps = []
+                for each ep in eps
+                    if not isSubtitleFile(ep) then cleanEps.push(ep)
+                end for
+                cleanSeasons[sKey] = cleanEps
+            else
+                cleanSeasons[sKey] = eps
+            end if
+        end for
+    end if
+    m.driveShows[showName] = cleanSeasons
+end sub
+
 sub openDriveShowSeasons(showName as String, seasons as Object, crumbPrefix = "Home > Drive > " as String)
     if (seasons = invalid or type(seasons) <> "roAssociativeArray") and m.driveShows <> invalid and m.driveShows[showName] <> invalid
         seasons = m.driveShows[showName]
@@ -1698,49 +1745,125 @@ end sub
 ' when this season is exhausted. Returns true if playback started.
 function playNextDriveEpisode() as Boolean
     if m.currentPlayingItemType <> "tv" then return false
-    if m.currentEpisodeList = invalid or m.currentEpisodeList.count() = 0 then return false
-    savedList = m.currentEpisodeList
+    showName = safeStr(m.currentPlayingShow)
+    if showName = "" then return false
+    curSeasonNum = safeInt(m.currentPlayingSeason)
+    curEpNum = safeInt(m.currentPlayingEpisode)
 
-    nextIdx = -1
-    if m.currentEpisodeIndex >= 0 and m.currentEpisodeIndex < savedList.count()
-        nextIdx = m.currentEpisodeIndex + 1
-    else
-        curSeason = safeStr(m.currentPlayingSeason)
-        curEp = safeStr(m.currentPlayingEpisode)
-        for i = 0 to savedList.count() - 1
-            node = savedList[i]
-            if node = invalid then continue for
-            sMatch = (curSeason = "") or (node.seasonNum <> invalid and safeStr(node.seasonNum) = curSeason)
-            eMatch = (curEp = "") or (node.episodeNum <> invalid and safeStr(node.episodeNum) = curEp)
-            if sMatch and eMatch
-                nextIdx = i + 1
-                exit for
+    ' 1. Check existing m.currentEpisodeList if it belongs to this show
+    if m.currentEpisodeList <> invalid and m.currentEpisodeList.count() > 0
+        firstNode = m.currentEpisodeList[0]
+        if firstNode <> invalid and safeStr(getItemField(firstNode, "showName")) = showName
+            savedList = m.currentEpisodeList
+            nextIdx = -1
+            if m.currentEpisodeIndex >= 0 and m.currentEpisodeIndex < savedList.count() - 1
+                nextIdx = m.currentEpisodeIndex + 1
+            else
+                curSeason = safeStr(m.currentPlayingSeason)
+                curEp = safeStr(m.currentPlayingEpisode)
+                for i = 0 to savedList.count() - 1
+                    node = savedList[i]
+                    if node <> invalid
+                        sMatch = (curSeason = "") or (node.seasonNum <> invalid and safeStr(node.seasonNum) = curSeason)
+                        eMatch = (curEp = "") or (node.episodeNum <> invalid and safeStr(node.episodeNum) = curEp)
+                        if sMatch and eMatch
+                            nextIdx = i + 1
+                            exit for
+                        end if
+                    end if
+                end for
             end if
-        end for
-    end if
 
-    if nextIdx >= 0 and nextIdx < savedList.count()
-        nextItem = savedList[nextIdx]
-        if nextItem <> invalid
-            stopAllActiveStreams()
-            m.hasPlayedContent = false
-            m.lastKnownVideoPosition = 0
-            m.maxPlaybackPosition = 0
-            m.currentPlayingTotalDuration = 0
-            m.playbackSecondsPlayed = 0
-            setDriveItemMeta(nextItem)
-            playDriveItem(nextItem)
-            m.currentEpisodeList = savedList
-            m.currentEpisodeIndex = nextIdx
-            return true
+            if nextIdx >= 0 and nextIdx < savedList.count()
+                nextItem = savedList[nextIdx]
+                if nextItem <> invalid
+                    stopAllActiveStreams()
+                    m.hasPlayedContent = false
+                    m.lastKnownVideoPosition = 0
+                    m.maxPlaybackPosition = 0
+                    m.currentPlayingTotalDuration = 0
+                    m.playbackSecondsPlayed = 0
+                    setDriveItemMeta(nextItem)
+                    playDriveItem(nextItem)
+                    m.currentEpisodeList = savedList
+                    m.currentEpisodeIndex = nextIdx
+                    return true
+                end if
+            end if
         end if
     end if
 
-    ' End of this season - continue into the next available season
-    if m.currentPlayingShow <> invalid and m.currentPlayingShow <> "" and m.driveShows <> invalid
-        seasons = m.driveShows[m.currentPlayingShow]
-        if seasons <> invalid
-            curSeasonNum = safeInt(m.currentPlayingSeason)
+    ' 2. Fall back to looking up the show in m.driveShows
+    if m.driveShows <> invalid and m.driveShows.DoesExist(showName)
+        seasons = m.driveShows[showName]
+        if seasons <> invalid and isShowFullyLoaded(seasons)
+            ' Check current season for next episode
+            sKeyStr = Stri(curSeasonNum).trim()
+            if seasons.DoesExist(sKeyStr)
+                eps = seasons[sKeyStr]
+                if eps <> invalid and type(eps) = "roArray" and eps.count() > 0
+                    nextEpItem = invalid
+                    nextEpIdx = -1
+                    ' First look for episode with episode number = curEpNum + 1
+                    for i = 0 to eps.count() - 1
+                        ep = eps[i]
+                        if ep <> invalid and not isSubtitleFile(ep)
+                            if safeInt(ep.episode) = curEpNum + 1
+                                nextEpItem = ep
+                                nextEpIdx = i
+                                exit for
+                            end if
+                        end if
+                    end for
+                    ' If not found by ep number, look for current episode in array then take i + 1
+                    if nextEpItem = invalid
+                        for i = 0 to eps.count() - 1
+                            ep = eps[i]
+                            if ep <> invalid and not isSubtitleFile(ep)
+                                if safeInt(ep.episode) = curEpNum
+                                    if i + 1 < eps.count()
+                                        nextEpItem = eps[i + 1]
+                                        nextEpIdx = i + 1
+                                    end if
+                                    exit for
+                                end if
+                            end if
+                        end for
+                    end if
+
+                    if nextEpItem <> invalid
+                        newEpisodeList = []
+                        targetNode = invalid
+                        for each ep in eps
+                            if ep <> invalid and not isSubtitleFile(ep)
+                                node = buildDriveEpisodeNode(showName, sKeyStr, ep)
+                                if node <> invalid
+                                    newEpisodeList.push(node)
+                                    if safeStr(node.driveId) = safeStr(nextEpItem.driveId) or (safeInt(node.episodeNum) = safeInt(nextEpItem.episode))
+                                        targetNode = node
+                                    end if
+                                end if
+                            end if
+                        end for
+
+                        if targetNode <> invalid
+                            stopAllActiveStreams()
+                            m.hasPlayedContent = false
+                            m.lastKnownVideoPosition = 0
+                            m.maxPlaybackPosition = 0
+                            m.currentPlayingTotalDuration = 0
+                            m.playbackSecondsPlayed = 0
+                            setDriveItemMeta(targetNode)
+                            playDriveItem(targetNode)
+                            m.currentEpisodeList = newEpisodeList
+                            m.currentEpisodeIndex = nextEpIdx
+                            return true
+                        end if
+                    end if
+                end if
+            end if
+
+            ' 3. Current season finished -> continue into the next available season
             seasonKeys = []
             for each sKey in seasons
                 seasonKeys.push(safeInt(sKey))
@@ -1748,17 +1871,23 @@ function playNextDriveEpisode() as Boolean
             seasonKeys.sort()
             for each sNum in seasonKeys
                 if sNum > curSeasonNum
-                    sKeyStr = Stri(sNum).trim()
-                    eps = seasons[sKeyStr]
+                    nextSKeyStr = Stri(sNum).trim()
+                    eps = seasons[nextSKeyStr]
                     if eps = invalid or eps.count() = 0 then continue for
                     nextSeasonList = []
                     for each epItem in eps
-                        node = buildDriveEpisodeNode(m.currentPlayingShow, sKeyStr, epItem)
-                        if node <> invalid then nextSeasonList.push(node)
+                        if epItem <> invalid and not isSubtitleFile(epItem)
+                            node = buildDriveEpisodeNode(showName, nextSKeyStr, epItem)
+                            if node <> invalid then nextSeasonList.push(node)
+                        end if
                     end for
                     if nextSeasonList.count() > 0
                         stopAllActiveStreams()
-                        m.video.control = "stop"
+                        m.hasPlayedContent = false
+                        m.lastKnownVideoPosition = 0
+                        m.maxPlaybackPosition = 0
+                        m.currentPlayingTotalDuration = 0
+                        m.playbackSecondsPlayed = 0
                         setDriveItemMeta(nextSeasonList[0])
                         playDriveItem(nextSeasonList[0])
                         m.currentEpisodeList = nextSeasonList
@@ -2063,8 +2192,14 @@ end function
 
 sub playDriveItem(item as Object)
     if item = invalid return
-    m.currentEpisodeList = invalid
-    m.currentEpisodeIndex = -1
+    tType = safeStr(getItemField(item, "targetType"))
+    showVal = getItemField(item, "showName")
+    if tType = "drive_movie" or (showVal = invalid or safeStr(showVal) = "")
+        m.currentEpisodeList = invalid
+        m.currentEpisodeIndex = -1
+    else
+        prefetchDriveShow(safeStr(showVal))
+    end if
     driveId = ""
     mediaPath = ""
     title = ""
@@ -2589,25 +2724,26 @@ end sub
 
 sub onProgressTimerFire()
     if m.state <> "player" or m.isLiveChannel then return
-    vidPos = 0
-    if m.video <> invalid and m.video.position <> invalid and m.video.position > 0
-        vidPos = m.video.position
-    else if m.lastKnownVideoPosition <> invalid and m.lastKnownVideoPosition > 0
-        vidPos = m.lastKnownVideoPosition
-    end if
-    if vidPos <= 0 return
-
-    vidDur = m.video.duration
-    if vidDur = invalid then vidDur = 0
-    if isChunkedHlsStream() and vidPos >= (chunkSeconds() - 120) and vidPos > 30
-        startNextChunkWarm()
-    end if
 
     startOffset = 0
     if isChunkedHlsStream() and m.initialPlayOffset <> invalid and m.initialPlayOffset > 0
         startOffset = m.initialPlayOffset
     end if
-    effectivePos = startOffset + vidPos
+
+    effectivePos = 0
+    if m.video <> invalid and m.video.position <> invalid and m.video.position > 0
+        effectivePos = startOffset + m.video.position
+    else if m.lastKnownVideoPosition <> invalid and m.lastKnownVideoPosition > 0
+        effectivePos = m.lastKnownVideoPosition
+    end if
+    if effectivePos <= 0 return
+
+    vidDur = m.video.duration
+    if vidDur = invalid then vidDur = 0
+    if isChunkedHlsStream() and m.video <> invalid and m.video.position <> invalid and m.video.position >= (chunkSeconds() - 120) and m.video.position > 30
+        startNextChunkWarm()
+    end if
+
     if m.maxPlaybackPosition = invalid or effectivePos > m.maxPlaybackPosition then m.maxPlaybackPosition = effectivePos
     m.lastKnownVideoPosition = effectivePos
 
@@ -2679,13 +2815,13 @@ sub saveCurrentPlaybackProgress(finished as Boolean)
 
     isActuallyFinished = false
     if finished
-        if effectiveDur > 0 and effectivePos >= (effectiveDur * 0.85)
+        if effectiveDur > 0 and (effectivePos >= (effectiveDur * 0.80) or effectivePos >= (effectiveDur - 30))
             isActuallyFinished = true
             effectivePos = effectiveDur
-        else if effectiveDur <= 0 and effectivePos >= 600
+        else if effectiveDur <= 0 and effectivePos >= 30
             isActuallyFinished = true
         end if
-    else if effectiveDur > 0 and effectivePos >= (effectiveDur * 0.85)
+    else if effectiveDur > 0 and (effectivePos >= (effectiveDur * 0.85) or effectivePos >= (effectiveDur - 30))
         isActuallyFinished = true
         effectivePos = effectiveDur
     end if
@@ -4484,12 +4620,12 @@ sub stopDriveTranscode()
     end if
 
     if m.serverUrl <> "" and m.serverUrl <> vpsHost and fileId <> ""
-        cloudUt = CreateObject("roUrlTransfer")
-        if cloudUt <> invalid
-            cloudUt.setUrl(m.serverUrl + "/api/stream/drive-hls/stop")
-            cloudUt.AddHeader("Content-Type", "application/json")
-            if isLoggedIn() and m.authToken <> "" then cloudUt.AddHeader("Authorization", "Bearer " + m.authToken)
-            cloudUt.AsyncPostFromString(FormatJson({ fileId: fileId }))
+        cloudTask = CreateObject("roSGNode", "HttpTask")
+        if cloudTask <> invalid
+            cloudTask.url = m.serverUrl + "/api/stream/drive-hls/stop?fileId=" + fileId
+            cloudTask.method = "POST"
+            if isLoggedIn() and m.authToken <> "" then cloudTask.authToken = m.authToken
+            cloudTask.control = "run"
         end if
     end if
 end sub
@@ -5254,15 +5390,24 @@ function chainToNextHlsChunk() as Boolean
     startOffset = 0
     if m.initialPlayOffset <> invalid then startOffset = m.initialPlayOffset
 
-    ' If the chunk played close to its full expected duration, advance by the fixed chunk size
-    ' so the chain offset exactly matches the ?offset= that was pre-warmed on the server.
-    ' If the chunk finished early (e.g. host killed transcode or premature exit), advance by
-    ' the actual played duration so playback seamlessly picks up right where it stopped.
-    if playedSec >= (chunkSeconds() - 15)
-        nextOffset = startOffset + chunkSeconds()
-    else
-        nextOffset = startOffset + playedSec
+    ' If total duration is known and we have reached near the end (>= 85% or within 30s of end),
+    ' the video is completely finished. Never chain.
+    if m.currentPlayingTotalDuration <> invalid and m.currentPlayingTotalDuration > 0
+        if (startOffset + playedSec) >= (m.currentPlayingTotalDuration * 0.85) or (startOffset + playedSec) >= (m.currentPlayingTotalDuration - 30)
+            print "[ChunkChain] Video reached end of total duration (" + Stri(startOffset + playedSec).trim() + "/" + Stri(m.currentPlayingTotalDuration).trim() + "). Not chaining."
+            return false
+        end if
     end if
+
+    ' A chunk only chains if it actually played close to the full chunk boundary (~2 hours).
+    ' If the chunk finished before the boundary, it reached the end of the stream.
+    minChunkSec = chunkSeconds() - 30
+    if playedSec < minChunkSec
+        print "[ChunkChain] Video finished before chunk boundary (playedSec=" + Stri(playedSec).trim() + " < " + Stri(minChunkSec).trim() + "). End of stream reached."
+        return false
+    end if
+
+    nextOffset = startOffset + chunkSeconds()
 
     if m.lastChainedOffset <> invalid and m.lastChainedOffset = nextOffset
         print "[ChunkChain] Loop detected at offset "; nextOffset; ". Not chaining."
@@ -5563,11 +5708,11 @@ sub onVideoStateChange()
                 totDur = m.video.duration
             end if
 
-            ' Strict Auto-Advance: only advance if the video actually finished playing (>= 85% of duration, or >= 600s if duration unknown)
+            ' Auto-Advance: advance if the video reached >= 80% of duration (or >= 60s if duration unknown)
             if curPos > 30
-                if totDur > 0 and curPos >= (totDur * 0.85)
+                if totDur > 0 and (curPos >= (totDur * 0.80) or curPos >= (totDur - 30))
                     canAutoAdvance = true
-                else if totDur <= 0 and curPos >= 600
+                else if totDur <= 0 and curPos >= 60
                     canAutoAdvance = true
                 end if
             end if
