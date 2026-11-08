@@ -309,6 +309,7 @@ sub refreshContinueWatchingList()
     for each k in m.driveProgress
         entry = m.driveProgress[k]
         if entry <> invalid and type(entry) = "roAssociativeArray"
+            if isSubtitleFile(entry) then continue for
             cTime = safeInt(entry.currentTime)
             dTime = safeInt(entry.duration)
             isW = isWatchedProg(entry)
@@ -754,7 +755,7 @@ sub updateContinueWatchingGrid()
 
     if hasCw
         for each cwItem in m.continueWatchingList
-            if cwItem = invalid then continue for
+            if cwItem = invalid or isSubtitleFile(cwItem) then continue for
             cNode = railContent.CreateChild("ContentNode")
             title = safeStr(cwItem.title)
             if title = "" then title = "Untitled"
@@ -1010,6 +1011,62 @@ sub onCwSelected()
     end if
 end sub
 
+sub applyStandardPosterGridSettings()
+    m.posterGrid.basePosterSize = [164, 246]
+    m.posterGrid.itemSpacing = [20, 14]
+    m.posterGrid.numColumns = 6
+    m.posterGrid.numRows = 2
+    m.posterGrid.translation = [20, 70]
+end sub
+
+function isSubtitleFile(item as Dynamic) as Boolean
+    if item = invalid return false
+
+    itemType = type(item)
+    if itemType = "roString" or itemType = "String"
+        return isSubtitleFilename(item)
+    end if
+
+    if itemType <> "roAssociativeArray" and itemType <> "AssociativeArray"
+        return false
+    end if
+
+    tStr = LCase(safeStr(item.type))
+    if tStr = "subtitle" or tStr = "subtitles" or tStr = "sub" return true
+
+    mStr = LCase(safeStr(item.mimeType))
+    if Instr(1, mStr, "subtitle") > 0 or Instr(1, mStr, "subrip") > 0 or Instr(1, mStr, "vtt") > 0
+        return true
+    end if
+
+    if isSubtitleFilename(item.filename) return true
+    if isSubtitleFilename(item.name) return true
+    if isSubtitleFilename(item.path) return true
+    if isSubtitleFilename(item.mediaPath) return true
+    if isSubtitleFilename(item.title) return true
+
+    return false
+end function
+
+function isSubtitleFilename(fn as Dynamic) as Boolean
+    if fn = invalid return false
+    s = LCase(safeStr(fn)).trim()
+    if s = "" return false
+
+    qIdx = Instr(1, s, "?")
+    if qIdx > 1 then s = Left(s, qIdx - 1)
+
+    subExts = [".srt", ".vtt", ".sub", ".idx", ".ass", ".ssa", ".smi", ".sami", ".sup", ".sbv"]
+    for each ext in subExts
+        extLen = Len(ext)
+        if Len(s) >= extLen and Right(s, extLen) = ext
+            return true
+        end if
+    end for
+
+    return false
+end function
+
 ' ---- Drive Section ----
 
 sub openDriveGrid()
@@ -1052,29 +1109,110 @@ sub onDriveLibraryResult()
     m.driveMovieFolders = {}
     m.driveMovieFolderList = []
 
-    if data.shows <> invalid then m.driveShows = data.shows
-    if data.showsList <> invalid then m.driveShowsList = data.showsList
-    if data.movies <> invalid then m.driveMovies = data.movies
-    if data.movieFolders <> invalid then m.driveMovieFolders = data.movieFolders
-    if data.movieFolderList <> invalid then m.driveMovieFolderList = data.movieFolderList
+    if data.shows <> invalid
+        cleanShows = {}
+        cleanShowsList = []
+        for each showName in data.shows
+            seasons = data.shows[showName]
+            if seasons <> invalid and (type(seasons) = "roAssociativeArray" or type(seasons) = "AssociativeArray")
+                cleanSeasons = {}
+                hasEps = false
+                for each sKey in seasons
+                    eps = seasons[sKey]
+                    if eps <> invalid
+                        if type(eps) = "roArray" or type(eps) = "Array"
+                            cleanEps = []
+                            for each ep in eps
+                                if not isSubtitleFile(ep) then cleanEps.push(ep)
+                            end for
+                            if cleanEps.count() > 0
+                                cleanSeasons[sKey] = cleanEps
+                                hasEps = true
+                            end if
+                        else if type(eps) = "roInteger" or type(eps) = "Integer"
+                            if eps > 0
+                                cleanSeasons[sKey] = eps
+                                hasEps = true
+                            end if
+                        end if
+                    end if
+                end for
+                if hasEps
+                    cleanShows[showName] = cleanSeasons
+                    cleanShowsList.push(showName)
+                end if
+            end if
+        end for
+        m.driveShows = cleanShows
+        if data.showsList <> invalid and (type(data.showsList) = "roArray" or type(data.showsList) = "Array")
+            m.driveShowsList = []
+            for each sName in data.showsList
+                if m.driveShows.DoesExist(sName)
+                    m.driveShowsList.push(sName)
+                end if
+            end for
+        else
+            m.driveShowsList = cleanShowsList
+        end if
+    end if
+
+    if data.movies <> invalid and (type(data.movies) = "roArray" or type(data.movies) = "Array")
+        cleanMovies = []
+        for each mv in data.movies
+            if not isSubtitleFile(mv) then cleanMovies.push(mv)
+        end for
+        m.driveMovies = cleanMovies
+    end if
+
+    if data.movieFolders <> invalid and (type(data.movieFolders) = "roAssociativeArray" or type(data.movieFolders) = "AssociativeArray")
+        cleanFolders = {}
+        cleanFolderList = []
+        for each fName in data.movieFolders
+            fList = data.movieFolders[fName]
+            if fList <> invalid and (type(fList) = "roArray" or type(fList) = "Array")
+                cleanList = []
+                for each mv in fList
+                    if not isSubtitleFile(mv) then cleanList.push(mv)
+                end for
+                if cleanList.count() > 0
+                    cleanFolders[fName] = cleanList
+                    cleanFolderList.push(fName)
+                end if
+            end if
+        end for
+        m.driveMovieFolders = cleanFolders
+        if data.movieFolderList <> invalid and (type(data.movieFolderList) = "roArray" or type(data.movieFolderList) = "Array")
+            m.driveMovieFolderList = []
+            for each fName in data.movieFolderList
+                if m.driveMovieFolders.DoesExist(fName)
+                    m.driveMovieFolderList.push(fName)
+                end if
+            end for
+        else
+            m.driveMovieFolderList = cleanFolderList
+        end if
+    end if
+
     if data.hlsChunkSeconds <> invalid and data.hlsChunkSeconds > 0
         m.serverChunkSeconds = data.hlsChunkSeconds
     end if
     if m.driveProgress = invalid then m.driveProgress = {}
     if data.progress <> invalid and type(data.progress) = "roAssociativeArray"
         for each pk in data.progress
-            m.driveProgress[pk] = data.progress[pk]
-            if Left(pk, 8) = "drive://"
-                rawId = Mid(pk, 9)
-                m.driveProgress[rawId] = data.progress[pk]
-            else
-                m.driveProgress["drive://" + pk] = data.progress[pk]
+            if not isSubtitleFile(data.progress[pk])
+                m.driveProgress[pk] = data.progress[pk]
+                if Left(pk, 8) = "drive://"
+                    rawId = Mid(pk, 9)
+                    m.driveProgress[rawId] = data.progress[pk]
+                else
+                    m.driveProgress["drive://" + pk] = data.progress[pk]
+                end if
             end if
         end for
     end if
     if data.continueWatching <> invalid
         for each cw in data.continueWatching
-            if cw <> invalid
+            if cw <> invalid and not isSubtitleFile(cw)
                 if cw.path <> invalid and cw.path <> ""
                     m.driveProgress[cw.path] = cw
                 end if
@@ -1166,11 +1304,7 @@ sub onDriveLibraryResult()
     end if
 
     m.folderBreadcrumb.text = "Home > Drive (" + Stri(m.gridItems.count()).trim() + " Sections)"
-    m.posterGrid.basePosterSize = [180, 240]
-    m.posterGrid.itemSpacing = [24, 16]
-    m.posterGrid.numColumns = 5
-    m.posterGrid.numRows = 2
-    m.posterGrid.translation = [20, 76]
+    applyStandardPosterGridSettings()
     m.posterGrid.content = gridContent
     m.posterGrid.visible = true
     m.heroGroup.visible = false
@@ -1203,8 +1337,10 @@ sub openDriveShowsGrid()
         for each sKey in seasons
             eps = seasons[sKey]
             if eps <> invalid
-                if type(eps) = "roArray"
-                    totalEps = totalEps + eps.count()
+                if type(eps) = "roArray" or type(eps) = "Array"
+                    for each ep in eps
+                        if not isSubtitleFile(ep) then totalEps = totalEps + 1
+                    end for
                 else if type(eps) = "roInteger" or type(eps) = "Integer"
                     totalEps = totalEps + eps
                 end if
@@ -1226,11 +1362,7 @@ sub openDriveShowsGrid()
     end for
 
     m.folderBreadcrumb.text = "Home > Drive > TV Shows (" + Stri(m.gridItems.count()).trim() + ")"
-    m.posterGrid.basePosterSize = [165, 270]
-    m.posterGrid.itemSpacing = [20, 14]
-    m.posterGrid.numColumns = 6
-    m.posterGrid.numRows = 2
-    m.posterGrid.translation = [20, 76]
+    applyStandardPosterGridSettings()
     m.posterGrid.content = gridContent
     m.posterGrid.visible = true
     m.heroGroup.visible = false
@@ -1287,8 +1419,24 @@ sub onShowEpisodesResult()
     if showName = invalid or showName = "" then showName = safeStr(data.showName)
     m.pendingShowName = invalid
     if m.driveShows = invalid then m.driveShows = {}
-    m.driveShows[showName] = data.seasons
-    openDriveShowSeasons(showName, data.seasons)
+
+    cleanSeasons = {}
+    if data.seasons <> invalid and (type(data.seasons) = "roAssociativeArray" or type(data.seasons) = "AssociativeArray")
+        for each sKey in data.seasons
+            eps = data.seasons[sKey]
+            if eps <> invalid and (type(eps) = "roArray" or type(eps) = "Array")
+                cleanEps = []
+                for each ep in eps
+                    if not isSubtitleFile(ep) then cleanEps.push(ep)
+                end for
+                cleanSeasons[sKey] = cleanEps
+            else
+                cleanSeasons[sKey] = eps
+            end if
+        end for
+    end if
+    m.driveShows[showName] = cleanSeasons
+    openDriveShowSeasons(showName, cleanSeasons)
 end sub
 
 sub onShowEpisodesError()
@@ -1354,7 +1502,7 @@ sub openDriveShowSeasons(showName as String, seasons as Object, crumbPrefix = "H
         eps = seasons[sKey]
         if eps <> invalid and type(eps) = "roArray"
             for each ep in eps
-                if ep <> invalid
+                if ep <> invalid and not isSubtitleFile(ep)
                     curEpNum = safeInt(ep.episode)
                     if sNum > latestSeasonNum or (sNum = latestSeasonNum and curEpNum > latestEpNum)
                         latestSeasonNum = sNum
@@ -1383,8 +1531,12 @@ sub openDriveShowSeasons(showName as String, seasons as Object, crumbPrefix = "H
         eps = seasons[sKey]
         if eps = invalid then continue for
         epsCount = 0
-        if type(eps) = "roArray"
-            epsCount = eps.count()
+        if type(eps) = "roArray" or type(eps) = "Array"
+            cleanEpsCount = 0
+            for each ep in eps
+                if not isSubtitleFile(ep) then cleanEpsCount = cleanEpsCount + 1
+            end for
+            epsCount = cleanEpsCount
         else if type(eps) = "roInteger" or type(eps) = "Integer"
             epsCount = eps
         end if
@@ -1400,11 +1552,7 @@ sub openDriveShowSeasons(showName as String, seasons as Object, crumbPrefix = "H
     end for
 
     m.folderBreadcrumb.text = crumbPrefix + showName + " (" + Stri(seasonKeys.count()).trim() + " Seasons)"
-    m.posterGrid.basePosterSize = [165, 270]
-    m.posterGrid.itemSpacing = [20, 14]
-    m.posterGrid.numColumns = 6
-    m.posterGrid.numRows = 2
-    m.posterGrid.translation = [20, 76]
+    applyStandardPosterGridSettings()
     m.posterGrid.content = gridContent
     m.posterGrid.visible = true
     m.heroGroup.visible = false
@@ -1431,7 +1579,7 @@ sub openDriveSeasonEpisodes(showName as String, seasonNum as String, episodes as
     m.driveAutoPlayNextEnabled = true
 
     for each ep in episodes
-        if ep <> invalid
+        if ep <> invalid and not isSubtitleFile(ep)
             node = buildDriveEpisodeNode(showName, seasonNum, ep, gridContent)
             if node <> invalid
                 m.gridItems.push(node)
@@ -1440,11 +1588,7 @@ sub openDriveSeasonEpisodes(showName as String, seasonNum as String, episodes as
     end for
 
     m.folderBreadcrumb.text = crumbPrefix + showName + " > S" + seasonNum + " (" + Stri(m.gridItems.count()).trim() + " Episodes)"
-    m.posterGrid.basePosterSize = [165, 270]
-    m.posterGrid.itemSpacing = [20, 14]
-    m.posterGrid.numColumns = 6
-    m.posterGrid.numRows = 2
-    m.posterGrid.translation = [20, 76]
+    applyStandardPosterGridSettings()
     m.posterGrid.content = gridContent
     m.posterGrid.visible = true
     m.heroGroup.visible = false
@@ -1457,6 +1601,7 @@ end sub
 
 function buildDriveEpisodeNode(showName as String, seasonNum as String, ep as Object, parent = invalid as Object) as Object
     if ep = invalid return invalid
+    if isSubtitleFile(ep) return invalid
     node = invalid
     if parent <> invalid
         node = parent.CreateChild("ContentNode")
@@ -1650,6 +1795,7 @@ end function
 
 function buildDriveMovieNode(gridContent as Object, movie as Object) as Object
     if movie = invalid or gridContent = invalid return invalid
+    if isSubtitleFile(movie) return invalid
     node = gridContent.CreateChild("ContentNode")
     rawTitle = safeStr(movie.title)
     if rawTitle = "" then rawTitle = safeStr(movie.filename)
@@ -1787,11 +1933,7 @@ sub openDriveMoviesGrid()
         m.folderBreadcrumb.text = "Home > Drive > Movies (" + Stri(m.gridItems.count()).trim() + ")"
     end if
 
-    m.posterGrid.basePosterSize = [165, 270]
-    m.posterGrid.itemSpacing = [20, 14]
-    m.posterGrid.numColumns = 6
-    m.posterGrid.numRows = 2
-    m.posterGrid.translation = [20, 76]
+    applyStandardPosterGridSettings()
     m.posterGrid.content = gridContent
     m.posterGrid.visible = true
     m.heroGroup.visible = false
@@ -1820,11 +1962,7 @@ sub openDriveMovieFolderGrid(folderName as String, movies as Object)
     end for
 
     m.folderBreadcrumb.text = "Home > Drive > Movies > " + folderName + " (" + Stri(m.gridItems.count()).trim() + ")"
-    m.posterGrid.basePosterSize = [165, 270]
-    m.posterGrid.itemSpacing = [20, 14]
-    m.posterGrid.numColumns = 6
-    m.posterGrid.numRows = 2
-    m.posterGrid.translation = [20, 76]
+    applyStandardPosterGridSettings()
     m.posterGrid.content = gridContent
     m.posterGrid.visible = true
     m.heroGroup.visible = false
@@ -1850,11 +1988,7 @@ sub openDriveAllMoviesGrid()
     end for
 
     m.folderBreadcrumb.text = "Home > Drive > All Movies (" + Stri(m.gridItems.count()).trim() + ")"
-    m.posterGrid.basePosterSize = [165, 270]
-    m.posterGrid.itemSpacing = [20, 14]
-    m.posterGrid.numColumns = 6
-    m.posterGrid.numRows = 2
-    m.posterGrid.translation = [20, 76]
+    applyStandardPosterGridSettings()
     m.posterGrid.content = gridContent
     m.posterGrid.visible = true
     m.heroGroup.visible = false
@@ -2065,7 +2199,8 @@ sub onFavoritesResult()
         emptyNode.description = "Go to Drive and heart items to add them to favorites"
         emptyNode.addFields({ targetType: "section_header" })
         m.gridItems.push(emptyNode)
-        m.posterGrid.content = gridContent
+        applyStandardPosterGridSettings()
+    m.posterGrid.content = gridContent
         m.posterGrid.visible = true
         m.heroGroup.visible = false
         m.cwLabel.visible = false
@@ -2078,7 +2213,7 @@ sub onFavoritesResult()
     m.gridItems = []
 
     for each fav in data.favorites
-        if fav = invalid then continue for
+        if fav = invalid or isSubtitleFile(fav) then continue for
         node = gridContent.CreateChild("ContentNode")
         favTitle = safeStr(fav.title)
         if favTitle = "" then favTitle = "Untitled"
@@ -2138,11 +2273,7 @@ sub onFavoritesResult()
     end for
 
     m.folderBreadcrumb.text = "Home > Favorites (" + Stri(m.gridItems.count()).trim() + ")"
-    m.posterGrid.basePosterSize = [165, 270]
-    m.posterGrid.itemSpacing = [20, 14]
-    m.posterGrid.numColumns = 6
-    m.posterGrid.numRows = 2
-    m.posterGrid.translation = [20, 76]
+    applyStandardPosterGridSettings()
     m.posterGrid.content = gridContent
     m.posterGrid.visible = true
     m.heroGroup.visible = false
@@ -2596,11 +2727,7 @@ sub pushCurrentState(newBreadcrumb as String)
     if m.cwInfoBar <> invalid then m.cwInfoBar.visible = false
     m.posterGrid.visible = true
     m.savedGridBreadcrumb = newBreadcrumb
-    m.posterGrid.translation = [20, 70]
-    m.posterGrid.basePosterSize = [148, 222]
-    m.posterGrid.itemSpacing = [18, 14]
-    m.posterGrid.numColumns = 7
-    m.posterGrid.numRows = 2
+    applyStandardPosterGridSettings()
     m.posterGrid.visible = true
     m.heroGroup.visible = false
     m.cwLabel.visible = false
@@ -2636,11 +2763,11 @@ function popState() as Boolean
         updateSidebarNav()
     end if
     m.gridItems = prev.gridItems
-    if prev.basePosterSize <> invalid then m.posterGrid.basePosterSize = prev.basePosterSize
-    if prev.itemSpacing <> invalid then m.posterGrid.itemSpacing = prev.itemSpacing
-    if prev.numColumns <> invalid then m.posterGrid.numColumns = prev.numColumns
-    if prev.numRows <> invalid then m.posterGrid.numRows = prev.numRows
-    if prev.translation <> invalid then m.posterGrid.translation = prev.translation
+    if prev.basePosterSize <> invalid then m.posterGrid.basePosterSize = prev.basePosterSize else m.posterGrid.basePosterSize = [164, 246]
+    if prev.itemSpacing <> invalid then m.posterGrid.itemSpacing = prev.itemSpacing else m.posterGrid.itemSpacing = [20, 14]
+    if prev.numColumns <> invalid then m.posterGrid.numColumns = prev.numColumns else m.posterGrid.numColumns = 6
+    if prev.numRows <> invalid then m.posterGrid.numRows = prev.numRows else m.posterGrid.numRows = 2
+    if prev.translation <> invalid then m.posterGrid.translation = prev.translation else m.posterGrid.translation = [20, 70]
     m.posterGrid.content = prev.content
     if prev.focusedIdx >= 0 and prev.focusedIdx < m.gridItems.count()
         m.posterGrid.jumpToItem = prev.focusedIdx
@@ -2743,6 +2870,7 @@ sub onServicesResult()
     end for
 
     m.folderBreadcrumb.text = "Home > Services (" + Stri(m.gridItems.count()).trim() + " Services)"
+    applyStandardPosterGridSettings()
     m.posterGrid.content = gridContent
     m.posterGrid.setFocus(true)
     if m.gridItems.count() > 0
@@ -2851,6 +2979,7 @@ sub onServiceCatalogResult()
     end for
 
     m.folderBreadcrumb.text = "Home > Services > " + m.currentServiceName + " (" + Stri(totalCount).trim() + " Titles)"
+    applyStandardPosterGridSettings()
     m.posterGrid.content = gridContent
     m.posterGrid.setFocus(true)
     if m.gridItems.count() > 0
@@ -2984,6 +3113,7 @@ sub onServiceTvDetailsResult()
     end for
 
     m.folderBreadcrumb.text = "Home > " + m.currentTvShowTitle + " (" + Stri(data.seasons.count()).trim() + " Seasons)"
+    applyStandardPosterGridSettings()
     m.posterGrid.content = gridContent
     m.posterGrid.setFocus(true)
     if m.gridItems.count() > 0
@@ -3068,6 +3198,7 @@ sub openServiceTvEpisodesGrid(showTitle as String, seasonNum as String, seasonNa
     end for
 
     m.folderBreadcrumb.text = "Home > " + showTitle + " > " + seasonName + " (" + Stri(sortedEps.count()).trim() + " Episodes)"
+    applyStandardPosterGridSettings()
     m.posterGrid.content = gridContent
     m.posterGrid.setFocus(true)
     if m.gridItems.count() > 0
@@ -3298,6 +3429,7 @@ sub showPopularTvSeasonsGrid(results as Object)
     end for
 
     m.folderBreadcrumb.text = "Home > Fresh > " + showTitle + " (" + Stri(seasonsList.count()).trim() + " Seasons)"
+    applyStandardPosterGridSettings()
     m.posterGrid.content = gridContent
     m.posterGrid.setFocus(true)
     if m.gridItems.count() > 0
@@ -3398,6 +3530,7 @@ sub openPopularTvSeasonTorrentsGrid(showTitle as String, seasonNum as String, to
     end for
 
     m.folderBreadcrumb.text = "Home > Fresh > " + showTitle + " > S" + seasonNum + " (" + Stri(filteredTorrents.count()).trim() + " Episodes)"
+    applyStandardPosterGridSettings()
     m.posterGrid.content = gridContent
     m.posterGrid.setFocus(true)
     if m.gridItems.count() > 0
@@ -3560,6 +3693,7 @@ sub openFreeTvProviderGrid(providerName as String)
     end for
 
     m.folderBreadcrumb.text = "Home > Free TV > " + providerName + " (" + Stri(m.gridItems.count()).trim() + " Channels)"
+    applyStandardPosterGridSettings()
     m.posterGrid.content = gridContent
     m.posterGrid.setFocus(true)
     if m.gridItems.count() > 0
@@ -4616,7 +4750,7 @@ sub onDriveCwResult()
     m.gridItems = []
 
     for each item in cwList
-        if item = invalid then continue for
+        if item = invalid or isSubtitleFile(item) then continue for
         node = gridContent.CreateChild("ContentNode")
         title = safeStr(item.title)
         if title = "" then title = "Untitled"
@@ -4681,6 +4815,7 @@ sub onDriveCwResult()
     end for
 
     m.folderBreadcrumb.text = "Home > Drive > Continue Watching (" + Stri(m.gridItems.count()).trim() + ")"
+    applyStandardPosterGridSettings()
     m.posterGrid.content = gridContent
     m.posterGrid.setFocus(true)
     if m.gridItems.count() > 0
@@ -6021,6 +6156,7 @@ sub performUnifiedSearch(queryStr as String)
                     eps = seasons[sKey]
                     if eps <> invalid
                         for each ep in eps
+                            if ep = invalid or isSubtitleFile(ep) then continue for
                             epTitle = ""
                             epFile = ""
                             if ep.title <> invalid then epTitle = ep.title.toStr()
@@ -6056,6 +6192,7 @@ sub performUnifiedSearch(queryStr as String)
     ' Search Drive Movies
     if m.driveMovies <> invalid
         for each movie in m.driveMovies
+            if movie = invalid or isSubtitleFile(movie) then continue for
             mTitle = safeStr(movie.title)
             mFile = safeStr(movie.filename)
             if Instr(1, LCase(mTitle), qLower) > 0 or Instr(1, LCase(mFile), qLower) > 0
@@ -6201,6 +6338,7 @@ sub renderUnifiedSearchResults()
         end if
 
         for each ep in m.searchLibraryTv
+            if ep = invalid or isSubtitleFile(ep) then continue for
             node = gridContent.CreateChild("ContentNode")
             dispTitle = ep.show
             if ep.season <> "" or ep.episode <> ""
@@ -6226,6 +6364,7 @@ sub renderUnifiedSearchResults()
         end for
 
         for each mv in m.searchLibraryMovies
+            if mv = invalid or isSubtitleFile(mv) then continue for
             node = gridContent.CreateChild("ContentNode")
             node.title = mv.title
             setPosterUrl(node, resolvePosterUrl(mv.posterUrl, "pkg:/images/movies.jpg"))
@@ -6425,6 +6564,7 @@ sub renderUnifiedSearchResults()
         m.folderBreadcrumb.text = "Search: '" + m.lastSearchQuery + "' (" + Stri(m.gridItems.count()).trim() + " items)" + extra
     end if
 
+    applyStandardPosterGridSettings()
     m.posterGrid.content = gridContent
     if m.gridItems.count() > 0 and m.posterGrid.itemFocused < 0
         m.posterGrid.jumpToItem = 0

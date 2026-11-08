@@ -52,13 +52,13 @@
         </Group>
 
         <!-- Poster Grid (used for sub-screens: Movies, Shows, Episodes, Faves, Search) -->
-        <PosterGrid id="posterGrid" translation="[20, 70]" basePosterSize="[148, 222]" itemSpacing="[18, 14]" numColumns="7" numRows="2" posterDisplayMode="zoomToFill" drawFocusFeedback="true" drawFocusFeedbackOnTop="true" focusBitmapUri="pkg:/images/focus-ring.png" focusFootprintBlendColor="0xFFFFFF00" visible="true"/>
+        <PosterGrid id="posterGrid" translation="[20, 70]" basePosterSize="[164, 246]" itemSpacing="[20, 14]" numColumns="6" numRows="2" posterDisplayMode="zoomToFill" drawFocusFeedback="true" drawFocusFeedbackOnTop="true" focusBitmapUri="pkg:/images/focus-ring.png" focusFootprintBlendColor="0xFFFFFF00" visible="true"/>
 
         <!-- What's On / Trending Section Header -->
         <Label id="cwLabel" translation="[20, 375]" width="600" height="24" text="WHAT'S ON &amp; TRENDING" font="font:MediumBoldSystemFont" color="#FFFFFF" visible="false"/>
 
         <!-- Crave Rail: Single horizontal scrolling row of 2:3 vertical posters -->
-        <PosterGrid id="cwGrid" translation="[20, 408]" basePosterSize="[150, 225]" itemSpacing="[16, 0]" numColumns="7" numRows="1" posterDisplayMode="zoomToFill" drawFocusFeedback="true" drawFocusFeedbackOnTop="true" focusBitmapUri="pkg:/images/focus-ring.png" focusFootprintBlendColor="0xFFFFFF00" visible="false"/>
+        <PosterGrid id="cwGrid" translation="[20, 408]" basePosterSize="[164, 246]" itemSpacing="[20, 0]" numColumns="6" numRows="1" posterDisplayMode="zoomToFill" drawFocusFeedback="true" drawFocusFeedbackOnTop="true" focusBitmapUri="pkg:/images/focus-ring.png" focusFootprintBlendColor="0xFFFFFF00" visible="false"/>
 
         <!-- Info bar (hidden on home screen to keep clean Crave look) -->
         <Rectangle id="cwInfoBar" translation="[20, 668]" width="1140" height="48" color="#08090F" opacity="0.94" visible="false"/>
