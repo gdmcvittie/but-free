@@ -1,0 +1,8 @@
+node_modules/
+dist_electron/
+dist/
+data/
+media/
+tmp/
+.env
+

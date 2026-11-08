@@ -86,15 +86,21 @@ sub init()
     m.authUserEmail = ""
     m.authIsAdmin = false
     m.driveProgress = {}
+    m.localTranscoderUrl = ""
+    m.localTranscoderStatus = "searching"
     loadAuthToken()
+    initLocalTranscoder()
     buildSidebar(navGroup)
 
     m.playerScreen = m.top.findNode("playerScreen")
     m.video = m.top.findNode("video")
-    m.video.bufferMode = "full"
     m.video.observeField("state", "onVideoStateChange")
     m.video.observeField("bufferingStatus", "onBufferingStatusChange")
+    m.video.observeField("position", "onVideoPositionChange")
+    m.lastKnownVideoPosition = 0
+    m.continueWatchingList = []
     m.justExitedPlayer = false
+    m.justEnteredPlayer = false
 
     m.navStack = []
 
@@ -281,9 +287,56 @@ sub onPlaybackProgressResult()
             if Left(k, 8) = "drive://"
                 rawId = Mid(k, 9)
                 m.driveProgress[rawId] = data[k]
+            else
+                m.driveProgress["drive://" + k] = data[k]
             end if
         end for
+        refreshContinueWatchingList()
+        if m.state = "grid"
+            if m.navStack.count() = 0 and m.cwGrid <> invalid and m.cwGrid.visible
+                updateContinueWatchingGrid()
+            else if m.posterGrid <> invalid and m.posterGrid.visible and m.gridItems <> invalid and m.gridItems.count() > 0
+                refreshAllGridItemsWatchedStatus()
+            end if
+        end if
     end if
+end sub
+
+sub refreshContinueWatchingList()
+    if m.driveProgress = invalid then return
+    cwList = []
+    seen = {}
+    for each k in m.driveProgress
+        entry = m.driveProgress[k]
+        if entry <> invalid and type(entry) = "roAssociativeArray"
+            cTime = safeInt(entry.currentTime)
+            dTime = safeInt(entry.duration)
+            isW = isWatchedProg(entry)
+            pKey = safeStr(entry.path)
+            if pKey = "" then pKey = k
+            rawKey = pKey
+            if Left(rawKey, 8) = "drive://" then rawKey = Mid(rawKey, 9)
+
+            if not isW and cTime > 5 and (dTime <= 0 or cTime < dTime * 0.95) and not seen.DoesExist(rawKey)
+                seen[rawKey] = true
+                cwItem = {
+                    path: pKey,
+                    driveId: rawKey,
+                    title: safeStr(entry.title),
+                    currentTime: cTime,
+                    duration: dTime,
+                    type: safeStr(entry.type),
+                    show: safeStr(entry.show),
+                    season: entry.season,
+                    episode: entry.episode,
+                    posterPath: safeStr(entry.posterPath),
+                    updatedAt: safeStr(entry.updatedAt)
+                }
+                cwList.push(cwItem)
+            end if
+        end if
+    end for
+    m.continueWatchingList = cwList
 end sub
 
 function getItemField(item as Object, key as String) as Dynamic
@@ -304,6 +357,11 @@ function getItemProgress(item as Object) as Object
     mediaPath = safeStr(getItemField(item, "mediaPath"))
     if mediaPath <> ""
         p = m.driveProgress[mediaPath]
+        if p = invalid and Left(mediaPath, 8) = "drive://"
+            p = m.driveProgress[Mid(mediaPath, 9)]
+        else if p = invalid and Left(mediaPath, 8) <> "drive://"
+            p = m.driveProgress["drive://" + mediaPath]
+        end if
     end if
     if p = invalid
         driveId = safeStr(getItemField(item, "driveId"))
@@ -322,6 +380,8 @@ function getItemProgress(item as Object) as Object
             p = m.driveProgress[pathVal]
             if p = invalid and Len(pathVal) >= 8 and Left(pathVal, 8) = "drive://"
                 p = m.driveProgress[Mid(pathVal, 9)]
+            else if p = invalid and Left(pathVal, 8) <> "drive://"
+                p = m.driveProgress["drive://" + pathVal]
             end if
         end if
     end if
@@ -363,18 +423,21 @@ sub updateGridItemWatchedStatus(mediaPath as String)
         prog = m.driveProgress[mediaPath]
         if prog = invalid and Len(mediaPath) >= 8 and Left(mediaPath, 8) = "drive://"
             prog = m.driveProgress[Mid(mediaPath, 9)]
+        else if prog = invalid and Left(mediaPath, 8) <> "drive://"
+            prog = m.driveProgress["drive://" + mediaPath]
         end if
     end if
     if prog = invalid return
 
     isWatched = isWatchedProg(prog)
 
+    gridUpdated = false
     for each node in m.gridItems
         if node <> invalid
             mP = safeStr(getItemField(node, "mediaPath"))
             dId = safeStr(getItemField(node, "driveId"))
             match = false
-            if mP <> "" and (mP = mediaPath or (Len(mediaPath) >= 8 and Left(mediaPath, 8) = "drive://" and mP = Mid(mediaPath, 9)))
+            if mP <> "" and (mP = mediaPath or (Len(mediaPath) >= 8 and Left(mediaPath, 8) = "drive://" and mP = Mid(mediaPath, 9)) or (Left(mP, 8) = "drive://" and Mid(mP, 9) = mediaPath))
                 match = true
             else if dId <> "" and (mediaPath = dId or mediaPath = ("drive://" + dId))
                 match = true
@@ -391,6 +454,8 @@ sub updateGridItemWatchedStatus(mediaPath as String)
                 if isWatched
                     node.title = "✓ " + baseTitle
                     node.shortDescriptionLine1 = "✓ Watched"
+                    node.description = baseTitle + " (Watched)"
+                    gridUpdated = true
                 else if prog.currentTime <> invalid and safeInt(prog.currentTime) > 5
                     cur = safeInt(prog.currentTime)
                     dur = safeInt(prog.duration)
@@ -401,10 +466,55 @@ sub updateGridItemWatchedStatus(mediaPath as String)
                     else
                         node.shortDescriptionLine1 = "In Progress"
                     end if
+                    node.description = baseTitle + " (" + node.shortDescriptionLine1 + ")"
+                    gridUpdated = true
                 end if
             end if
         end if
     end for
+    if gridUpdated and m.posterGrid <> invalid and m.posterGrid.content <> invalid
+        m.posterGrid.content = m.posterGrid.content
+    end if
+end sub
+
+sub refreshAllGridItemsWatchedStatus()
+    if m.gridItems = invalid or m.gridItems.count() = 0 return
+    gridUpdated = false
+    for each node in m.gridItems
+        if node <> invalid
+            prog = getItemProgress(node)
+            if prog <> invalid
+                isWatched = isWatchedProg(prog)
+                baseTitle = safeStr(getItemField(node, "itemTitle"))
+                if baseTitle = "" then baseTitle = node.title
+                if InStr(1, baseTitle, "✓") > 0
+                    idx = InStr(1, baseTitle, " ")
+                    if idx > 0 and idx <= 4 then baseTitle = Mid(baseTitle, idx + 1)
+                end if
+                if isWatched
+                    node.title = "✓ " + baseTitle
+                    node.shortDescriptionLine1 = "✓ Watched"
+                    node.description = baseTitle + " (Watched)"
+                    gridUpdated = true
+                else if prog.currentTime <> invalid and safeInt(prog.currentTime) > 5
+                    cur = safeInt(prog.currentTime)
+                    dur = safeInt(prog.duration)
+                    remMin = 0
+                    if dur > cur then remMin = Int((dur - cur) / 60)
+                    if remMin > 0
+                        node.shortDescriptionLine1 = Stri(remMin).trim() + "m left"
+                    else
+                        node.shortDescriptionLine1 = "In Progress"
+                    end if
+                    node.description = baseTitle + " (" + node.shortDescriptionLine1 + ")"
+                    gridUpdated = true
+                end if
+            end if
+        end if
+    end for
+    if gridUpdated and m.posterGrid <> invalid and m.posterGrid.content <> invalid
+        m.posterGrid.content = m.posterGrid.content
+    end if
 end sub
 
 function isLoggedIn() as Boolean
@@ -639,6 +749,76 @@ sub updateContinueWatchingGrid()
     m.cwItems = []
     railContent = CreateObject("roSGNode", "ContentNode")
 
+    refreshContinueWatchingList()
+    hasCw = m.continueWatchingList <> invalid and m.continueWatchingList.count() > 0
+
+    if hasCw
+        for each cwItem in m.continueWatchingList
+            if cwItem = invalid then continue for
+            cNode = railContent.CreateChild("ContentNode")
+            title = safeStr(cwItem.title)
+            if title = "" then title = "Untitled"
+            cNode.title = title
+            posterUrl = safeStr(cwItem.posterPath)
+            if posterUrl = ""
+                setPosterUrl(cNode, "pkg:/images/no-poster.jpg")
+            else if Left(LCase(posterUrl), 4) = "http"
+                setPosterUrl(cNode, posterUrl)
+            else
+                setPosterUrl(cNode, m.serverUrl + posterUrl)
+            end if
+
+            showName = safeStr(cwItem.show)
+            typeLabel = safeStr(cwItem.type)
+            epStr = ""
+            if showName <> ""
+                typeLabel = "TV"
+                sNum = safeInt(cwItem.season)
+                eNum = safeInt(cwItem.episode)
+                if sNum > 0 and eNum > 0
+                    eNumStr = Right(Stri(100 + eNum).trim(), 2)
+                    epStr = " S" + Stri(sNum).trim() + "E" + eNumStr
+                end if
+            end if
+
+            dur = safeInt(cwItem.duration)
+            cur = safeInt(cwItem.currentTime)
+            remMin = 0
+            if dur > cur then remMin = Int((dur - cur) / 60)
+            if remMin > 0
+                cNode.shortDescriptionLine1 = Stri(remMin).trim() + "m left · " + typeLabel + epStr
+            else
+                cNode.shortDescriptionLine1 = "In Progress · " + typeLabel + epStr
+            end if
+            cNode.description = title + " (" + cNode.shortDescriptionLine1 + ")"
+
+            cwDriveId = safeStr(cwItem.driveId)
+            cwPath = safeStr(cwItem.path)
+            if cwDriveId = "" and Left(cwPath, 8) = "drive://"
+                cwDriveId = Mid(cwPath, 9)
+            end if
+
+            tType = "drive_episode"
+            if LCase(typeLabel) = "movie" or showName = ""
+                tType = "drive_movie"
+            end if
+
+            cNode.addFields({
+                targetType: tType,
+                itemTitle: title,
+                mediaPath: cwPath,
+                driveId: cwDriveId,
+                showName: showName,
+                seasonNum: cwItem.season,
+                episodeNum: cwItem.episode,
+                posterPath: safeStr(cwItem.posterPath),
+                currentTime: cur,
+                duration: dur
+            })
+            m.cwItems.push(cNode)
+        end for
+    end if
+
     hasFreshWhatson = m.homeFreshWhatsonData <> invalid and m.homeFreshWhatsonData.items <> invalid and m.homeFreshWhatsonData.items.count() > 0
     hasFreshMovie = m.homeFreshMovieData <> invalid and m.homeFreshMovieData.results <> invalid and m.homeFreshMovieData.results.count() > 0
     hasFreshTv = m.homeFreshTvData <> invalid and m.homeFreshTvData.results <> invalid and m.homeFreshTvData.results.count() > 0
@@ -695,7 +875,11 @@ sub updateContinueWatchingGrid()
 
     showRail = (m.cwItems.count() > 0) and (m.navStack.count() = 0) and (m.state = "grid")
     m.cwLabel.visible = showRail
-    m.cwLabel.text = "WHAT'S ON & TRENDING"
+    if hasCw
+        m.cwLabel.text = "CONTINUE WATCHING & TRENDING"
+    else
+        m.cwLabel.text = "WHAT'S ON & TRENDING"
+    end if
     m.cwGrid.visible = showRail
     if m.cwItems.count() > 0
         m.cwGrid.content = railContent
@@ -808,6 +992,10 @@ sub onCwSelected()
 
     if tType = "section_header"
         return
+    else if tType = "drive_episode" or tType = "drive_movie"
+        setDriveItemMeta(item)
+        playDriveItem(item)
+        return
     else if tType = "popular_item"
         searchPopularTorrent(item)
         return
@@ -828,6 +1016,9 @@ sub openDriveGrid()
     if not isLoggedIn()
         showLoginScreen()
         return
+    end if
+    if m.localTranscoderUrl = invalid or m.localTranscoderUrl = ""
+        startTranscoderDiscovery()
     end if
     m.activeSidebar = 2
     updateSidebarNav()
@@ -876,6 +1067,8 @@ sub onDriveLibraryResult()
             if Left(pk, 8) = "drive://"
                 rawId = Mid(pk, 9)
                 m.driveProgress[rawId] = data.progress[pk]
+            else
+                m.driveProgress["drive://" + pk] = data.progress[pk]
             end if
         end for
     end if
@@ -892,6 +1085,7 @@ sub onDriveLibraryResult()
             end if
         end for
     end if
+    refreshContinueWatchingList()
 
     ' Fallback: group movies by folder if not grouped by server
     if m.driveMovieFolderList.count() = 0 and m.driveMovies.count() > 0
@@ -949,7 +1143,9 @@ sub onDriveLibraryResult()
     end if
 
     cwData = []
-    if data.continueWatching <> invalid
+    if m.continueWatchingList <> invalid and m.continueWatchingList.count() > 0
+        cwData = m.continueWatchingList
+    else if data.continueWatching <> invalid
         for each item in data.continueWatching
             if item <> invalid then cwData.push(item)
         end for
@@ -1316,11 +1512,7 @@ function buildDriveEpisodeNode(showName as String, seasonNum as String, ep as Ob
     end if
 
     subUrl = ""
-    if ep.subtitleUrl <> invalid and ep.subtitleUrl <> ""
-        subUrl = ep.subtitleUrl
-    else if ep.driveId <> invalid and ep.driveId <> ""
-        subUrl = "/api/stream/drive-subtitle/" + ep.driveId
-    end if
+    ' Subtitles disabled for Google Drive episodes to ensure immediate playback
 
     epPath = safeStr(ep.path)
     if epPath = "" and ep.driveId <> invalid and safeStr(ep.driveId) <> ""
@@ -1386,7 +1578,11 @@ function playNextDriveEpisode() as Boolean
         nextItem = savedList[nextIdx]
         if nextItem <> invalid
             stopAllActiveStreams()
-            m.video.control = "stop"
+            m.hasPlayedContent = false
+            m.lastKnownVideoPosition = 0
+            m.maxPlaybackPosition = 0
+            m.currentPlayingTotalDuration = 0
+            m.playbackSecondsPlayed = 0
             setDriveItemMeta(nextItem)
             playDriveItem(nextItem)
             m.currentEpisodeList = savedList
@@ -1500,11 +1696,7 @@ function buildDriveMovieNode(gridContent as Object, movie as Object) as Object
     end if
 
     subUrl = ""
-    if movie.subtitleUrl <> invalid and movie.subtitleUrl <> ""
-        subUrl = movie.subtitleUrl
-    else if movie.driveId <> invalid and movie.driveId <> ""
-        subUrl = "/api/stream/drive-subtitle/" + movie.driveId
-    end if
+    ' Subtitles disabled for Google Drive movies to ensure immediate playback
 
     mPath = safeStr(movie.path)
     dId = safeStr(movie.driveId)
@@ -1673,6 +1865,58 @@ sub openDriveAllMoviesGrid()
     end if
 end sub
 
+sub initLocalTranscoder()
+    m.localTranscoderUrl = ""
+    m.localTranscoderStatus = "searching"
+    startTranscoderDiscovery()
+end sub
+
+sub startTranscoderDiscovery()
+    m.transcoderDiscoveryTask = CreateObject("roSGNode", "TranscoderDiscoveryTask")
+    m.transcoderDiscoveryTask.serverUrl = m.serverUrl
+    m.transcoderDiscoveryTask.cachedUrl = ""
+    reg = CreateObject("roRegistrySection", "FREEVEE")
+    if reg.Exists("localTranscoderUrl")
+        m.transcoderDiscoveryTask.cachedUrl = reg.Read("localTranscoderUrl")
+    end if
+    m.transcoderDiscoveryTask.authToken = m.authToken
+    m.transcoderDiscoveryTask.observeField("discoveredUrl", "onTranscoderDiscovered")
+    m.transcoderDiscoveryTask.observeField("status", "onTranscoderStatusChange")
+    m.transcoderDiscoveryTask.control = "run"
+end sub
+
+sub onTranscoderDiscovered()
+    if m.transcoderDiscoveryTask = invalid return
+    url = m.transcoderDiscoveryTask.discoveredUrl
+    if url <> invalid and url <> ""
+        m.localTranscoderUrl = url
+        m.localTranscoderStatus = "connected"
+        print "[Transcoder] Detected and connected to local tv-transcoder: " + m.localTranscoderUrl
+        reg = CreateObject("roRegistrySection", "FREEVEE")
+        reg.Write("localTranscoderUrl", m.localTranscoderUrl)
+        reg.Flush()
+    end if
+end sub
+
+sub onTranscoderStatusChange()
+    if m.transcoderDiscoveryTask = invalid return
+    st = m.transcoderDiscoveryTask.status
+    if st <> invalid and st <> ""
+        m.localTranscoderStatus = st
+        if st = "not_found" or st = "error"
+            m.localTranscoderUrl = ""
+        end if
+        print "[Transcoder] Discovery status: " + st
+    end if
+end sub
+
+function getLocalTranscoderUrl() as String
+    if m.localTranscoderStatus = "connected" and m.localTranscoderUrl <> invalid and m.localTranscoderUrl <> ""
+        return m.localTranscoderUrl
+    end if
+    return ""
+end function
+
 function getTranscoderUrl() as String
     if m.serverUrl <> invalid and m.serverUrl <> ""
         return m.serverUrl
@@ -1751,76 +1995,35 @@ sub playDriveItem(item as Object)
         m.currentPlayFilePath = mediaPath
         m.currentPlayFilename = filename
 
-        ' Subtitle URL resolution
+        ' Subtitles disabled for Google Drive content
         subUrl = ""
-        subVal = getItemField(item, "subtitleUrl")
-        if subVal <> invalid and safeStr(subVal) <> ""
-            subUrl = safeStr(subVal)
-        end if
-        if subUrl <> "" and Left(subUrl, 4) <> "http"
-            subUrl = m.serverUrl + subUrl
-            if isLoggedIn()
-                if Instr(1, subUrl, "?") > 0
-                    subUrl = subUrl + "&token=" + m.authToken
-                else
-                    subUrl = subUrl + "?token=" + m.authToken
-                end if
-            end if
-        end if
 
-        ' Direct hardware playback for Roku-supported video formats (MKV, MP4, M4V, MOV, WebM):
-        ' Streams directly from VPS / Google Drive with 0% CPU at 100+ Mbps with ZERO buffering!
-        lName = ""
-        if filename <> invalid and filename <> ""
-            lName = LCase(filename)
-        else if title <> invalid and title <> ""
-            lName = LCase(title)
-        end if
-        isNativeRoku = (Instr(1, lName, ".mp4") > 0 or Instr(1, lName, ".mkv") > 0 or Instr(1, lName, ".m4v") > 0 or Instr(1, lName, ".mov") > 0 or Instr(1, lName, ".webm") > 0)
-
-        ' If extension is unknown or missing, default to native MKV direct play
-        ' (Roku TV natively hardware decodes 4K/1080p HEVC Main 10 and AAC in MKV containers;
-        ' if direct playback ever fails on an older device, error handler auto-falls back to HLS)
-        if not isNativeRoku and Instr(1, lName, ".") = 0
-            isNativeRoku = true
-        end if
-
-        if isNativeRoku
-            ext = ".mp4"
-            if Instr(1, lName, ".mkv") > 0
-                ext = ".mkv"
-            else if Instr(1, lName, ".webm") > 0
-                ext = ".webm"
-            else if Instr(1, lName, ".mov") > 0
-                ext = ".mov"
-            else if Instr(1, lName, ".m4v") > 0
-                ext = ".m4v"
-            else
-                ext = ".mkv"
-            end if
-            safeName = "video" + ext
-            streamUrl = m.serverUrl + "/api/stream/drive/" + driveId + "/" + safeName
-            if m.authToken <> invalid and m.authToken <> ""
-                streamUrl = streamUrl + "?token=" + m.authToken
-            end if
-            m.maxPlaybackPosition = offset
-            playVideoUrl(streamUrl, title, offset, safeName, false, subUrl)
+        ' Force Google Drive transcoding to the local network transcoder
+        localTranscoder = getLocalTranscoderUrl()
+        if localTranscoder <> ""
+            baseUrl = localTranscoder
+            print "[Drive Playback] Using discovered local transcoder: " + baseUrl
         else
-            ' Fallback to HLS transcoding on VPS for legacy containers (AVI, WMV, FLV)
-            streamUrl = m.serverUrl + "/api/stream/drive-hls/" + driveId + ".m3u8"
-            if m.authToken <> invalid and m.authToken <> ""
-                streamUrl = streamUrl + "?token=" + m.authToken
-            end if
-            if offset > 0
-                if Instr(1, streamUrl, "?") > 0
-                    streamUrl = streamUrl + "&offset=" + Stri(Fix(offset)).trim()
-                else
-                    streamUrl = streamUrl + "?offset=" + Stri(Fix(offset)).trim()
-                end if
-            end if
-            m.maxPlaybackPosition = offset
-            playVideoUrl(streamUrl, title, offset, filename, true, subUrl)
+            ' Fallback to server PC direct LAN IP
+            baseUrl = "http://192.168.0.15:4300"
+            print "[Drive Playback] Using local transcoder direct IP fallback: " + baseUrl
         end if
+
+        ' Always transcode Google Drive videos via HLS on local transcoder
+        streamUrl = baseUrl + "/api/stream/drive-hls/" + driveId + ".m3u8"
+        if m.authToken <> invalid and m.authToken <> ""
+            streamUrl = streamUrl + "?token=" + m.authToken
+        end if
+        if offset > 0
+            if Instr(1, streamUrl, "?") > 0
+                streamUrl = streamUrl + "&offset=" + Stri(Fix(offset)).trim()
+            else
+                streamUrl = streamUrl + "?offset=" + Stri(Fix(offset)).trim()
+            end if
+        end if
+        m.maxPlaybackPosition = offset
+        print "[Drive Playback] Transcoding Google Drive stream via HLS: " + streamUrl
+        playVideoUrl(streamUrl, title, offset, filename, true, subUrl)
     end if
 end sub
 
@@ -2140,7 +2343,7 @@ end sub
 
 ' ---- Playback Progress ----
 
-sub submitPlaybackProgress(mediaPath as String, currentTime as Dynamic, duration as Dynamic, title as String, typeStr as String, showName as String, season as Dynamic, episode as Dynamic, posterPath as String)
+sub submitPlaybackProgress(mediaPath as String, currentTime as Dynamic, duration as Dynamic, title as String, typeStr as String, showName as String, season as Dynamic, episode as Dynamic, posterPath as String, forceWatched = false as Boolean)
     if not isLoggedIn() or mediaPath = "" then return
     cTime = safeInt(currentTime)
     if cTime < 0 then cTime = 0
@@ -2152,7 +2355,10 @@ sub submitPlaybackProgress(mediaPath as String, currentTime as Dynamic, duration
     end if
     if dTime > 0 and dTime < cTime then dTime = cTime
 
-    isWatched = ((dTime > 0 and cTime >= dTime * 0.85) or (cTime > 0 and dTime > 0 and cTime = dTime))
+    isWatched = forceWatched or ((dTime > 0 and cTime >= dTime * 0.85) or (cTime > 0 and dTime > 0 and cTime = dTime))
+    if isWatched and dTime > 0 and cTime < dTime
+        cTime = dTime
+    end if
 
     ' Keep the in-memory Continue Watching data in sync immediately. Waiting
     ' for the next library refresh made progress look lost on device.
@@ -2167,18 +2373,22 @@ sub submitPlaybackProgress(mediaPath as String, currentTime as Dynamic, duration
         show: safeStr(showName),
         season: season,
         episode: episode,
-        posterPath: safeStr(posterPath)
+        posterPath: safeStr(posterPath),
+        updatedAt: CreateObject("roDateTime").ToISOString()
     }
     m.driveProgress[mediaPath] = progressEntry
     if Left(mediaPath, 8) = "drive://"
         rawId = Mid(mediaPath, 9)
         m.driveProgress[rawId] = progressEntry
+    else
+        m.driveProgress["drive://" + mediaPath] = progressEntry
     end if
     if m.currentPlayFilename <> invalid and m.currentPlayFilename <> ""
         m.driveProgress[m.currentPlayFilename] = progressEntry
     end if
 
     updateGridItemWatchedStatus(mediaPath)
+    refreshContinueWatchingList()
 
     progressData = {
         path: mediaPath
@@ -2248,8 +2458,14 @@ end sub
 
 sub onProgressTimerFire()
     if m.state <> "player" or m.isLiveChannel then return
-    vidPos = m.video.position
-    if vidPos = invalid or vidPos <= 0 then return
+    vidPos = 0
+    if m.video <> invalid and m.video.position <> invalid and m.video.position > 0
+        vidPos = m.video.position
+    else if m.lastKnownVideoPosition <> invalid and m.lastKnownVideoPosition > 0
+        vidPos = m.lastKnownVideoPosition
+    end if
+    if vidPos <= 0 return
+
     vidDur = m.video.duration
     if vidDur = invalid then vidDur = 0
     if isChunkedHlsStream() and vidPos >= (chunkSeconds() - 120) and vidPos > 30
@@ -2257,9 +2473,12 @@ sub onProgressTimerFire()
     end if
 
     startOffset = 0
-    if m.initialPlayOffset <> invalid and m.initialPlayOffset > 0 then startOffset = m.initialPlayOffset
+    if isChunkedHlsStream() and m.initialPlayOffset <> invalid and m.initialPlayOffset > 0
+        startOffset = m.initialPlayOffset
+    end if
     effectivePos = startOffset + vidPos
     if m.maxPlaybackPosition = invalid or effectivePos > m.maxPlaybackPosition then m.maxPlaybackPosition = effectivePos
+    m.lastKnownVideoPosition = effectivePos
 
     effectiveDur = 0
     if m.currentPlayingTotalDuration <> invalid and m.currentPlayingTotalDuration > 0
@@ -2283,7 +2502,7 @@ sub onProgressTimerFire()
     if m.currentPlayingEpisode <> invalid then episode = m.currentPlayingEpisode
     if m.currentPlayingPoster <> invalid then posterPath = m.currentPlayingPoster
 
-    submitPlaybackProgress(mediaPath, effectivePos, effectiveDur, title, typeStr, showName, season, episode, posterPath)
+    submitPlaybackProgress(mediaPath, effectivePos, effectiveDur, title, typeStr, showName, season, episode, posterPath, false)
 end sub
 
 ' Persist the current video position. Called both when playback ends/stops
@@ -2306,39 +2525,46 @@ sub saveCurrentPlaybackProgress(finished as Boolean)
         effectiveDur = vidDur
     end if
 
-    vidPos = m.video.position
-    if vidPos = invalid then vidPos = 0
-    startOffset = 0
-    if m.initialPlayOffset <> invalid and m.initialPlayOffset > 0 then startOffset = m.initialPlayOffset
-    effectivePos = startOffset + vidPos
+    vidPos = 0
+    if m.video <> invalid and m.video.position <> invalid and m.video.position > 0
+        startOffset = 0
+        if isChunkedHlsStream() and m.initialPlayOffset <> invalid and m.initialPlayOffset > 0
+            startOffset = m.initialPlayOffset
+        end if
+        vidPos = startOffset + m.video.position
+    end if
+
+    effectivePos = vidPos
     if m.maxPlaybackPosition <> invalid and m.maxPlaybackPosition > effectivePos
         effectivePos = m.maxPlaybackPosition
     end if
+    if m.lastKnownVideoPosition <> invalid and m.lastKnownVideoPosition > effectivePos
+        effectivePos = m.lastKnownVideoPosition
+    end if
 
-    ' Only treat as truly finished if playback actually reached near the end of the video
+    if effectiveDur <= 0 and effectivePos > 0
+        effectiveDur = effectivePos
+    end if
+
     isActuallyFinished = false
     if finished
-        if effectiveDur > 0 and effectivePos >= (effectiveDur * 0.80)
+        if effectiveDur > 0 and effectivePos >= (effectiveDur * 0.85)
             isActuallyFinished = true
-        else if effectiveDur <= 0 and effectivePos >= 300
+            effectivePos = effectiveDur
+        else if effectiveDur <= 0 and effectivePos >= 600
             isActuallyFinished = true
         end if
     else if effectiveDur > 0 and effectivePos >= (effectiveDur * 0.85)
         isActuallyFinished = true
-    end if
-
-    if isActuallyFinished and effectiveDur > 0
-        effectivePos = effectiveDur
-    else if effectiveDur > 0 and effectivePos >= effectiveDur * 0.85
         effectivePos = effectiveDur
     end if
 
-    ' The server replaces the stored entry wholesale. If the stream never
-    ' produced a usable position or duration, leave any existing progress
-    ' (for example from another device) untouched instead of zeroing it out.
-    if effectivePos <= 0 and effectiveDur <= 0 then return
+    ' Leave existing progress untouched if watched less than 5 seconds and not finished
+    if not isActuallyFinished and effectivePos < 5
+        return
+    end if
 
-    submitPlaybackProgress(m.currentPlayFilePath, effectivePos, effectiveDur, m.currentStreamTitle, m.currentPlayingItemType, m.currentPlayingShow, m.currentPlayingSeason, m.currentPlayingEpisode, m.currentPlayingPoster)
+    submitPlaybackProgress(m.currentPlayFilePath, effectivePos, effectiveDur, m.currentStreamTitle, m.currentPlayingItemType, m.currentPlayingShow, m.currentPlayingSeason, m.currentPlayingEpisode, m.currentPlayingPoster, isActuallyFinished)
     updateGridItemWatchedStatus(m.currentPlayFilePath)
 end sub
 
@@ -4069,41 +4295,69 @@ sub stopActiveTorrentStream()
     task.control = "run"
 end sub
 
-' Ask the cloud server to kill the Drive HLS transcode for the current file.
-' Called when the user exits a video or playback ends, so ffmpeg stops instead
-' of transcoding the whole file in the background (frees the transcode cap).
+' Ask the local and cloud transcoder to kill and clear the transcode for the current file.
+' Called when the user exits a video, playback ends, or the app closes, so ffmpeg stops
+' immediately and temporary segment files are cleared from disk.
 sub stopDriveTranscode()
-    url = safeStr(m.currentStreamUrl)
-    if url = "" return
-    segPos = Instr(1, LCase(url), "/api/stream/drive-hls/")
-    if segPos <= 0 return
-    after = Mid(url, segPos + Len("/api/stream/drive-hls/"))
-    qPos = Instr(1, after, "?")
-    if qPos > 0 then after = Left(after, qPos - 1)
-    if Len(after) >= 5 and LCase(Right(after, 5)) = ".m3u8"
-        after = Left(after, Len(after) - 5)
-    end if
     fileId = ""
-    if after <> invalid then fileId = after.trim()
-    if fileId = "" and m.currentPlayFilePath <> invalid and Len(m.currentPlayFilePath) >= 8 and Left(m.currentPlayFilePath, 8) = "drive://"
-        fileId = Mid(m.currentPlayFilePath, 9)
+    url = safeStr(m.currentStreamUrl)
+    if url <> ""
+        lowerUrl = LCase(url)
+        hlsIdx = Instr(1, lowerUrl, "/api/stream/drive-hls/")
+        driveIdx = Instr(1, lowerUrl, "/api/stream/drive/")
+        if hlsIdx > 0
+            after = Mid(url, hlsIdx + Len("/api/stream/drive-hls/"))
+            qPos = Instr(1, after, "?")
+            if qPos > 0 then after = Left(after, qPos - 1)
+            if Len(after) >= 5 and LCase(Right(after, 5)) = ".m3u8"
+                after = Left(after, Len(after) - 5)
+            end if
+            fileId = after.trim()
+        else if driveIdx > 0
+            after = Mid(url, driveIdx + Len("/api/stream/drive/"))
+            qPos = Instr(1, after, "?")
+            if qPos > 0 then after = Left(after, qPos - 1)
+            slashPos = Instr(1, after, "/")
+            if slashPos > 0 then after = Left(after, slashPos - 1)
+            fileId = after.trim()
+        end if
     end if
-    if fileId = "" return
 
+    if fileId = "" and m.currentPlayFilePath <> invalid and Len(m.currentPlayFilePath) >= 8 and Left(m.currentPlayFilePath, 8) = "drive://"
+        fileId = Mid(m.currentPlayFilePath, 9).trim()
+    end if
+
+    print "[Transcoder Stop] Telling transcoder to stop and clear fileId="; fileId
+
+    ' 1. Local LAN Transcoder (fire immediate non-blocking HTTP request via HttpTask)
+    localTranscoder = getLocalTranscoderUrl()
+    if localTranscoder <> ""
+        stopTask = CreateObject("roSGNode", "HttpTask")
+        stopTask.url = localTranscoder + "/api/stream/drive-hls/stop?fileId=" + fileId
+        stopTask.method = "POST"
+        if isLoggedIn() and m.authToken <> "" then stopTask.authToken = m.authToken
+        stopTask.control = "run"
+    end if
+
+    ' 2. Cloud Server / VPS
     vpsHost = getTranscoderUrl()
-    m.stopVpsDriveTask = CreateObject("roSGNode", "HttpTask")
-    m.stopVpsDriveTask.url = vpsHost + "/api/stream/drive-hls/stop"
-    m.stopVpsDriveTask.method = "POST"
-    m.stopVpsDriveTask.postData = FormatJson({ fileId: fileId })
-    if isLoggedIn() then m.stopVpsDriveTask.authToken = m.authToken
-    m.stopVpsDriveTask.control = "run"
+    if vpsHost <> "" and fileId <> ""
+        vpsTask = CreateObject("roSGNode", "HttpTask")
+        vpsTask.url = vpsHost + "/api/stream/drive-hls/stop?fileId=" + fileId
+        vpsTask.method = "POST"
+        if isLoggedIn() and m.authToken <> "" then vpsTask.authToken = m.authToken
+        vpsTask.control = "run"
+    end if
 
-    m.stopDriveTask = CreateObject("roSGNode", "HttpTask")
-    m.stopDriveTask.url = m.serverUrl + "/api/stream/drive-hls/stop"
-    m.stopDriveTask.method = "POST"
-    m.stopDriveTask.postData = FormatJson({ fileId: fileId })
-    if isLoggedIn() then m.stopDriveTask.authToken = m.authToken
-    m.stopDriveTask.control = "run"
+    if m.serverUrl <> "" and m.serverUrl <> vpsHost and fileId <> ""
+        cloudUt = CreateObject("roUrlTransfer")
+        if cloudUt <> invalid
+            cloudUt.setUrl(m.serverUrl + "/api/stream/drive-hls/stop")
+            cloudUt.AddHeader("Content-Type", "application/json")
+            if isLoggedIn() and m.authToken <> "" then cloudUt.AddHeader("Authorization", "Bearer " + m.authToken)
+            cloudUt.AsyncPostFromString(FormatJson({ fileId: fileId }))
+        end if
+    end if
 end sub
 
 sub stopAllActiveStreams()
@@ -4344,15 +4598,24 @@ end sub
 sub onDriveCwResult()
     if m.driveCwTask = invalid return
     result = m.driveCwTask.result
-    if result = invalid or result = "" return
-    data = ParseJSON(result)
-    if data = invalid or data.continueWatching = invalid return
+    m.driveCwTask = invalid
+    data = invalid
+    if result <> invalid and result <> ""
+        data = ParseJSON(result)
+    end if
+
+    cwList = []
+    if data <> invalid and data.continueWatching <> invalid and data.continueWatching.count() > 0
+        cwList = data.continueWatching
+    else if m.continueWatchingList <> invalid and m.continueWatchingList.count() > 0
+        cwList = m.continueWatchingList
+    end if
 
     m.driveAutoPlayNextEnabled = false
     gridContent = CreateObject("roSGNode", "ContentNode")
     m.gridItems = []
 
-    for each item in data.continueWatching
+    for each item in cwList
         if item = invalid then continue for
         node = gridContent.CreateChild("ContentNode")
         title = safeStr(item.title)
@@ -4380,24 +4643,16 @@ sub onDriveCwResult()
             end if
         end if
 
-        pct = 0
         dur = safeInt(item.duration)
         cur = safeInt(item.currentTime)
-        if dur > 0 then pct = Int((cur / dur) * 100)
-
-        isWatched = isWatchedProg(item)
-        if isWatched
-            if InStr(1, title, "✓") = 0
-                node.title = "✓ " + title
-            else
-                node.title = title
-            end if
-            node.shortDescriptionLine1 = "✓ Watched · " + typeLabel + epStr
-            node.description = title + " (Watched)"
+        remMin = 0
+        if dur > cur then remMin = Int((dur - cur) / 60)
+        if remMin > 0
+            node.shortDescriptionLine1 = Stri(remMin).trim() + "m left · " + typeLabel + epStr
         else
-            node.shortDescriptionLine1 = typeLabel + epStr
-            node.description = title + " (" + Stri(pct).trim() + "% watched)"
+            node.shortDescriptionLine1 = "In Progress · " + typeLabel + epStr
         end if
+        node.description = title + " (" + node.shortDescriptionLine1 + ")"
 
         cwDriveId = safeStr(item.driveId)
         cwPath = safeStr(item.path)
@@ -4405,8 +4660,13 @@ sub onDriveCwResult()
             cwDriveId = Mid(cwPath, 9)
         end if
 
+        tType = "drive_episode"
+        if LCase(typeLabel) = "movie" or showName = ""
+            tType = "drive_movie"
+        end if
+
         node.addFields({
-            targetType: "drive_episode"
+            targetType: tType
             itemTitle: title
             mediaPath: safeStr(item.path)
             driveId: cwDriveId
@@ -4599,6 +4859,7 @@ sub playFreeTvStream(streamUrl as String, title as String)
     m.playerFromGuide = false
     m.bgTunedTitle = title
     m.justExitedPlayer = false
+    m.justEnteredPlayer = true
     m.currentEpisodeList = invalid
     m.currentEpisodeIndex = -1
     m.video.translation = [0, 0]
@@ -4646,6 +4907,7 @@ sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, file
     end if
     m.isLiveChannel = false
     m.justExitedPlayer = false
+    m.justEnteredPlayer = true
     m.gridScreen.visible = false
     if m.playerScreen <> invalid then m.playerScreen.visible = true
     m.state = "player"
@@ -4657,6 +4919,8 @@ sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, file
     m.bufferingStallCount = 0
     m.lastBufferingPercent = 0
     m.initialPlayOffset = offset
+    m.lastKnownVideoPosition = offset
+    m.maxPlaybackPosition = offset
     m.hasPlayedContent = false
     m.nextChunkWarmOffset = -1
     if m.chunkWarmTask <> invalid
@@ -4683,10 +4947,13 @@ sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, file
     vidContent = CreateObject("roSGNode", "ContentNode")
     vidContent.url = playUrl
     vidContent.title = title
-    vidContent.bufferingTargetSeconds = 30
 
     ' Subtitle & Caption Setup
-    if subtitleUrl <> "" and subtitleUrl <> invalid
+    if isDriveHls or isDrive
+        ' Explicitly remove subtitle support for Google Drive content
+        vidContent.subtitleTracks = invalid
+        m.video.captionMode = "Off"
+    else if subtitleUrl <> "" and subtitleUrl <> invalid
         subTracks = []
         subTracks.push({
             Language: "en",
@@ -4698,12 +4965,9 @@ sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, file
     else
         m.video.captionMode = "Off"
     end if
-    if forceHls
+    if forceHls or isDriveHls
         vidContent.streamFormat = "hls"
-        vidContent.live = false
-        ' The server handles seeking via offset (-ss) for transcoded HLS streams,
-        ' so the transcoded stream's timeline begins at 0.
-        vidContent.PlayStart = 0
+        vidContent.PlayStart = 0.1
     else if isTorrent
         vidContent.streamFormat = detectStreamFormat(streamUrl + " " + filePath + " " + title)
         if offset > 0
@@ -4713,18 +4977,17 @@ sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, file
         vidContent.streamFormat = detectStreamFormat(streamUrl + " " + filePath + " " + title)
         if offset > 0
             vidContent.PlayStart = offset
-        else
-            vidContent.PlayStart = 0
         end if
     else
         vidContent.streamFormat = "hls"
-        vidContent.live = false
-        if isChunkedHlsStream()
-            vidContent.PlayStart = 0
-        else if offset > 0
+        if offset > 0 and not isChunkedHlsStream()
             vidContent.PlayStart = offset
-        else
-            vidContent.PlayStart = 0
+        end if
+    end if
+
+    if isDriveHls or isDrive
+        if m.video <> invalid
+            m.video.captionMode = "Off"
         end if
     end if
 
@@ -4738,11 +5001,7 @@ sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, file
         m.top.removeChild(m.playDelayTimer)
         m.playDelayTimer = invalid
     end if
-    m.playDelayTimer = CreateObject("roSGNode", "Timer")
-    m.playDelayTimer.duration = 0.5
-    m.playDelayTimer.observeField("fire", "onPlayDelayFired")
-    m.top.appendChild(m.playDelayTimer)
-    m.playDelayTimer.control = "start"
+    m.video.control = "play"
 
     if isLoggedIn()
         startProgressTimer()
@@ -4953,6 +5212,7 @@ sub onBufferingStatusChange()
     status = m.video.bufferingStatus
     pct = 0
     if status.percentage <> invalid then pct = status.percentage
+    print "[BufferingStatusChange] pct="; pct
     if m.folderBreadcrumb <> invalid and pct > 0
         m.folderBreadcrumb.text = "Buffering... " + Stri(pct).trim() + "%"
     end if
@@ -5052,8 +5312,30 @@ sub onBufferingWatchdogFired()
     end if
 end sub
 
+sub onVideoPositionChange()
+    if m.state <> "player" or m.isLiveChannel or m.video = invalid return
+    if m.hasPlayedContent <> true or m.video.state <> "playing" return
+    vPos = m.video.position
+    if vPos <> invalid and vPos > 0
+        startOffset = 0
+        if isChunkedHlsStream() and m.initialPlayOffset <> invalid and m.initialPlayOffset > 0
+            startOffset = m.initialPlayOffset
+        end if
+        effPos = startOffset + vPos
+        m.lastKnownVideoPosition = effPos
+        if m.maxPlaybackPosition = invalid or effPos > m.maxPlaybackPosition
+            m.maxPlaybackPosition = effPos
+        end if
+    end if
+end sub
+
 sub onVideoStateChange()
     st = m.video.state
+    errCode = -1
+    errMsg = ""
+    if m.video <> invalid and m.video.errorCode <> invalid then errCode = m.video.errorCode
+    if m.video <> invalid and m.video.errorMsg <> invalid then errMsg = m.video.errorMsg
+    print "[VideoStateChange] state="; st; " code="; errCode; " msg="; errMsg
 
     if st = "playing"
         stopBufferingWatchdog()
@@ -5084,6 +5366,13 @@ sub onVideoStateChange()
         return
     end if
 
+    if st = "paused"
+        if m.state = "player" and m.hasPlayedContent <> true
+            m.video.control = "play"
+        end if
+        return
+    end if
+
     if m.state = "guide"
         if st = "error"
             if m.guideInfoHint <> invalid then m.guideInfoHint.text = "Channel unavailable. Try another."
@@ -5103,7 +5392,11 @@ sub onVideoStateChange()
         return
     end if
 
-    if st = "finished" or st = "stopped"
+    if st = "stopped"
+        return
+    end if
+
+    if st = "finished"
         chainedChunk = false
         if st = "finished" and isChunkedHlsStream()
             chainedChunk = chainToNextHlsChunk()
@@ -5120,11 +5413,13 @@ sub onVideoStateChange()
         stopProgressTimer()
 
         canAutoAdvance = false
-        if st = "finished"
+        if st = "finished" and m.hasPlayedContent = true
             curPos = 0
-            if m.video <> invalid and m.video.position <> invalid then curPos = m.video.position
-            if m.initialPlayOffset <> invalid and m.initialPlayOffset > 0 then curPos = curPos + m.initialPlayOffset
-            if m.maxPlaybackPosition <> invalid and m.maxPlaybackPosition > curPos then curPos = m.maxPlaybackPosition
+            if m.lastKnownVideoPosition <> invalid and m.lastKnownVideoPosition > 0
+                curPos = m.lastKnownVideoPosition
+            else if m.maxPlaybackPosition <> invalid and m.maxPlaybackPosition > 0
+                curPos = m.maxPlaybackPosition
+            end if
 
             totDur = 0
             if m.currentPlayingTotalDuration <> invalid and m.currentPlayingTotalDuration > 0
@@ -5133,11 +5428,13 @@ sub onVideoStateChange()
                 totDur = m.video.duration
             end if
 
-            ' Only auto-play next episode if episode was actually finished (at least 85% watched, or > 15 minutes)
-            if totDur > 0 and curPos >= (totDur * 0.85)
-                canAutoAdvance = true
-            else if totDur <= 0 and curPos >= 900
-                canAutoAdvance = true
+            ' Strict Auto-Advance: only advance if the video actually finished playing (>= 85% of duration, or >= 600s if duration unknown)
+            if curPos > 30
+                if totDur > 0 and curPos >= (totDur * 0.85)
+                    canAutoAdvance = true
+                else if totDur <= 0 and curPos >= 600
+                    canAutoAdvance = true
+                end if
             end if
         end if
 
@@ -5154,6 +5451,7 @@ sub onVideoStateChange()
 
         m.state = "grid"
         m.justExitedPlayer = false
+    m.justEnteredPlayer = true
 
         m.video.control = "stop"
         m.video.visible = false
@@ -5171,10 +5469,15 @@ sub onVideoStateChange()
         if m.video.errorMsg <> invalid then errMsg = m.video.errorMsg
         print "[Video Error] code="; errCode; " msg="; errMsg; " url="; m.currentStreamUrl
 
+        ' If error occurred on local transcoder, fall back to cloud server for this stream
+        if m.currentStreamUrl <> invalid and (Instr(1, m.currentStreamUrl, "192.168.") > 0 or Instr(1, m.currentStreamUrl, "127.0.0.1") > 0 or Instr(1, m.currentStreamUrl, ":4300") > 0)
+            print "[Transcoder Error] Local transcoder failed for this stream. Falling back to cloud server."
+        end if
+
         if m.triedTranscodeFallback <> true and m.currentStreamUrl <> invalid and m.currentStreamUrl <> ""
             m.triedTranscodeFallback = true
             fallbackUrl = m.currentStreamUrl
-            if Instr(1, LCase(fallbackUrl), "/api/stream/drive/") > 0 or Instr(1, LCase(fallbackUrl), "/api/stream/drive-direct/") > 0
+            if Instr(1, LCase(fallbackUrl), "/api/stream/drive/") > 0 or Instr(1, LCase(fallbackUrl), "/api/stream/drive-direct/") > 0 or Instr(1, LCase(fallbackUrl), "drive-hls") > 0
                 driveId = ""
                 if m.currentPlayFilePath <> invalid and Len(m.currentPlayFilePath) >= 8 and Left(m.currentPlayFilePath, 8) = "drive://"
                     driveId = Mid(m.currentPlayFilePath, 9)
@@ -5182,16 +5485,21 @@ sub onVideoStateChange()
                 if driveId = ""
                     uTokens = fallbackUrl.split("/")
                     for ui = 0 to uTokens.count() - 1
-                        if (uTokens[ui] = "drive" or uTokens[ui] = "drive-direct") and ui + 1 < uTokens.count()
+                        if (uTokens[ui] = "drive" or uTokens[ui] = "drive-direct" or uTokens[ui] = "drive-hls") and ui + 1 < uTokens.count()
                             driveId = uTokens[ui + 1]
                             qIdx = Instr(1, driveId, "?")
                             if qIdx > 0 then driveId = Left(driveId, qIdx - 1)
+                            dExtIdx = Instr(1, driveId, ".m3u8")
+                            if dExtIdx > 0 then driveId = Left(driveId, dExtIdx - 1)
                             exit for
                         end if
                     end for
                 end if
                 if driveId <> ""
-                    fallbackUrl = m.serverUrl + "/api/stream/drive-hls/" + driveId + ".m3u8"
+                    ' Always transcode Google Drive videos on local transcoder
+                    localTranscoder = getLocalTranscoderUrl()
+                    if localTranscoder = "" then localTranscoder = "http://192.168.0.15:4300"
+                    fallbackUrl = localTranscoder + "/api/stream/drive-hls/" + driveId + ".m3u8"
                     sep = "?"
                     if m.authToken <> invalid and m.authToken <> ""
                         fallbackUrl = fallbackUrl + sep + "token=" + m.authToken
@@ -5234,17 +5542,21 @@ sub onVideoStateChange()
                 fallbackUrl = appendTranscodeParam(fallbackUrl)
             end if
             m.folderBreadcrumb.text = "Native decoder unsupported (" + errCode + "). Transcoding stream..."
-            m.video.control = "stop"
-
             vidContent = CreateObject("roSGNode", "ContentNode")
             vidContent.url = fallbackUrl
             vidContent.title = m.currentStreamTitle
             vidContent.streamFormat = detectStreamFormat(fallbackUrl)
             vidContent.PlayStart = 0
-            if m.video.content <> invalid and m.video.content.subtitleTracks <> invalid
+            isDriveFallback = Instr(1, LCase(fallbackUrl), "drive") > 0
+            if not isDriveFallback and m.video.content <> invalid and m.video.content.subtitleTracks <> invalid
                 vidContent.subtitleTracks = m.video.content.subtitleTracks
             end if
             m.currentStreamUrl = fallbackUrl
+            m.hasPlayedContent = false
+            if isDriveFallback and m.video <> invalid
+                m.video.control = "stop"
+                m.video.captionMode = "Off"
+            end if
             m.video.content = vidContent
             m.video.visible = true
             m.video.setFocus(true)
@@ -5321,6 +5633,10 @@ function onKeyEvent(key as String, press as Boolean) as Boolean
     k = LCase(key)
 
     if m.state = "player"
+        if m.justEnteredPlayer = true
+            if not press then m.justEnteredPlayer = false
+            return true
+        end if
         if k = "back"
             if press
                 if m.playerFromGuide
@@ -5344,14 +5660,19 @@ function onKeyEvent(key as String, press as Boolean) as Boolean
                     m.folderBreadcrumb.text = m.savedGridBreadcrumb
                 end if
                 restoreGridFocus()
+                if m.navStack.count() = 0 and m.cwGrid <> invalid and m.cwGrid.visible
+                    updateContinueWatchingGrid()
+                end if
             end if
             return true
         else if (k = "ok" or k = "play" or k = "pause" or k = "playpause") and m.isLiveChannel <> true
             if press
                 if m.video.state = "paused"
                     m.video.control = "resume"
-                else
+                else if m.video.state = "playing"
                     m.video.control = "pause"
+                else
+                    m.video.control = "play"
                 end if
             end if
             return true
@@ -6190,10 +6511,6 @@ end function
 function encodePath(p as Dynamic) as String
     strP = safeStr(p)
     if strP = "" return ""
-    ut = CreateObject("roUrlTransfer")
-    if ut <> invalid
-        return ut.UrlEncode(strP)
-    end if
 
     result = ""
     for i = 0 to len(strP) - 1

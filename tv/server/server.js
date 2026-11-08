@@ -2734,8 +2734,21 @@ app.get('/api/ondemand', optionalAuth, (req, res) => {
     movieFolderList.sort((a, b) => a.localeCompare(b));
   }
 
-  // Attach progress
-  const continueWatching = Object.values(progress).filter(p => p.currentTime > 5 && (p.duration <= 0 || p.currentTime < p.duration * 0.95));
+  // Attach progress (deduplicated, sorted by recency, excluding fully watched)
+  const seenCwPaths = new Set();
+  const continueWatching = [];
+  for (const p of Object.values(progress)) {
+    if (!p) continue;
+    const isW = p.watched === true || p.watched === 'true' || (p.duration > 0 && p.currentTime >= p.duration * 0.85);
+    if (isW) continue;
+    if (p.currentTime <= 5) continue;
+    if (p.duration > 0 && p.currentTime >= p.duration * 0.95) continue;
+    const normKey = (p.path || '').replace('drive://', '');
+    if (normKey && seenCwPaths.has(normKey)) continue;
+    if (normKey) seenCwPaths.add(normKey);
+    continueWatching.push(p);
+  }
+  continueWatching.sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
 
   const lastScannedAt = library?.scannedAt || null;
   const nextAutoScanAt = lastScannedAt
@@ -3055,11 +3068,11 @@ app.post(['/api/playback/progress', '/playback/progress'], authenticate, (req, r
 
   const cTime = Math.floor(currentTime || 0);
   const dTime = Math.floor(duration || 0);
-  const isWatched = (dTime > 0 && cTime >= dTime * 0.85) || watched === true || watched === 'true' || (dTime > 0 && cTime >= dTime);
+  const isWatched = watched === true || watched === 'true' || (dTime > 0 && cTime >= dTime * 0.85) || (dTime > 0 && cTime >= dTime);
   const progress = getUserFile(req.user.id, 'progress.json', {});
   const entry = {
     path: mediaPath,
-    currentTime: cTime,
+    currentTime: isWatched && dTime > 0 && cTime < dTime ? dTime : cTime,
     duration: dTime,
     watched: isWatched,
     title: title || 'Video',
@@ -3071,10 +3084,12 @@ app.post(['/api/playback/progress', '/playback/progress'], authenticate, (req, r
     updatedAt: new Date().toISOString()
   };
   progress[mediaPath] = entry;
-  if (typeof mediaPath === 'string' && mediaPath.startsWith('drive://')) {
-    const rawId = mediaPath.replace('drive://', '');
-    if (rawId) {
-      progress[rawId] = { ...entry, path: rawId };
+  if (typeof mediaPath === 'string') {
+    if (mediaPath.startsWith('drive://')) {
+      const rawId = mediaPath.replace('drive://', '');
+      if (rawId) progress[rawId] = { ...entry, path: rawId };
+    } else if (!mediaPath.startsWith('/') && !mediaPath.startsWith('http')) {
+      progress[`drive://${mediaPath}`] = { ...entry, path: `drive://${mediaPath}` };
     }
   }
   saveUserFile(req.user.id, 'progress.json', progress);
@@ -3740,6 +3755,58 @@ app.get(['/api/drive/token', '/api/stream/drive-token'], optionalAuth, async (re
     return res.status(401).json({ error: 'No valid Google Drive token available' });
   }
   res.json({ success: true, googleToken: token, userId: resolvedUserId });
+});
+
+// ---------- Local LAN Transcoder Registry & Discovery ----------
+// Allows desktop tv-transcoder running on a home server PC to announce its LAN IP,
+// so Roku apps on the same network can discover and offload transcoding.
+const localTranscodersByIp = new Map();
+
+function getRequestClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) {
+    const first = String(forwarded).split(',')[0].trim();
+    if (first) return first.replace(/^::ffff:/, '');
+  }
+  const raw = req.socket?.remoteAddress || req.ip || '';
+  return String(raw).replace(/^::ffff:/, '').trim();
+}
+
+app.post('/api/transcoder/register', optionalAuth, (req, res) => {
+  const ip = getRequestClientIp(req);
+  const { port = 4300, localIps = [], name = 'TV Transcoder' } = req.body || {};
+  const userId = req.user?.id || req.body?.userId || null;
+  const entry = {
+    publicIp: ip,
+    userId,
+    port: parseInt(port, 10) || 4300,
+    localIps: Array.isArray(localIps) ? localIps : (localIps ? [localIps] : []),
+    name,
+    lastSeen: Date.now()
+  };
+  if (ip) localTranscodersByIp.set(ip, entry);
+  if (userId) localTranscodersByIp.set(`user:${userId}`, entry);
+  res.json({ success: true, registered: true, entry });
+});
+
+app.get('/api/transcoder/discover', optionalAuth, (req, res) => {
+  const ip = getRequestClientIp(req);
+  const userId = req.user?.id || req.query?.userId || null;
+  let entry = (userId && localTranscodersByIp.get(`user:${userId}`)) || (ip && localTranscodersByIp.get(ip)) || null;
+  if (entry && (Date.now() - entry.lastSeen > 10 * 60 * 1000)) {
+    entry = null;
+  }
+  if (!entry) {
+    return res.json({ success: true, found: false });
+  }
+  res.json({
+    success: true,
+    found: true,
+    port: entry.port,
+    localIps: entry.localIps,
+    name: entry.name,
+    lastSeen: entry.lastSeen
+  });
 });
 
 app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'], optionalAuth, async (req, res) => {

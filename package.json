@@ -11,7 +11,8 @@
     "tv/firetv",
     "games/server",
     "downloader",
-    "freeplay-downloader"
+    "freeplay-downloader",
+    "tv-transcoder"
   ],
   "scripts": {
     "postinstall": "node scripts/install-all.mjs",
@@ -21,6 +22,7 @@
     "build:music": "node scripts/build-all.mjs --only=music",
     "build:tv": "node scripts/build-all.mjs --only=tv",
     "build:games": "node scripts/build-all.mjs --only=games",
+    "build:tv-transcoder": "npm --prefix tv-transcoder run build",
     "install:all": "node scripts/install-all.mjs",
     "fix:git": "node scripts/fix-git.mjs"
   },

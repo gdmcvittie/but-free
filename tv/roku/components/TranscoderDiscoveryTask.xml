@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="TranscoderDiscoveryTask" extends="Task">
+  <interface>
+    <field id="serverUrl" type="string" value="https://tv.butfree.online" />
+    <field id="cachedUrl" type="string" value="" />
+    <field id="authToken" type="string" value="" />
+    <field id="discoveredUrl" type="string" value="" alwaysNotify="true" />
+    <field id="status" type="string" value="" alwaysNotify="true" />
+  </interface>
+  <script type="text/brightscript" uri="pkg:/components/TranscoderDiscoveryTask.brs" />
+</component>
+

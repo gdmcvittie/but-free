@@ -31,7 +31,7 @@
     <Video id="video" translation="[0, 0]" width="1280" height="720" visible="false"/>
 
     <!-- Main Grid Screen -->
-    <Group id="gridScreen" layoutMode="none" visible="true">
+    <Group id="gridScreen" visible="true">
       <!-- Background Image & Dark Overlay -->
       <Poster id="homeBg" translation="[0, 0]" width="1280" height="720" loadDisplayMode="scaleToZoom" opacity="0.5" uri="pkg:/images/bg.jpg"/>
       <Rectangle id="homeDarkOverlay" translation="[0, 0]" width="1280" height="720" color="#000000" opacity="0.6"/>
@@ -44,7 +44,7 @@
         <Rectangle id="headerDivider" translation="[20, 56]" width="1140" height="1" color="#161926" visible="false"/>
 
         <!-- Hero Spotlight Billboard (Crave Style) -->
-        <Group id="heroGroup" translation="[0, 36]" visible="false" width="300" height="200">
+        <Group id="heroGroup" translation="[0, 36]" visible="false">
           <Label id="heroBadge" translation="[0, 0]" width="400" height="20" text="FEATURED SPOTLIGHT" font="font:SmallBoldSystemFont" color="#A8B2FF" visible="true" opacity="1" horizAlign="left"/>
           <Label id="heroTitle" translation="[0, 24]" width="780" height="42" text="FREEVEE" font="font:LargeBoldSystemFont" color="#F9F3B4" visible="true" opacity="1" horizAlign="left"/>
           <Label id="heroMeta" translation="[0, 72]" width="780" height="22" text="Trending Movies &amp; Shows" font="font:SmallBoldSystemFont" color="#8E95A5" visible="true" opacity="1" horizAlign="left"/>
@@ -52,13 +52,13 @@
         </Group>
 
         <!-- Poster Grid (used for sub-screens: Movies, Shows, Episodes, Faves, Search) -->
-        <PosterGrid id="posterGrid" translation="[20, 70]" basePosterSize="[148, 222]" itemSpacing="[18, 14]" numColumns="7" numRows="2" captionHeight="24" posterDisplayMode="zoomToFill" drawFocusFeedback="true" drawFocusFeedbackOnTop="true" focusBitmapUri="pkg:/images/focus-ring.png" focusFootprintBlendColor="0xFFFFFF00" width="1144" height="584" visible="true"/>
+        <PosterGrid id="posterGrid" translation="[20, 70]" basePosterSize="[148, 222]" itemSpacing="[18, 14]" numColumns="7" numRows="2" posterDisplayMode="zoomToFill" drawFocusFeedback="true" drawFocusFeedbackOnTop="true" focusBitmapUri="pkg:/images/focus-ring.png" focusFootprintBlendColor="0xFFFFFF00" visible="true"/>
 
         <!-- What's On / Trending Section Header -->
         <Label id="cwLabel" translation="[20, 375]" width="600" height="24" text="WHAT'S ON &amp; TRENDING" font="font:MediumBoldSystemFont" color="#FFFFFF" visible="false"/>
 
         <!-- Crave Rail: Single horizontal scrolling row of 2:3 vertical posters -->
-        <PosterGrid id="cwGrid" translation="[20, 408]" basePosterSize="[150, 225]" itemSpacing="[16, 0]" numColumns="7" numRows="1" captionHeight="0" posterDisplayMode="zoomToFill" drawFocusFeedback="true" drawFocusFeedbackOnTop="true" focusBitmapUri="pkg:/images/focus-ring.png" focusFootprintBlendColor="0xFFFFFF00" visible="false"/>
+        <PosterGrid id="cwGrid" translation="[20, 408]" basePosterSize="[150, 225]" itemSpacing="[16, 0]" numColumns="7" numRows="1" posterDisplayMode="zoomToFill" drawFocusFeedback="true" drawFocusFeedbackOnTop="true" focusBitmapUri="pkg:/images/focus-ring.png" focusFootprintBlendColor="0xFFFFFF00" visible="false"/>
 
         <!-- Info bar (hidden on home screen to keep clean Crave look) -->
         <Rectangle id="cwInfoBar" translation="[20, 668]" width="1140" height="48" color="#08090F" opacity="0.94" visible="false"/>
@@ -95,7 +95,7 @@
           <Label id="guideListTitle" translation="[20, 478]" width="600" height="24" text="CHANNEL GUIDE" font="font:MediumBoldSystemFont" color="#FFFFFF"/>
           <Label id="guideListCount" translation="[720, 480]" width="444" height="22" text="" font="font:SmallSystemFont" color="#8E95A5" horizAlign="right" vertAlign="center"/>
           <Rectangle id="guideListBg" translation="[20, 504]" width="1144" height="204" color="#08090F" opacity="0.96"/>
-          <Group id="guideListGroup" translation="[24, 507]" clippingRect="[0, 0, 1136, 198]" visible="true" width="300" height="200"/>
+          <Group id="guideListGroup" translation="[24, 507]" clippingRect="[0, 0, 1136, 198]" visible="true"/>
         </Group>
 
         <!-- Pairing / Sign In Screen -->
@@ -117,7 +117,7 @@
     </Group>
 
     <!-- Player Screen (compat placeholder) -->
-    <Group id="playerScreen" layoutMode="none" visible="false"/>
+    <Group id="playerScreen" visible="false"/>
 
     <!-- Notification Banner -->
     <Group id="notifGroup" translation="[330, 20]" visible="false">

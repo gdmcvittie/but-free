@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TV Transcoder</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:#0f1115; color:#e6e6e6; margin:0; padding:24px; }
+  .container { max-width: 960px; margin: 0 auto; }
+  h1 { margin:0 0 8px; }
+  .card { background:#1a1d24; border:1px solid #2a2f3a; border-radius:12px; padding:16px; margin-bottom:16px; }
+  label { display:block; font-size:13px; color:#9aa3b2; margin-bottom:6px; }
+  input, select, button { font:inherit; }
+  input[type=text], select { width:100%; padding:10px 12px; border-radius:8px; border:1px solid #2a2f3a; background:#0f1115; color:#e6e6e6; box-sizing:border-box; }
+  button { padding:10px 16px; border-radius:8px; border:none; background:#3b82f6; color:#fff; cursor:pointer; font-weight:600; }
+  button.secondary { background:#2a2f3a; }
+  button.danger { background:#dc2626; }
+  .row { display:flex; gap:12px; align-items:end; flex-wrap:wrap; }
+  .row > div { flex:1; min-width:200px; }
+  .status { font-size:13px; color:#9aa3b2; }
+  .job { border-top:1px solid #2a2f3a; padding:12px 0; }
+  .job:first-child { border-top:none; }
+  .progress { height:8px; background:#2a2f3a; border-radius:4px; overflow:hidden; margin:8px 0; }
+  .progress > div { height:100%; background:#3b82f6; width:0%; transition:width .3s; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; background:#2a2f3a; }
+  .badge.running { background:#1d4ed8; }
+  .badge.completed { background:#16a34a; }
+  .badge.failed { background:#dc2626; }
+  .muted { color:#9aa3b2; font-size:13px; }
+  code { background:#0f1115; padding:2px 6px; border-radius:4px; word-break:break-all; }
+  .files { max-height:240px; overflow:auto; border:1px solid #2a2f3a; border-radius:8px; }
+  .file { padding:8px 12px; cursor:pointer; border-bottom:1px solid #2a2f3a; }
+  .file:hover { background:#22262f; }
+  .file.selected { background:#1e3a8a; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>TV Transcoder</h1>
+  <p class="muted">Transcode Google Drive videos to Roku-friendly HLS on this PC. Reachable from any browser on your network.</p>
+
+  <div class="card">
+    <h3>Google Drive</h3>
+    <div id="authStatus" class="status">Checking...</div>
+    <div style="margin-top:8px;">
+      <button id="loginBtn" class="secondary">Connect Google Drive</button>
+      <button id="logoutBtn" class="secondary" style="display:none;">Disconnect</button>
+    </div>
+    <div style="margin-top:12px;">
+      <label>Or paste a Drive file ID / URL</label>
+      <input id="fileId" type="text" placeholder="1AbC... or https://drive.google.com/file/d/..." />
+    </div>
+    <div style="margin-top:8px;">
+      <button id="loadFileBtn" class="secondary">Load File Info</button>
+      <button id="browseBtn" class="secondary">Browse Drive Videos</button>
+    </div>
+    <div id="fileInfo" class="muted" style="margin-top:8px;"></div>
+    <div id="fileList" class="files" style="margin-top:8px; display:none;"></div>
+  </div>
+
+  <div class="card">
+    <h3>Transcode Settings</h3>
+    <div class="row">
+      <div>
+        <label>Resolution / Preset</label>
+        <select id="setting">
+          <option value="360p">360p - Mobile / Fast</option>
+          <option value="480p">480p - Low bandwidth</option>
+          <option value="720p" selected>720p - Roku Balanced (recommended)</option>
+          <option value="1080p">1080p - High quality</option>
+        </select>
+      </div>
+      <div>
+        <label>Title (optional)</label>
+        <input id="title" type="text" placeholder="My Video" />
+      </div>
+      <div style="flex:0;">
+        <button id="startBtn">Start Transcode</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Network & Roku Auto-Discovery</h3>
+    <div class="row">
+      <div>
+        <label>Detected Local Network IP (for Roku)</label>
+        <div><code id="localIpDisplay" style="font-size:16px; font-weight:bold; color:#60a5fa;">Detecting...</code></div>
+      </div>
+      <div>
+        <label>Auto-Discovery Status</label>
+        <div id="discoveryStatus" class="status">SSDP Active (UDP 1900) &middot; Registered with cloud</div>
+      </div>
+    </div>
+    <p class="muted" style="margin-top:10px;">The Roku app automatically detects this PC on your home Wi-Fi/LAN and offloads all Google Drive video transcoding locally.</p>
+  </div>
+
+  <div class="card">
+    <h3>Active Roku Streams</h3>
+    <div id="activeStreams" class="muted">No active streams right now.</div>
+  </div>
+
+  <div class="card">
+    <h3>Jobs (Manual Transcoding)</h3>
+    <div id="jobs"></div>
+  </div>
+</div>
+
+<script src="/public/app.js"></script>
+</body>
+</html>

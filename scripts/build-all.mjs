@@ -544,6 +544,19 @@ if (!only || only === 'downloader') {
   }
 }
 
+// -----------------------------------------------------------------------------
+// 6. TV Transcoder Desktop App -> dist/
+// -----------------------------------------------------------------------------
+if (only === 'tv-transcoder') {
+  console.log('\n==================================================================');
+  console.log(' Packaging TV Transcoder Windows App & Setup Exe');
+  console.log('==================================================================');
+  const transcoderDir = path.join(root, 'tv-transcoder');
+  if (fs.existsSync(transcoderDir)) {
+    runCommand('npm', ['run', 'build'], transcoderDir);
+  }
+}
+
 // Summary of all files in dist/
 console.log('\n╔══════════════════════════════════════════════════════════════════╗');
 console.log('║       ✓ All butfree.online Apps Compiled Into /dist!             ║');
