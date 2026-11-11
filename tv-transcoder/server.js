@@ -311,9 +311,11 @@ async function probeMediaCodecs(inputUrl, googleToken = '') {
         const videoCodec = (vStream?.codec_name || '').toLowerCase();
         const audioCodec = (aStream?.codec_name || '').toLowerCase();
         const channels = parseInt(aStream?.channels, 10) || 2;
-        const is10Bit = Boolean(vStream?.pix_fmt && vStream.pix_fmt.includes('10'));
+        const pixFmt = (vStream?.pix_fmt || '').toLowerCase();
+        const is10Bit = pixFmt.includes('10') || pixFmt.includes('12');
+        const profile = (vStream?.profile || '').toLowerCase();
         const durationSec = parseFloat(data.format?.duration || vStream?.duration || 0);
-        resolve({ videoCodec, audioCodec, is10Bit, channels, durationSec });
+        resolve({ videoCodec, audioCodec, is10Bit, channels, pixFmt, profile, durationSec });
       } catch (_) {
         resolve(null);
       }
@@ -325,6 +327,10 @@ async function probeMediaCodecs(inputUrl, googleToken = '') {
 // Stores active HLS transcoding sessions
 const activeHlsSessions = new Map();
 const hlsStartingLocks = new Map();
+// Stores Google Drive input proxy sessions (resilient to mid-stream resets)
+const driveInputSessions = new Map();
+// Tracks FFmpeg exit codes after cleanup so failures can be reported to Roku
+const sessionExitCodes = new Map();
 
 const HLS_IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes of inactivity before pruning
 
@@ -333,7 +339,6 @@ function touchHlsSession(sessionId) {
   if (!session) return;
   session.lastActive = Date.now();
   if (session.idleTimer) clearTimeout(session.idleTimer);
-  if (session.heartbeatInterval) clearInterval(session.heartbeatInterval);
   session.idleTimer = setTimeout(() => cleanupHlsSession(sessionId), HLS_IDLE_TIMEOUT_MS);
 }
 
@@ -351,6 +356,7 @@ function cleanupHlsSession(sessionId) {
     } catch (_) {}
   }
   activeHlsSessions.delete(sessionId);
+  driveInputSessions.delete(sessionId);
   console.log(`[HLS Transcoder] Session stopped and cleared from disk: ${sessionId}`);
 }
 
@@ -551,10 +557,17 @@ function servePlaylistDirect(sessionId, req, res) {
     return res.status(404).send('Playlist not ready');
   }
   const session = activeHlsSessions.get(sessionId);
+  const exitCode = sessionExitCodes.get(sessionId) ?? session?.proc?.exitCode;
+  if (exitCode !== undefined && exitCode !== null && exitCode !== 0) {
+    return res.status(500).send('Transcoding failed');
+  }
   const isRunning = Boolean(session?.proc && session.proc.exitCode === null);
   if (!isRunning && !playlist.includes('#EXT-X-ENDLIST')) {
-    playlist = playlist.trimEnd() + '\n#EXT-X-ENDLIST\n';
-    try { fs.writeFileSync(filePath, playlist); } catch (_) {}
+    // Only mark complete if FFmpeg exited successfully (or session is gone after success)
+    if (exitCode === 0 || exitCode === undefined || exitCode === null) {
+      playlist = playlist.trimEnd() + '\n#EXT-X-ENDLIST\n';
+      try { fs.writeFileSync(filePath, playlist); } catch (_) {}
+    }
   }
   const origin = getOrigin(req);
   let rewritten = playlist.replace(/^(?:.*[\\/])?(seg_\d+\.ts)\r?$/gm, `${origin}/api/stream/hls/${sessionId}/$1`);
@@ -608,6 +621,274 @@ app.get(['/api/stream/drive-hls/status', '/api/stream/torrent-hls/status'], (req
     });
   }
   res.json({ success: true, activeSessions: sessions });
+});
+
+// ---------- Resilient Google Drive Input Proxy (for FFmpeg) ----------
+// Google Drive routinely resets large alt=media downloads mid-stream. If FFmpeg
+// reads Google Drive directly it sees an early EOF, writes #EXT-X-ENDLIST, and
+// the Roku thinks the movie finished (~33% done). This proxy resumes the
+// upstream fetch via Range requests so the transcode keeps producing segments.
+const DRIVE_INPUT_RETRY_DELAY_MS = 300;
+
+async function forceRefreshDriveToken(session) {
+  try {
+    const t = await refreshAccessToken();
+    if (t) return t;
+  } catch (_) {}
+  try {
+    return await resolveGoogleDriveToken('', session?.callerAuthToken || '', session?.userId || '');
+  } catch (_) {
+    return null;
+  }
+}
+
+app.get('/api/stream/drive-hls-input/:sessionId/:fileId', async (req, res) => {
+  const { sessionId, fileId } = req.params;
+  let session = driveInputSessions.get(sessionId);
+  if (!session) {
+    session = { sessionId, fileId, googleToken: null, callerAuthToken: '', userId: '' };
+    driveInputSessions.set(sessionId, session);
+  }
+
+  if (typeof req.setTimeout === 'function') req.setTimeout(0);
+  if (typeof res.setTimeout === 'function') res.setTimeout(0);
+  if (req.socket && typeof req.socket.setTimeout === 'function') req.socket.setTimeout(0);
+  res.setHeader('Connection', 'keep-alive');
+
+  const driveUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+  let bytesSent = 0;
+  let headersSent = false;
+  let responded = false;
+  let totalFileSize = null;
+  let expectedBytesForThisRequest = null;
+
+  const initialRange = req.headers.range || null;
+  let rangeStart = 0;
+  let rangeEnd = null;
+  if (initialRange) {
+    const m = initialRange.match(/bytes=(\d*)-(\d*)/i);
+    if (m) {
+      if (m[1] !== '') rangeStart = parseInt(m[1], 10);
+      if (m[2] !== '') rangeEnd = parseInt(m[2], 10);
+    }
+  }
+
+  const clientAbortController = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      try { clientAbortController.abort(); } catch (_) {}
+    }
+  });
+
+  async function pumpFrom(currentFileOffset) {
+    if (res.destroyed || res.writableEnded) {
+      return { completed: false, aborted: true };
+    }
+
+    let googleToken = session.googleToken;
+    if (!googleToken) {
+      googleToken = await resolveGoogleDriveToken('', session.callerAuthToken || '', session.userId || '');
+      if (googleToken) session.googleToken = googleToken;
+    }
+
+    if (!googleToken) {
+      if (!headersSent && !responded) {
+        responded = true;
+        res.status(401).send('No valid Google Drive authorization token available');
+      }
+      return { retryable: false };
+    }
+
+    const headers = { Authorization: `Bearer ${googleToken}`, 'Accept': '*/*' };
+    if (rangeEnd !== null) {
+      headers['Range'] = `bytes=${currentFileOffset}-${rangeEnd}`;
+    } else {
+      headers['Range'] = `bytes=${currentFileOffset}-`;
+    }
+
+    let driveResponse;
+    const connectAbortController = new AbortController();
+    const connectTimer = setTimeout(() => {
+      try { connectAbortController.abort(new Error('Google Drive initial connection timed out (15s)')); } catch (_) {}
+    }, 15000);
+
+    const fetchSignal = (typeof AbortSignal.any === 'function')
+      ? AbortSignal.any([clientAbortController.signal, connectAbortController.signal])
+      : clientAbortController.signal;
+
+    try {
+      driveResponse = await fetch(driveUrl, { headers, signal: fetchSignal });
+    } catch (err) {
+      clearTimeout(connectTimer);
+      if (clientAbortController.signal.aborted) return { completed: false, aborted: true };
+      return { retryable: true, err };
+    } finally {
+      clearTimeout(connectTimer);
+    }
+
+    if (driveResponse.status === 401 || driveResponse.status === 403) {
+      const refreshed = await forceRefreshDriveToken(session);
+      if (refreshed) {
+        session.googleToken = refreshed;
+        return { retryable: true, authRefreshed: true };
+      }
+    }
+
+    if (!driveResponse.ok && driveResponse.status !== 206) {
+      console.error(`[Drive HLS Input] Google HTTP ${driveResponse.status} for fileId=${fileId}`);
+      return { retryable: true, err: new Error(`Google error ${driveResponse.status}: ${driveResponse.statusText}`) };
+    }
+    if (!headersSent) {
+      console.log(`[Drive HLS Input] fetch status=${driveResponse.status} content-length=${driveResponse.headers.get('content-length')} content-range=${driveResponse.headers.get('content-range')} for fileId=${fileId}`);
+    }
+
+    if (totalFileSize === null) {
+      const cr = driveResponse.headers.get('content-range');
+      if (cr) {
+        const match = cr.match(/\/(\d+)$/);
+        if (match) totalFileSize = parseInt(match[1], 10);
+      }
+      if (!totalFileSize && session.googleToken) {
+        try {
+          const metaRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=size`, {
+            headers: { Authorization: `Bearer ${session.googleToken}` },
+            signal: clientAbortController.signal
+          });
+          if (metaRes.ok) {
+            const meta = await metaRes.json();
+            if (meta?.size) totalFileSize = parseInt(meta.size, 10);
+          }
+        } catch (_) {}
+      }
+      if (!totalFileSize) {
+        const cl = driveResponse.headers.get('content-length');
+        if (cl && rangeStart === 0 && rangeEnd === null) {
+          totalFileSize = parseInt(cl, 10);
+        }
+      }
+      if (totalFileSize !== null) {
+        expectedBytesForThisRequest = (rangeEnd !== null ? rangeEnd : totalFileSize - 1) - rangeStart + 1;
+      } else if (rangeEnd !== null) {
+        expectedBytesForThisRequest = (rangeEnd - rangeStart) + 1;
+      }
+    }
+
+    if (!headersSent) {
+      res.status(driveResponse.status);
+      const forwardHeaders = ['content-type', 'content-length', 'content-range', 'accept-ranges', 'content-disposition'];
+      forwardHeaders.forEach(h => {
+        const val = driveResponse.headers.get(h);
+        if (val) res.setHeader(h, val);
+      });
+      if (!res.getHeader('accept-ranges')) {
+        res.setHeader('Accept-Ranges', 'bytes');
+      }
+      headersSent = true;
+    }
+
+    const reader = driveResponse.body.getReader();
+    try {
+      while (true) {
+        if (res.destroyed || res.writableEnded) {
+          try { await reader.cancel(); } catch (_) {}
+          return { completed: false, aborted: true };
+        }
+
+        let readTimer;
+        const readTimeout = new Promise((_, reject) => {
+          readTimer = setTimeout(() => reject(new Error('Google Drive HLS input stream stalled (60s timeout)')), 60000);
+        });
+
+        let readResult;
+        try {
+          readResult = await Promise.race([reader.read(), readTimeout]);
+        } finally {
+          clearTimeout(readTimer);
+        }
+
+        const { done, value } = readResult;
+        if (done) break;
+
+        const buf = Buffer.from(value);
+        bytesSent += buf.length;
+        const canWrite = res.write(buf);
+        if (!canWrite) {
+          await new Promise((resolve) => {
+            let settled = false;
+            const doneDrain = () => {
+              if (settled) return;
+              settled = true;
+              res.removeListener('drain', doneDrain);
+              res.removeListener('close', doneDrain);
+              res.removeListener('error', doneDrain);
+              clearTimeout(drainTimer);
+              resolve();
+            };
+            const drainTimer = setTimeout(doneDrain, 60000);
+            res.once('drain', doneDrain);
+            res.once('close', doneDrain);
+            res.once('error', doneDrain);
+          });
+        }
+        if (expectedBytesForThisRequest !== null && bytesSent >= expectedBytesForThisRequest) {
+          break;
+        }
+      }
+
+      if (expectedBytesForThisRequest !== null && bytesSent < expectedBytesForThisRequest) {
+        return { retryable: true, prematureEof: true };
+      }
+      if (bytesSent === 0) {
+        return { retryable: true, prematureEof: true };
+      }
+
+      return { retryable: false, completed: true };
+    } catch (err) {
+      try { await reader.cancel(); } catch (_) {}
+      if (clientAbortController.signal.aborted || res.destroyed) return { completed: false, aborted: true };
+      return { retryable: true, err };
+    }
+  }
+
+  try {
+    for (let attempt = 0; attempt < 50; attempt++) {
+      if (res.destroyed || res.writableEnded) break;
+
+      const bytesBefore = bytesSent;
+      const currentFileOffset = rangeStart + bytesSent;
+      const result = await pumpFrom(currentFileOffset);
+
+      if (bytesSent > bytesBefore) {
+        attempt = 0;
+      }
+      if (result && result.completed) {
+        if (!res.writableEnded) res.end();
+        return;
+      }
+      if (result && result.aborted) {
+        return;
+      }
+      if (result && result.retryable) {
+        const delay = (result.authRefreshed || bytesSent > bytesBefore) ? 0 : Math.min(DRIVE_INPUT_RETRY_DELAY_MS * (attempt + 1), 3000);
+        const errDetail = result.err?.message || (result.prematureEof ? 'premature EOF' : 'stalled stream');
+        console.error(`[Drive HLS Input] Upstream dropped at ${currentFileOffset} bytes (${errDetail}, delivered ${bytesSent}/${expectedBytesForThisRequest || 'unknown'}); resuming in ${delay}ms for fileId=${fileId}`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      if (headersSent) {
+        const delay = DRIVE_INPUT_RETRY_DELAY_MS;
+        console.error(`[Drive HLS Input] Non-retryable Google error mid-stream after ${bytesSent} bytes; retrying in ${delay}ms for fileId=${fileId}`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      if (!res.writableEnded && !responded) res.end();
+      return;
+    }
+  } catch (err) {
+    console.error('[Drive HLS Input] Error:', err.message);
+    if (!headersSent && !responded) res.status(500).send('Streaming error: ' + err.message);
+    else if (!res.writableEnded) res.end();
+  }
 });
 
 // ---------- LIVE Google Drive HLS Transcoding Route ----------
@@ -675,6 +956,7 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
   // Resolve Google Drive access token
   const googleToken = await resolveGoogleDriveToken(callerGoogleToken, callerAuthToken, userId);
   let inputUrl = '';
+  const useInputProxy = !!(googleToken || callerAuthToken || userId);
   const ffmpegArgs = [
     '-threads', '4',
     '-reconnect', '1',
@@ -686,10 +968,8 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
     '-analyzeduration', '3M',
     '-probesize', '3M'
   ];
-
   if (googleToken) {
     inputUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
-    ffmpegArgs.push('-headers', `Authorization: Bearer ${googleToken}\r\n`);
     console.log(`[Drive HLS] Direct Google Drive input with Bearer token fileId=${fileId}`);
   } else {
     // Fallback: proxy through main server if token cannot be resolved locally
@@ -700,6 +980,16 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
     console.log(`[Drive HLS] Proxied Google Drive input through main server fileId=${fileId}`);
   }
 
+  if (useInputProxy) {
+    driveInputSessions.set(sessionId, { sessionId, fileId, googleToken, callerAuthToken, userId });
+  }
+  const ffmpegInputUrl = useInputProxy
+    ? `http://127.0.0.1:${PORT}/api/stream/drive-hls-input/${sessionId}/${fileId}`
+    : inputUrl;
+  console.log(`[Drive HLS] useInputProxy=${useInputProxy} googleToken=${!!googleToken} callerAuthToken=${!!callerAuthToken} userId=${userId || ''}`);
+  if (useInputProxy) {
+    console.log(`[Drive HLS] Using resilient local input proxy session=${sessionId}`);
+  }
   // Probe media codecs to see if video can be stream-copied (0% CPU)
   let canCopyVideo = false;
   let canCopyAudio = false;
@@ -713,9 +1003,11 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
   }
   if (probe && probe.videoCodec) {
     // Roku strictly supports H.264 in MPEG-TS (.ts) container; HEVC in .ts is unsupported
-    canCopyVideo = (probe.videoCodec === 'h264' && !probe.is10Bit);
+    // Disable stream-copy: some H.264 variants that probe as yuv420p still fail
+    // on Roku hardware decoders. Always transcode to a safe Main-profile stream.
+    canCopyVideo = false;
     // Roku only supports stereo AAC (<= 2 channels). Multichannel (e.g. 5.1) MUST be downmixed to stereo
-    canCopyAudio = (probe.audioCodec === 'aac' || probe.audioCodec === 'mp3') && (probe.channels <= 2);
+    canCopyAudio = (probe.audioCodec === 'aac') && (probe.channels <= 2);
   }
 
   // Fast seek offset
@@ -726,7 +1018,7 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
   if (canCopyVideo) {
     console.log(`[Drive HLS] Fast remux stream-copy mode (0% CPU) session=${sessionId} video=${probe?.videoCodec} audio=${canCopyAudio ? 'copy' : 'aac'}`);
     ffmpegArgs.push(
-      '-i', inputUrl,
+      '-i', ffmpegInputUrl,
       '-map', '0:v:0',
       '-map', '0:a:0?',
       '-sn',
@@ -746,7 +1038,7 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
   } else {
     console.log(`[Drive HLS] Transcoding to H.264 (VPS-matched Roku settings) session=${sessionId} srcVideo=${probe?.videoCodec || 'unknown'} srcAudio=${probe?.audioCodec || 'unknown'}`);
     ffmpegArgs.push(
-      '-i', inputUrl,
+      '-i', ffmpegInputUrl,
       '-map', '0:v:0',
       '-map', '0:a:0?',
       '-sn',
@@ -762,7 +1054,7 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
       '-sc_threshold', '0',
       '-x264-params', 'repeat-headers=1:threads=2:sliced-threads=1:sync-lookahead=0:rc-lookahead=0:subme=0:me=dia',
       '-vf', "scale=-2:'min(480,ih)':flags=fast_bilinear",
-      '-pix_fmt', 'yuv420p',
+      '-pix_fmt', 'yuv420p', '-profile:v', 'main', '-level', '3.1',
       '-c:a', canCopyAudio ? 'copy' : 'aac',
       ...(canCopyAudio ? [] : ['-b:a', '128k', '-ac', '2']),
       '-muxdelay', '0',
@@ -777,6 +1069,7 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
     );
   }
 
+  console.log(`[HLS] FFmpeg args: ${ffmpegArgs.join(' ')}`);
   const ffmpegProc = spawn(FFMPEG, ffmpegArgs, { cwd: sessionDir });
   let ffmpegErrTail = '';
   ffmpegProc.stderr.on('data', (d) => {
@@ -792,6 +1085,9 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
     startedAt: Date.now(),
     lastActive: Date.now(),
     idleTimer: null,
+    googleToken,
+    callerAuthToken,
+    userId,
   };
   activeHlsSessions.set(sessionId, sessionObj);
   touchHlsSession(sessionId);
@@ -805,8 +1101,12 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
 
   ffmpegProc.on('exit', (code) => {
     console.log(`[Drive HLS] FFmpeg finished session=${sessionId} exitCode=${code}`);
+    sessionExitCodes.set(sessionId, code);
+    if (code !== 0) {
+      console.error(`[Drive HLS] FFmpeg stderr tail session=${sessionId}: ${ffmpegErrTail}`);
+    }
     try {
-      if (fs.existsSync(m3u8Path)) {
+      if (fs.existsSync(m3u8Path) && code === 0) {
         let content = fs.readFileSync(m3u8Path, 'utf8');
         if (!content.includes('#EXT-X-ENDLIST')) {
           content = content.trimEnd() + '\n#EXT-X-ENDLIST\n';
@@ -954,8 +1254,10 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
     } catch (_) {}
   }
   if (probe && probe.videoCodec) {
-    canCopyVideo = (probe.videoCodec === 'h264' && !probe.is10Bit);
-    canCopyAudio = (probe.audioCodec === 'aac' || probe.audioCodec === 'mp3') && (probe.channels <= 2);
+    // Disable stream-copy: some H.264 variants that probe as yuv420p still fail
+    // on Roku hardware decoders. Always transcode to a safe Main-profile stream.
+    canCopyVideo = false;
+    canCopyAudio = (probe.audioCodec === 'aac') && (probe.channels <= 2);
   }
 
   // Fast seek offset
@@ -1002,7 +1304,7 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
       '-sc_threshold', '0',
       '-x264-params', 'repeat-headers=1:threads=2:sliced-threads=1:sync-lookahead=0:rc-lookahead=0:subme=0:me=dia',
       '-vf', "scale=-2:'min(480,ih)':flags=fast_bilinear",
-      '-pix_fmt', 'yuv420p',
+      '-pix_fmt', 'yuv420p', '-profile:v', 'main', '-level', '3.1',
       '-c:a', canCopyAudio ? 'copy' : 'aac',
       ...(canCopyAudio ? [] : ['-b:a', '128k', '-ac', '2']),
       '-muxdelay', '0',
@@ -1017,6 +1319,7 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
     );
   }
 
+  console.log(`[HLS] FFmpeg args: ${ffmpegArgs.join(' ')}`);
   const ffmpegProc = spawn(FFMPEG, ffmpegArgs, { cwd: sessionDir });
   let ffmpegErrTail = '';
   ffmpegProc.stderr.on('data', (d) => {
@@ -1063,8 +1366,9 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
     ffmpegExitCode = code;
     clearInterval(heartbeatInterval);
     console.log(`[Torrent HLS] FFmpeg finished session=${sessionId} exitCode=${code}`);
+    sessionExitCodes.set(sessionId, code);
     try {
-      if (fs.existsSync(m3u8Path)) {
+      if (fs.existsSync(m3u8Path) && code === 0) {
         let content = fs.readFileSync(m3u8Path, 'utf8');
         if (!content.includes('#EXT-X-ENDLIST')) {
           content = content.trimEnd() + '\n#EXT-X-ENDLIST\n';
@@ -1137,10 +1441,16 @@ app.get(['/api/stream/hls/:sessionId/:file', '/api/stream/hls/:sessionId'], (req
       return res.status(404).send('Playlist not ready');
     }
     const session = activeHlsSessions.get(sessionId);
+    const exitCode = sessionExitCodes.get(sessionId) ?? session?.proc?.exitCode;
+    if (exitCode !== undefined && exitCode !== null && exitCode !== 0) {
+      return res.status(500).send('Transcoding failed');
+    }
     const isRunning = Boolean(session?.proc && session.proc.exitCode === null);
     if (!isRunning && !playlist.includes('#EXT-X-ENDLIST')) {
-      playlist = playlist.trimEnd() + '\n#EXT-X-ENDLIST\n';
-      try { fs.writeFileSync(filePath, playlist); } catch (_) {}
+      if (exitCode === 0 || exitCode === undefined || exitCode === null) {
+        playlist = playlist.trimEnd() + '\n#EXT-X-ENDLIST\n';
+        try { fs.writeFileSync(filePath, playlist); } catch (_) {}
+      }
     }
     const origin = getOrigin(req);
     // Rewrite all segment references to fully-qualified absolute URLs for Roku

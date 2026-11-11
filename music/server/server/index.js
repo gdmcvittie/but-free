@@ -25,6 +25,7 @@ import { formatDuration, inferGenreFromText, isAudioFile, stripExtension } from 
 import { groupAudiobookItems } from './bookGrouper.js';
 import audiobookStitcher, { recoverInterruptedJobs } from './audiobookStitcher.js';
 import id3Editor from './id3Editor.js';
+import deviceApi from './deviceApi.js';
 
 const DEFAULT_OWNER_EMAIL = 'gdmcvittie@gmail.com';
 
@@ -62,6 +63,8 @@ app.use((req, res, next) => {
   next();
 });
 
+deviceApi.registerDeviceRoutes(app);
+
 // =========================================================================
 // Authentication
 // =========================================================================
@@ -82,7 +85,7 @@ const PUBLIC_PATHS = new Set([
 
 app.use('/api', (req, res, next) => {
   const clean = (req.originalUrl || req.url).split('?')[0];
-  if (PUBLIC_PATHS.has(clean)) return next();
+  if (PUBLIC_PATHS.has(clean) || clean.startsWith('/api/device')) return next();
   if (!req.user) {
     return res.status(401).json({ error: 'Sign in with Google to continue.', code: 'UNAUTHENTICATED' });
   }

@@ -5590,6 +5590,7 @@ sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, file
     end if
     if forceHls or isDriveHls
         vidContent.streamFormat = "hls"
+        vidContent.bufferingTargetSeconds = 4
         vidContent.PlayStart = 0.1
     else if isTorrent
         vidContent.streamFormat = detectStreamFormat(streamUrl + " " + filePath + " " + title)
