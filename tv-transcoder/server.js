@@ -901,6 +901,9 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
   const callerAuthToken = req.query.token || req.headers.authorization?.replace(/^Bearer\s+/i, '') || '';
   const callerGoogleToken = req.query.googleToken || '';
   const userId = req.query.user || req.query.userId || '';
+  const requestedSetting = (req.query.setting || req.query.quality || '1080p');
+  const liveSetting = SETTINGS[requestedSetting] ? requestedSetting : '1080p';
+  const liveS = SETTINGS[liveSetting];
   const origin = getOrigin(req);
   const lockKey = `${fileId}:${offset}`;
 
@@ -1043,20 +1046,20 @@ app.get(['/api/stream/drive-hls/:fileId', '/api/stream/drive-hls/:fileId.m3u8'],
       '-map', '0:a:0?',
       '-sn',
       '-c:v', 'libx264',
-      '-preset', 'ultrafast',
+      '-preset', 'veryfast',
       '-tune', 'fastdecode',
       '-threads', '4',
-      '-crf', '28',
-      '-maxrate', '1500k',
-      '-bufsize', '3000k',
+      '-crf', String(liveS.crf),
+      '-maxrate', liveS.vbitrate,
+      '-bufsize', (parseInt(liveS.vbitrate) * 2) + 'k',
       '-g', '48',
       '-keyint_min', '48',
       '-sc_threshold', '0',
       '-x264-params', 'repeat-headers=1:threads=2:sliced-threads=1:sync-lookahead=0:rc-lookahead=0:subme=0:me=dia',
-      '-vf', "scale=-2:'min(480,ih)':flags=fast_bilinear",
+      '-vf', `scale=-2:'min(${liveS.height},ih)':flags=bilinear`,
       '-pix_fmt', 'yuv420p', '-profile:v', 'main', '-level', '3.1',
       '-c:a', canCopyAudio ? 'copy' : 'aac',
-      ...(canCopyAudio ? [] : ['-b:a', '128k', '-ac', '2']),
+      ...(canCopyAudio ? [] : ['-b:a', liveS.abitrate, '-ac', '2']),
       '-muxdelay', '0',
       '-muxpreload', '0',
       '-max_muxing_queue_size', '2048',
@@ -1173,6 +1176,9 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
   }
 
   const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+  const requestedSetting = (req.query.setting || req.query.quality || '1080p');
+  const liveSetting = SETTINGS[requestedSetting] ? requestedSetting : '1080p';
+  const liveS = SETTINGS[liveSetting];
   const lockKey = `torrent:${streamId}:${fileIndex}:${offset}`;
 
   console.log(`[Torrent HLS] Incoming request streamId=${streamId} fileIndex=${fileIndex} offset=${offset}s from ${req.ip}`);
@@ -1293,20 +1299,20 @@ app.get(['/api/stream/torrent-hls/:streamId/:fileIndex', '/api/stream/torrent-hl
       '-map', '0:a:0?',
       '-sn',
       '-c:v', 'libx264',
-      '-preset', 'ultrafast',
+      '-preset', 'veryfast',
       '-tune', 'fastdecode',
       '-threads', '4',
-      '-crf', '28',
-      '-maxrate', '1500k',
-      '-bufsize', '3000k',
+      '-crf', String(liveS.crf),
+      '-maxrate', liveS.vbitrate,
+      '-bufsize', (parseInt(liveS.vbitrate) * 2) + 'k',
       '-g', '48',
       '-keyint_min', '48',
       '-sc_threshold', '0',
       '-x264-params', 'repeat-headers=1:threads=2:sliced-threads=1:sync-lookahead=0:rc-lookahead=0:subme=0:me=dia',
-      '-vf', "scale=-2:'min(480,ih)':flags=fast_bilinear",
+      '-vf', `scale=-2:'min(${liveS.height},ih)':flags=bilinear`,
       '-pix_fmt', 'yuv420p', '-profile:v', 'main', '-level', '3.1',
       '-c:a', canCopyAudio ? 'copy' : 'aac',
-      ...(canCopyAudio ? [] : ['-b:a', '128k', '-ac', '2']),
+      ...(canCopyAudio ? [] : ['-b:a', liveS.abitrate, '-ac', '2']),
       '-muxdelay', '0',
       '-muxpreload', '0',
       '-max_muxing_queue_size', '2048',
