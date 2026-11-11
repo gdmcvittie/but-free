@@ -322,6 +322,92 @@ async function processAudiobookJob(job) {
   }
 }
 
+function decodeXml(str = '') {
+  return String(str)
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0*39;|&#x0*27;/gi, "'")
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(Number(dec)))
+    .replace(/<[^>]+>/g, '')
+    .trim();
+}
+
+/** Background processor for podcast episode download */
+async function processPodcastJob(job) {
+  try {
+    job.status = 'downloading';
+    job.phase = 'Downloading episode';
+    job.percent = 10;
+
+    const { audioUrl, title, show } = job.meta;
+    const res = await fetch(audioUrl, {
+      headers: { 'User-Agent': 'FRAUDIO/1.0' },
+      redirect: 'follow'
+    });
+    if (!res.ok) {
+      throw new Error(`Podcast feed returned HTTP ${res.status}`);
+    }
+
+    const contentType = String(res.headers.get('content-type') || '').toLowerCase();
+    let ext = 'mp3';
+    if (contentType.includes('mp4') || contentType.includes('m4a') || /\.m4a(\?|$)/i.test(audioUrl)) ext = 'm4a';
+    else if (contentType.includes('aac') || /\.aac(\?|$)/i.test(audioUrl)) ext = 'aac';
+    else if (contentType.includes('ogg') || /\.ogg(\?|$)/i.test(audioUrl)) ext = 'ogg';
+
+    const showName = safePart(show, 'Podcasts');
+    const cleanTitle = safePart(title || 'Episode');
+    const finalFilename = `${cleanTitle}.${ext}`;
+    const localPath = path.join(job.stagingDir, finalFilename);
+
+    const totalBytes = Number(res.headers.get('content-length')) || 0;
+    let receivedBytes = 0;
+
+    const dest = fs.createWriteStream(localPath);
+    await new Promise((resolve, reject) => {
+      const reader = res.body.getReader();
+      function pump() {
+        reader.read().then(({ done, value }) => {
+          if (done) {
+            dest.end();
+            resolve();
+            return;
+          }
+          const buf = Buffer.from(value);
+          dest.write(buf);
+          receivedBytes += buf.length;
+          if (totalBytes > 0) {
+            job.percent = Math.min(95, Math.round(10 + (receivedBytes / totalBytes) * 85));
+          }
+          pump();
+        }).catch(reject);
+      }
+      pump();
+    });
+
+    const stat = fs.statSync(localPath);
+    job.files = [
+      {
+        index: 0,
+        path: `Podcast/${showName}/${finalFilename}`,
+        filename: finalFilename,
+        size: stat.size,
+        localPath
+      }
+    ];
+    job.status = 'ready';
+    job.phase = 'Ready';
+    job.percent = 100;
+  } catch (err) {
+    console.error(`[DeviceApi] Podcast download failed for ${job.id}:`, err);
+    job.status = 'error';
+    job.phase = 'Failed';
+    job.error = err.message || 'Podcast download failed';
+  }
+}
+
 /** Mount device routes into Express app */
 export function registerDeviceRoutes(app) {
   // 1. Ping
@@ -341,7 +427,27 @@ export function registerDeviceRoutes(app) {
       const kind = String(req.query.kind || req.query.type || 'music').toLowerCase();
 
       if (!q) {
-        return res.json({ ok: true, songs: [], albums: [], artists: [], audiobooks: [] });
+        return res.json({ ok: true, songs: [], albums: [], artists: [], audiobooks: [], podcasts: [] });
+      }
+
+      if (kind === 'podcast' || kind === 'podcasts') {
+        const itunesUrl = `https://itunes.apple.com/search?media=podcast&entity=podcast&limit=25&term=${encodeURIComponent(q)}`;
+        const itRes = await fetch(itunesUrl, { headers: { 'User-Agent': 'FRAUDIO/1.0' } });
+        if (!itRes.ok) {
+          throw new Error(`Podcast directory returned HTTP ${itRes.status}`);
+        }
+        const data = await itRes.json();
+        const podcasts = (data.results || [])
+          .filter((r) => r.feedUrl)
+          .slice(0, 25)
+          .map((r) => ({
+            id: String(r.collectionId || r.feedUrl),
+            title: r.collectionName || r.trackName || '',
+            author: r.artistName || '',
+            feedUrl: r.feedUrl || '',
+            episodes: String(r.trackCount || '')
+          }));
+        return res.json({ ok: true, kind: 'podcast', query: q, podcasts });
       }
 
       if (kind === 'audiobook' || kind === 'audiobooks') {
@@ -447,12 +553,56 @@ export function registerDeviceRoutes(app) {
     }
   });
 
+  // 4b. Podcast feed episodes
+  app.get('/api/device/podcast', async (req, res) => {
+    try {
+      const feedUrl = String(req.query.feedUrl || '').trim();
+      if (!feedUrl) return res.status(400).json({ ok: false, error: 'Missing feedUrl' });
+
+      const feedRes = await fetch(feedUrl, { headers: { 'User-Agent': 'FRAUDIO/1.0' } });
+      if (!feedRes.ok) {
+        throw new Error(`Feed returned HTTP ${feedRes.status}`);
+      }
+      const xml = await feedRes.text();
+      const channelHeader = xml.split(/<item[\s>]/i)[0] || '';
+      const show = decodeXml(channelHeader.match(/<title>([\s\S]*?)<\/title>/i)?.[1] || 'Podcast');
+      const author = decodeXml(
+        channelHeader.match(/<itunes:author>([\s\S]*?)<\/itunes:author>/i)?.[1]
+        || channelHeader.match(/<author>([\s\S]*?)<\/author>/i)?.[1]
+        || ''
+      );
+
+      const episodes = [];
+      for (const m of xml.matchAll(/<item[\s>]([\s\S]*?)<\/item>/gi)) {
+        if (episodes.length >= 35) break;
+        const itemXml = m[1];
+        const audioUrl = itemXml.match(/<enclosure[^>]+url=["']([^"']+)["']/i)?.[1];
+        if (!audioUrl) continue;
+        const title = decodeXml(itemXml.match(/<title>([\s\S]*?)<\/title>/i)?.[1] || 'Episode');
+        const duration = decodeXml(itemXml.match(/<itunes:duration>([\s\S]*?)<\/itunes:duration>/i)?.[1] || '');
+        episodes.push({
+          id: audioUrl,
+          title,
+          show,
+          author,
+          duration,
+          audioUrl
+        });
+      }
+
+      return res.json({ ok: true, show, author, episodes });
+    } catch (err) {
+      console.error('[DeviceApi] Podcast feed error:', err);
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   // 5. Trigger download
   app.post('/api/device/download', (req, res) => {
     try {
-      const { type, id, title, artist, album, playlistId, browseId, postUrl, infoHash } = req.body || {};
+      const { type, id, title, artist, album, playlistId, browseId, postUrl, infoHash, audioUrl, show } = req.body || {};
       if (!type) {
-        return res.status(400).json({ ok: false, error: 'Missing download type (song, album, or audiobook)' });
+        return res.status(400).json({ ok: false, error: 'Missing download type (song, album, audiobook, or podcast)' });
       }
 
       let job;
@@ -472,6 +622,13 @@ export function registerDeviceRoutes(app) {
         }
         job = createJob('audiobook', { postUrl, infoHash, title, author: req.body.author });
         processAudiobookJob(job);
+      } else if (type === 'podcast') {
+        const epUrl = audioUrl || id;
+        if (!epUrl) {
+          return res.status(400).json({ ok: false, error: 'Missing audioUrl for podcast episode download' });
+        }
+        job = createJob('podcast', { audioUrl: epUrl, title, show: show || artist });
+        processPodcastJob(job);
       } else {
         return res.status(400).json({ ok: false, error: `Unsupported type: ${type}` });
       }
