@@ -2924,8 +2924,27 @@ function channelIdFromName(name) {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '_');
 }
 
+const driveChannelsCache = new Map();
+
 app.get('/api/drive/channels', optionalAuth, (req, res) => {
   const userId = req.user?.id || 'default';
+  try {
+    const libraryPath = path.join(getUserDir(userId), 'library.json');
+    let mtime = 0;
+    try { mtime = fs.statSync(libraryPath).mtimeMs; } catch {}
+    const cacheKey = userId;
+    const cached = driveChannelsCache.get(cacheKey);
+    if (cached && cached.mtime === mtime) {
+      const payload = JSON.stringify({ channels: cached.channels });
+      const zlib = require('zlib');
+      zlib.gzip(payload, (err2, buf) => {
+        if (err2) { res.type('application/json').send(payload); return; }
+        res.setHeader('Content-Encoding', 'gzip');
+        res.setHeader('Content-Type', 'application/json');
+        res.send(buf);
+      });
+      return;
+    }
   const library = getUserFile(userId, 'library.json', {
     shows: {},
     showsList: [],
@@ -3050,7 +3069,43 @@ app.get('/api/drive/channels', optionalAuth, (req, res) => {
     return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
   });
 
-  res.json({ channels });
+  // Trim episode/movie objects to only the fields the clients need, to shrink
+  // the payload and speed up transfer/parsing.
+  for (const ch of channels) {
+    if (Array.isArray(ch.playlist)) {
+      ch.playlist = ch.playlist.map((ep) => ({
+        title: ep?.title,
+        driveId: ep?.driveId || ep?.id,
+        id: ep?.id,
+        path: ep?.path,
+        filename: ep?.filename,
+        duration: ep?.duration,
+        show: ep?.show,
+        season: ep?.season,
+        episode: ep?.episode,
+        thumbnailUrl: ep?.thumbnailUrl || ep?.posterUrl,
+        posterUrl: ep?.posterUrl,
+        modifiedTime: ep?.modifiedTime,
+        folder: ep?.folder || ep?.folderPath
+      }));
+    }
+  }
+  driveChannelsCache.set(cacheKey, { mtime, channels });
+  const payload = JSON.stringify({ channels });
+  const zlib = require('zlib');
+  zlib.gzip(payload, (err2, buf) => {
+    if (err2) {
+      res.type('application/json').send(payload);
+      return;
+    }
+    res.setHeader('Content-Encoding', 'gzip');
+    res.setHeader('Content-Type', 'application/json');
+    res.send(buf);
+  });
+  } catch (err) {
+    console.error('[drive/channels] error for user', userId, err);
+    return res.status(500).json({ error: 'Failed to build drive channels', detail: String(err?.message || err) });
+  }
 });
 
 // -------------------------------------------------------------

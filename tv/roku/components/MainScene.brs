@@ -68,6 +68,11 @@ sub init()
     m.guideTuneTimer = invalid
     m.guideRefreshTimer = invalid
     m.allFreeTvChannels = invalid
+    m.guideSource = "freetv"
+    m.allDriveChannels = invalid
+    m.driveChannelsTask = invalid
+    m.driveChannelPlayIndex = {}
+    m.isDriveChannel = false
 
     m.sidebar = m.top.findNode("sidebar")
     m.sidebarBg = m.top.findNode("sidebarBg")
@@ -726,6 +731,8 @@ end sub
 ' ---- Home Screen ----
 
 sub showHomeScreen()
+    m.isDriveChannel = false
+    m.guideSource = "freetv"
     if m.state = "guide" then exitFreeTvGuide(false)
     stopBackgroundPlayback()
     updateHomeBackdrop(invalid)
@@ -1288,6 +1295,14 @@ sub onDriveLibraryResult()
         moviesNode.addFields({ targetType: "drive_movies_root" })
         m.gridItems.push(moviesNode)
     end if
+
+    channelsNode = gridContent.CreateChild("ContentNode")
+    channelsNode.title = "Channels"
+    setPosterUrl(channelsNode, "pkg:/images/channels.jpg")
+    channelsNode.shortDescriptionLine1 = "Live TV Guide"
+    channelsNode.description = "Watch your Google Drive library as live TV channels"
+    channelsNode.addFields({ targetType: "drive_channels" })
+    m.gridItems.push(channelsNode)
 
     cwData = []
     if m.continueWatchingList <> invalid and m.continueWatchingList.count() > 0
@@ -4035,6 +4050,17 @@ sub onFreeTvFetchResult()
 
     m.allFreeTvChannels = data.channels
     showFreeTvGuide()
+
+    ' When signed in, also load Google Drive channels so they can be
+    ' selected as a "DRIVE" source inside the Free TV guide.
+    if isLoggedIn() and m.allDriveChannels = invalid
+        m.driveChannelsTask = CreateAuthHttpTask()
+        m.driveChannelsTask.url = m.serverUrl + "/api/drive/channels"
+        m.driveChannelsTask.timeoutMs = 120000
+        m.driveChannelsTask.observeField("result", "onDriveChannelsResult")
+        m.driveChannelsTask.observeField("error", "onDriveChannelsError")
+        m.driveChannelsTask.control = "run"
+    end if
 end sub
 
 sub openFreeTvProviderGrid(providerName as String)
@@ -4125,7 +4151,7 @@ sub onFreeTvFetchError()
     m.folderBreadcrumb.text = "Error fetching Free TV channels from server"
 end sub
 
-' ---- TiVo-style Free TV Guide ----
+' ---- TiVo-style Guide (Free TV + Google Drive Channels) ----
 
 sub showFreeTvGuide()
     if m.allFreeTvChannels = invalid or m.allFreeTvChannels.count() = 0
@@ -4133,6 +4159,24 @@ sub showFreeTvGuide()
         return
     end if
 
+    m.guideSource = "freetv"
+    m.isDriveChannel = false
+    showGuideScreen("Home > Free TV Guide")
+end sub
+
+sub showDriveChannelsGuide()
+    if m.allDriveChannels = invalid or m.allDriveChannels.count() = 0
+        m.folderBreadcrumb.text = "No Drive channels available"
+        return
+    end if
+
+    m.guideSource = "drive"
+    m.isDriveChannel = true
+    m.driveChannelPlayIndex = {}
+    showGuideScreen("Home > Drive > Channels")
+end sub
+
+sub showGuideScreen(crumb as String)
     buildGuideRows()
     buildGuideFilters()
 
@@ -4143,8 +4187,8 @@ sub showFreeTvGuide()
     m.currentStreamTitle = ""
     m.guideIndex = 0
     m.guideScrollTop = 0
-    m.folderBreadcrumb.text = "Home > Free TV Guide"
-    m.savedGridBreadcrumb = "Home > Free TV Guide"
+    m.folderBreadcrumb.text = crumb
+    m.savedGridBreadcrumb = crumb
     setBreadcrumbVisible(true)
     if m.headerDivider <> invalid then m.headerDivider.visible = true
     if m.heroGroup <> invalid then m.heroGroup.visible = false
@@ -4168,6 +4212,249 @@ sub showFreeTvGuide()
 
     applyGuideFilter(true)
     startGuideRefreshTimer()
+end sub
+
+sub openDriveChannelsGuide()
+    if not isLoggedIn()
+        showLoginScreen()
+        return
+    end if
+
+    pushCurrentState("Home > Drive > Channels")
+    m.folderBreadcrumb.text = "Loading Drive Channels..."
+    if m.guideScreen <> invalid then m.guideScreen.visible = false
+    if m.guideBackdrop <> invalid then m.guideBackdrop.visible = false
+
+    m.driveChannelsTask = CreateAuthHttpTask()
+    m.driveChannelsTask.url = m.serverUrl + "/api/drive/channels"
+    m.driveChannelsTask.timeoutMs = 120000
+    m.driveChannelsTask.observeField("result", "onDriveChannelsResult")
+    m.driveChannelsTask.observeField("error", "onDriveChannelsError")
+    m.driveChannelsTask.control = "run"
+end sub
+
+sub onDriveChannelsResult()
+    if m.driveChannelsTask = invalid return
+    result = m.driveChannelsTask.result
+    m.driveChannelsTask = invalid
+    if result = invalid or result = ""
+        m.folderBreadcrumb.text = "Failed to load Drive channels"
+        return
+    end if
+
+    data = ParseJSON(result)
+    if data = invalid or data.channels = invalid or data.channels.count() = 0
+        m.folderBreadcrumb.text = "No Drive channels yet. Scan your Google Drive in the web app."
+        return
+    end if
+
+    m.allDriveChannels = buildDriveGuideChannels(data.channels)
+    if m.allDriveChannels = invalid or m.allDriveChannels.count() = 0
+        if not (m.state = "guide" and m.guideSource = "freetv")
+            m.folderBreadcrumb.text = "No playable Drive channels available"
+        end if
+        return
+    end if
+
+    ' If the Free TV guide is currently open, just expose Drive as a source
+    ' filter instead of switching to the separate Drive channels guide.
+    if m.state = "guide" and m.guideSource = "freetv"
+        buildGuideFilters()
+        applyGuideFilter(false)
+        return
+    end if
+
+    showDriveChannelsGuide()
+end sub
+
+sub onDriveChannelsError()
+    errMsg = "Error loading Drive channels"
+    if m.driveChannelsTask <> invalid and m.driveChannelsTask.error <> invalid and m.driveChannelsTask.error <> ""
+        errMsg = errMsg + " (" + safeStr(m.driveChannelsTask.error) + ")"
+    end if
+    m.driveChannelsTask = invalid
+    m.folderBreadcrumb.text = errMsg
+    print "[DriveChannels] " + errMsg
+end sub
+
+' Build the guide's channel model from /api/drive/channels. Drive channels are
+' linear playlists rather than live FAST feeds, so give each one a stable
+' wall-clock schedule (based on item durations, with sensible defaults) so the
+' shared guide layout can show an accurate On Now / progress display.
+function buildDriveGuideChannels(rawChannels as Object) as Object
+    result = []
+    if rawChannels = invalid then return result
+
+    nowSec = CreateObject("roDateTime").AsSeconds()
+    ' Convert local-epoch seconds to true UTC epoch seconds so synthesized
+    ' ISO timestamps line up with the guide's UTC-based clock.
+    tz = CreateObject("roDateTime").GetTimeZoneOffset()
+    nowSec = nowSec - (tz * 60)
+    for i = 0 to rawChannels.count() - 1
+        raw = rawChannels[i]
+        if raw = invalid then continue for
+        playlist = raw.playlist
+        if playlist = invalid or type(playlist) <> "roArray" or playlist.count() = 0 then continue for
+
+        chType = safeStr(raw.channelType)
+        chName = safeStr(raw.name)
+        if chName = "" then chName = "Drive Channel"
+
+        ch = {
+            id: safeStr(raw.id),
+            name: chName,
+            provider: "Google Drive",
+            channelType: chType,
+            category: driveChannelTypeLabel(chType),
+            summary: driveChannelSummary(raw),
+            playlist: playlist,
+            logo: resolvePosterUrl(safeStr(raw.posterUrl), "pkg:/images/no-poster.jpg"),
+            number: i + 1
+        }
+
+        ' A wide Drive thumbnail reads better in the 54x30 guide row than a
+        ' portrait show/movie poster.
+        firstThumb = ""
+        for each item in playlist
+            thumb = safeStr(getItemField(item, "thumbnailUrl"))
+            if thumb <> "" then firstThumb = thumb : exit for
+        end for
+        if firstThumb <> "" then ch.logo = resolvePosterUrl(firstThumb, ch.logo)
+
+        applyDriveChannelSchedule(ch, nowSec)
+        result.push(ch)
+    end for
+    return result
+end function
+
+function driveChannelTypeLabel(chType as String) as String
+    if chType = "new_episodes" return "New Episodes"
+    if chType = "movies" return "Movie Channel"
+    if chType = "genre" return "Genre Channel"
+    if chType = "show" return "TV Show Channel"
+    return "Drive Channel"
+end function
+
+function driveChannelSummary(raw as Object) as String
+    chType = safeStr(raw.channelType)
+    if chType = "new_episodes"
+        return Stri(safeInt(raw.episodeCount)).trim() + " episodes from recently added shows"
+    else if chType = "movies"
+        return Stri(safeInt(raw.movieCount)).trim() + " movies played on shuffle"
+    else if chType = "genre"
+        return Stri(safeInt(raw.movieCount)).trim() + " movies in this genre, played on shuffle"
+    end if
+    return Stri(safeInt(raw.episodeCount)).trim() + " episodes in order"
+end function
+
+function driveChannelItemDuration(item as Dynamic, chType as String) as Integer
+    d = safeInt(getItemField(item, "duration"))
+    ' Library durations are normally milliseconds, but tolerate seconds too.
+    if d > 100000 then d = Int(d / 1000)
+    if d >= 60 then return d
+    if chType = "movies" or chType = "genre" then return 5400
+    return 1800
+end function
+
+sub applyDriveChannelSchedule(ch as Object, nowSec as Integer)
+    playlist = ch.playlist
+    if playlist = invalid or playlist.count() = 0 then return
+
+    durations = []
+    total = 0
+    for each item in playlist
+        d = driveChannelItemDuration(item, safeStr(ch.channelType))
+        durations.push(d)
+        total = total + d
+    end for
+    if total <= 0 then total = 1
+
+    curPos = nowSec mod total
+    acc = 0
+    idx = 0
+    offset = 0
+    for i = 0 to durations.count() - 1
+        d = durations[i]
+        if curPos < acc + d
+            idx = i
+            offset = curPos - acc
+            exit for
+        end if
+        acc = acc + d
+    end for
+
+    if idx < 0 or idx >= playlist.count() then idx = 0
+    item = playlist[idx]
+    startSec = nowSec - offset
+    stopSec = startSec + durations[idx]
+
+    ch.nowIndex = idx
+    ch.nowOffset = offset
+    ch.currentProgram = {
+        title: driveChannelItemTitle(item, ch.channelType),
+        description: driveChannelItemDescription(item, ch.channelType),
+        start: driveSecondsToIso(startSec),
+        stop: driveSecondsToIso(stopSec)
+    }
+end sub
+
+function driveChannelItemTitle(item as Dynamic, chType as String) as String
+    if item = invalid return "Live"
+    t = safeStr(getItemField(item, "title"))
+    showName = safeStr(getItemField(item, "show"))
+    season = safeInt(getItemField(item, "season"))
+    episode = safeInt(getItemField(item, "episode"))
+
+    if showName <> ""
+        epStr = ""
+        if season > 0 and episode > 0
+            epStr = " S" + Stri(season).trim() + "E" + Right("0" + Stri(episode).trim(), 2)
+        end if
+        if t <> "" and LCase(t) <> LCase(showName) then return t + epStr
+        return showName + epStr
+    end if
+
+    if t <> "" return t
+    fn = safeStr(getItemField(item, "filename"))
+    if fn <> "" return fn
+    return "Live"
+end function
+
+function driveChannelItemDescription(item as Dynamic, chType as String) as String
+    if item = invalid return "Streaming live from your Google Drive."
+    showName = safeStr(getItemField(item, "show"))
+    season = safeInt(getItemField(item, "season"))
+    episode = safeInt(getItemField(item, "episode"))
+
+    if showName <> ""
+        desc = showName
+        if season > 0 and episode > 0
+            desc = desc + " · Season " + Stri(season).trim() + ", Episode " + Stri(episode).trim()
+        end if
+        return desc
+    end if
+
+    title = safeStr(getItemField(item, "title"))
+    year = safeStr(getItemField(item, "year"))
+    if title <> "" and year <> "" then return title + " (" + year + ")"
+    if title <> "" then return title
+    return "Streaming live from your Google Drive."
+end function
+
+function driveSecondsToIso(sec as Integer) as String
+    dt = CreateObject("roDateTime")
+    dt.FromSeconds(sec)
+    return dt.ToISOString()
+end function
+
+sub refreshDriveChannelSchedules()
+    if m.allDriveChannels = invalid then return
+    nowSec = CreateObject("roDateTime").AsSeconds()
+    tz = CreateObject("roDateTime").GetTimeZoneOffset()
+    nowSec = nowSec - (tz * 60)
+    for each ch in m.allDriveChannels
+        if ch <> invalid then applyDriveChannelSchedule(ch, nowSec)
+    end for
 end sub
 
 ' Take focus off every grid/video node and put it on the guide container.
@@ -4290,16 +4577,63 @@ sub buildGuideRows()
     end for
 end sub
 
+function isDriveGuideChannel(ch as Object) as Boolean
+    if ch = invalid return false
+    p = LCase(safeStr(getItemField(ch, "provider")))
+    if InStr(1, p, "drive") > 0 return true
+    if getItemField(ch, "playlist") <> invalid return true
+    return false
+end function
+
+function getGuideAllChannels() as Object
+    result = []
+    if m.allFreeTvChannels <> invalid
+        for each ch in m.allFreeTvChannels
+            if ch <> invalid then result.push(ch)
+        end for
+    end if
+    if isLoggedIn() and m.allDriveChannels <> invalid
+        for each ch in m.allDriveChannels
+            if ch <> invalid then result.push(ch)
+        end for
+    end if
+    return result
+end function
+
 sub buildGuideFilters()
     m.guideFilters = []
-    total = m.allFreeTvChannels.count()
+
+    if m.guideSource = "drive"
+        total = 0
+        if m.allDriveChannels <> invalid then total = m.allDriveChannels.count()
+        m.guideFilters.push({ label: "ALL", key: "All", count: total })
+
+        typeKeys = ["new_episodes", "movies", "genre", "show"]
+        typeLabels = ["NEW EPISODES", "MOVIES", "GENRES", "TV SHOWS"]
+        for i = 0 to typeKeys.count() - 1
+            c = 0
+            if m.allDriveChannels <> invalid
+                for each ch in m.allDriveChannels
+                    if safeStr(ch.channelType) = typeKeys[i] then c = c + 1
+                end for
+            end if
+            if c > 0
+                m.guideFilters.push({ label: typeLabels[i], key: typeKeys[i], count: c })
+            end if
+        end for
+        m.guideFilterIndex = 0
+        return
+    end if
+
+    allCh = getGuideAllChannels()
+    total = allCh.count()
     m.guideFilters.push({ label: "ALL", key: "All", count: total })
 
     providerKeys = ["Roku", "Pluto", "Tubi", "Plex"]
     providerLabels = ["ROKU", "PLUTO", "TUBI", "PLEX"]
     for i = 0 to providerKeys.count() - 1
         c = 0
-        for each ch in m.allFreeTvChannels
+        for each ch in allCh
             p = LCase(safeStr(ch.provider))
             if InStr(1, p, LCase(providerKeys[i])) > 0 then c = c + 1
         end for
@@ -4307,6 +4641,9 @@ sub buildGuideFilters()
             m.guideFilters.push({ label: providerLabels[i], key: providerKeys[i], count: c })
         end if
     end for
+    if isLoggedIn() and m.allDriveChannels <> invalid and m.allDriveChannels.count() > 0
+        m.guideFilters.push({ label: "DRIVE", key: "Drive", count: m.allDriveChannels.count() })
+    end if
     m.guideFilterIndex = 0
 end sub
 
@@ -4317,16 +4654,34 @@ sub applyGuideFilter(resetIndex as Boolean)
 
     filter = m.guideFilters[m.guideFilterIndex]
     m.guideItems = []
-    for each ch in m.allFreeTvChannels
-        include = false
-        if filter.key = "All"
-            include = true
-        else
-            p = LCase(safeStr(ch.provider))
-            if InStr(1, p, LCase(filter.key)) > 0 then include = true
+
+    if m.guideSource = "drive"
+        if m.allDriveChannels <> invalid
+            for each ch in m.allDriveChannels
+                include = false
+                if filter.key = "All"
+                    include = true
+                else if safeStr(ch.channelType) = filter.key
+                    include = true
+                end if
+                if include then m.guideItems.push(ch)
+            end for
         end if
-        if include then m.guideItems.push(ch)
-    end for
+    else
+        allCh = getGuideAllChannels()
+        for each ch in allCh
+            include = false
+            if filter.key = "All"
+                include = true
+            else if filter.key = "Drive"
+                if isDriveGuideChannel(ch) then include = true
+            else
+                p = LCase(safeStr(ch.provider))
+                if InStr(1, p, LCase(filter.key)) > 0 then include = true
+            end if
+            if include then m.guideItems.push(ch)
+        end for
+    end if
 
     if resetIndex
         m.guideIndex = 0
@@ -4335,8 +4690,10 @@ sub applyGuideFilter(resetIndex as Boolean)
     if m.guideIndex >= m.guideItems.count() then m.guideIndex = m.guideItems.count() - 1
     if m.guideIndex < 0 then m.guideIndex = 0
 
+    filterPrefix = "SOURCE"
+    if m.guideSource = "drive" then filterPrefix = "FILTER"
     if m.guideFilterLabel <> invalid
-        m.guideFilterLabel.text = "SOURCE: " + filter.label + " (" + Stri(m.guideItems.count()).trim() + ")  ◀ ▶"
+        m.guideFilterLabel.text = filterPrefix + ": " + filter.label + " (" + Stri(m.guideItems.count()).trim() + ")  ◀ ▶"
     end if
     if m.guideListCount <> invalid
         m.guideListCount.text = Stri(m.guideItems.count()).trim() + " CHANNELS"
@@ -4463,7 +4820,13 @@ sub updateGuideInfo(ch as Object)
 
     progress = guideProgramProgress(ch)
     if m.guideProgressFill <> invalid then m.guideProgressFill.width = Int(360 * progress)
-    if m.guideInfoHint <> invalid then m.guideInfoHint.text = "▲▼ Browse   OK Full Screen   ◀▶ Source"
+    if m.guideInfoHint <> invalid
+        if m.guideSource = "drive"
+            m.guideInfoHint.text = "▲▼ Browse   OK Full Screen   ◀▶ Filter"
+        else
+            m.guideInfoHint.text = "▲▼ Browse   OK Full Screen   ◀▶ Source"
+        end if
+    end if
 end sub
 
 sub clearGuideInfo()
@@ -4473,7 +4836,13 @@ sub clearGuideInfo()
     if m.guideInfoTime <> invalid then m.guideInfoTime.text = ""
     if m.guideInfoDesc <> invalid then m.guideInfoDesc.text = "No channels are available for this source."
     if m.guideProgressFill <> invalid then m.guideProgressFill.width = 0
-    if m.guideInfoHint <> invalid then m.guideInfoHint.text = "◀▶ Change source"
+    if m.guideInfoHint <> invalid
+        if m.guideSource = "drive"
+            m.guideInfoHint.text = "◀▶ Change filter"
+        else
+            m.guideInfoHint.text = "◀▶ Change source"
+        end if
+    end if
 end sub
 
 function guideChannelNumber(ch as Object, idx as Integer) as String
@@ -4615,6 +4984,12 @@ end sub
 
 sub tuneGuidePreview(ch as Object)
     if ch = invalid or m.video = invalid return
+    if isDriveGuideChannel(ch)
+        tuneDriveChannelPreview(ch)
+        return
+    end if
+    m.isDriveChannel = false
+
     streamUrl = buildFreeTvStreamUrl(ch)
     if streamUrl = "" return
 
@@ -4636,6 +5011,148 @@ sub tuneGuidePreview(ch as Object)
     m.currentStreamUrl = streamUrl
     m.currentStreamTitle = title
     if m.guideInfoHint <> invalid then m.guideInfoHint.text = "Tuning " + title + "..."
+
+    m.video.control = "stop"
+    content = CreateObject("roSGNode", "ContentNode")
+    content.url = streamUrl
+    content.title = title
+    content.streamFormat = "hls"
+    content.bufferingTargetSeconds = 8
+    content.PlayStart = 0
+    m.video.content = content
+    m.video.control = "play"
+end sub
+
+sub tuneDriveChannelPreview(ch as Object)
+    if ch = invalid or m.video = invalid return
+    streamUrl = buildDriveChannelStreamUrl(ch)
+    if streamUrl = "" return
+
+    m.video.translation = [116, 64]
+    m.video.width = 720
+    m.video.height = 405
+    m.video.visible = true
+    if m.homeBg <> invalid then m.homeBg.visible = false
+    if m.homeDarkOverlay <> invalid then m.homeDarkOverlay.visible = false
+
+    if m.currentStreamUrl = streamUrl and m.video.state <> "stopped" and m.video.state <> "error"
+        if m.video.state <> "playing" and m.video.state <> "buffering" then m.video.control = "play"
+        return
+    end if
+
+    title = safeStr(getItemField(ch, "name"))
+    if title = "" then title = "Drive Channel"
+    m.isLiveChannel = true
+    m.isDriveChannel = true
+    m.currentStreamUrl = streamUrl
+    m.currentStreamTitle = title
+    if m.guideInfoHint <> invalid then m.guideInfoHint.text = "Tuning " + title + "..."
+
+    resetDriveChannelPlaybackState()
+    m.video.control = "stop"
+    content = CreateObject("roSGNode", "ContentNode")
+    content.url = streamUrl
+    content.title = title
+    content.streamFormat = "hls"
+    content.bufferingTargetSeconds = 8
+    content.PlayStart = 0
+    m.video.content = content
+    m.video.control = "play"
+end sub
+
+sub resetDriveChannelPlaybackState()
+    m.currentPlayFilePath = ""
+    m.currentPlayFilename = ""
+    m.currentPlayingItemType = "video"
+    m.currentPlayingShow = ""
+    m.currentPlayingSeason = invalid
+    m.currentPlayingEpisode = invalid
+    m.currentPlayingTotalDuration = 0
+    m.initialPlayOffset = 0
+    m.lastKnownVideoPosition = 0
+    m.maxPlaybackPosition = 0
+    m.hasPlayedContent = false
+    m.nextChunkWarmOffset = -1
+    m.triedTranscodeFallback = false
+    m.triedStreamRetry = false
+    m.lastChainedOffset = -1
+end sub
+
+function getDriveChannelPlayIndex(ch as Object) as Integer
+    chKey = safeStr(getItemField(ch, "id"))
+    if chKey = "" then chKey = safeStr(getItemField(ch, "name"))
+
+    idx = -1
+    if m.driveChannelPlayIndex <> invalid and chKey <> "" and m.driveChannelPlayIndex.DoesExist(chKey)
+        idx = safeInt(m.driveChannelPlayIndex[chKey])
+    end if
+
+    playlist = getItemField(ch, "playlist")
+    if idx < 0 then idx = safeInt(getItemField(ch, "nowIndex"))
+    if playlist <> invalid and type(playlist) = "roArray" and playlist.count() > 0
+        if idx < 0 or idx >= playlist.count() then idx = 0
+    else
+        idx = 0
+    end if
+    return idx
+end function
+
+sub setDriveChannelPlayIndex(ch as Object, idx as Integer)
+    if m.driveChannelPlayIndex = invalid then m.driveChannelPlayIndex = {}
+    chKey = safeStr(getItemField(ch, "id"))
+    if chKey = "" then chKey = safeStr(getItemField(ch, "name"))
+    if chKey <> "" then m.driveChannelPlayIndex[chKey] = idx
+end sub
+
+function getDriveChannelPlaylistItem(ch as Object, idx as Integer) as Dynamic
+    playlist = getItemField(ch, "playlist")
+    if playlist = invalid or type(playlist) <> "roArray" then return invalid
+    if idx < 0 or idx >= playlist.count() then return invalid
+    return playlist[idx]
+end function
+
+function buildDriveChannelStreamUrl(ch as Object) as String
+    if ch = invalid return ""
+    idx = getDriveChannelPlayIndex(ch)
+    item = getDriveChannelPlaylistItem(ch, idx)
+    if item = invalid return ""
+
+    driveId = safeStr(getItemField(item, "driveId"))
+    if driveId = ""
+        path = safeStr(getItemField(item, "path"))
+        if Len(path) >= 8 and Left(path, 8) = "drive://" then driveId = Mid(path, 9)
+    end if
+    if driveId = "" return ""
+
+    streamUrl = getLocalTranscoderUrl() + "/api/stream/drive-hls/" + driveId + ".m3u8"
+    if m.authToken <> invalid and m.authToken <> ""
+        streamUrl = streamUrl + "?token=" + m.authToken
+    end if
+    return streamUrl
+end function
+
+sub advanceDriveChannelPlayback()
+    if m.guideItems = invalid or m.guideItems.count() = 0 return
+    if m.guideIndex < 0 or m.guideIndex >= m.guideItems.count() then return
+
+    ch = m.guideItems[m.guideIndex]
+    playlist = getItemField(ch, "playlist")
+    if playlist = invalid or type(playlist) <> "roArray" or playlist.count() = 0 return
+
+    idx = getDriveChannelPlayIndex(ch) + 1
+    if idx >= playlist.count() then idx = 0
+    setDriveChannelPlayIndex(ch, idx)
+
+    streamUrl = buildDriveChannelStreamUrl(ch)
+    if streamUrl = "" return
+
+    title = safeStr(getItemField(ch, "name"))
+    if title = "" then title = "Drive Channel"
+    m.isLiveChannel = true
+    m.isDriveChannel = true
+    m.currentStreamUrl = streamUrl
+    m.currentStreamTitle = title
+    resetDriveChannelPlaybackState()
 
     m.video.control = "stop"
     content = CreateObject("roSGNode", "ContentNode")
@@ -4671,6 +5188,12 @@ end function
 sub enterFullscreenFromGuide()
     if m.guideItems = invalid or m.guideItems.count() = 0 return
     ch = m.guideItems[m.guideIndex]
+    if isDriveGuideChannel(ch)
+        enterDriveChannelFullscreen(ch)
+        return
+    end if
+    m.isDriveChannel = false
+
     streamUrl = buildFreeTvStreamUrl(ch)
     if streamUrl = "" return
     title = safeStr(getItemField(ch, "name"))
@@ -4711,6 +5234,46 @@ sub enterFullscreenFromGuide()
     m.video.control = "play"
 end sub
 
+sub enterDriveChannelFullscreen(ch as Object)
+    streamUrl = buildDriveChannelStreamUrl(ch)
+    if streamUrl = "" return
+    title = safeStr(getItemField(ch, "name"))
+    if title = "" then title = "Drive Channel"
+
+    stopGuideRefreshTimer()
+    if m.guideTuneTimer <> invalid
+        m.guideTuneTimer.control = "stop"
+        m.top.removeChild(m.guideTuneTimer)
+        m.guideTuneTimer = invalid
+    end if
+
+    m.state = "player"
+    m.playerFromGuide = true
+    m.isLiveChannel = true
+    m.isDriveChannel = true
+    m.folderBreadcrumb.text = "Drive Channels: " + title
+    m.video.translation = [0, 0]
+    m.video.width = 1280
+    m.video.height = 720
+    m.video.visible = true
+    m.video.setFocus(true)
+    if m.gridScreen <> invalid then m.gridScreen.visible = false
+    if m.guideBackdrop <> invalid then m.guideBackdrop.visible = false
+    if m.playerScreen <> invalid then m.playerScreen.visible = true
+
+    resetDriveChannelPlaybackState()
+    m.currentStreamUrl = streamUrl
+    m.currentStreamTitle = title
+    content = CreateObject("roSGNode", "ContentNode")
+    content.url = streamUrl
+    content.title = title
+    content.streamFormat = "hls"
+    content.bufferingTargetSeconds = 8
+    content.PlayStart = 0
+    m.video.content = content
+    m.video.control = "play"
+end sub
+
 sub returnToGuideFromPlayer(resumePlayback = true as Boolean)
     stopGuideRefreshTimer()
     m.state = "guide"
@@ -4730,8 +5293,20 @@ sub returnToGuideFromPlayer(resumePlayback = true as Boolean)
     if m.homeBg <> invalid then m.homeBg.visible = false
     if m.homeDarkOverlay <> invalid then m.homeDarkOverlay.visible = false
     if m.posterGrid <> invalid then m.posterGrid.visible = false
-    m.folderBreadcrumb.text = "Home > Free TV Guide"
-    if m.guideInfoHint <> invalid then m.guideInfoHint.text = "▲▼ Browse   OK Full Screen   ◀▶ Source"
+    if m.savedGridBreadcrumb <> invalid and m.savedGridBreadcrumb <> ""
+        m.folderBreadcrumb.text = m.savedGridBreadcrumb
+    else if m.guideSource = "drive"
+        m.folderBreadcrumb.text = "Home > Drive > Channels"
+    else
+        m.folderBreadcrumb.text = "Home > Free TV Guide"
+    end if
+    if m.guideInfoHint <> invalid
+        if m.guideSource = "drive"
+            m.guideInfoHint.text = "▲▼ Browse   OK Full Screen   ◀▶ Filter"
+        else
+            m.guideInfoHint.text = "▲▼ Browse   OK Full Screen   ◀▶ Source"
+        end if
+    end if
     if resumePlayback
         if m.video.state <> "playing" and m.video.state <> "buffering" then m.video.control = "play"
     end if
@@ -4747,6 +5322,8 @@ sub exitFreeTvGuide(popStateAfter as Boolean)
     end if
     m.playerFromGuide = false
     m.isLiveChannel = false
+    m.isDriveChannel = false
+    m.guideSource = "freetv"
     m.currentStreamUrl = ""
     m.currentStreamTitle = ""
     if m.video <> invalid
@@ -4790,6 +5367,9 @@ end sub
 sub onGuideRefreshTimer()
     if m.state <> "guide" return
     if m.guideItems = invalid or m.guideItems.count() = 0 return
+    if m.allDriveChannels <> invalid
+        refreshDriveChannelSchedules()
+    end if
     refreshGuideList()
     updateGuideInfo(m.guideItems[m.guideIndex])
 end sub
@@ -4797,6 +5377,7 @@ end sub
 sub stopBackgroundPlayback()
     m.bgTunedChannelId = ""
     m.bgTunedTitle = ""
+    m.isDriveChannel = false
     if m.state = "grid" and m.video <> invalid
         m.video.control = "stop"
         m.video.visible = false
@@ -5067,6 +5648,8 @@ m.currentPlayFilePath = ""
         playFreeTvStream(item.streamUrl, safeStr(item.itemTitle))
     else if tType = "drive_tv_root"
         openDriveShowsGrid()
+    else if tType = "drive_channels"
+        openDriveChannelsGuide()
     else if tType = "drive_movies_root"
         openDriveMoviesGrid()
     else if tType = "drive_movie_folder"
@@ -5283,6 +5866,7 @@ sub onDriveCwError()
 end sub
 
 sub playTorrentStream(linkUrl as String, itemTitle as String)
+    m.isDriveChannel = false
     if linkUrl = "" or linkUrl = invalid return
 
     if m.state = "grid" and m.folderBreadcrumb <> invalid and m.folderBreadcrumb.text <> invalid
@@ -5478,6 +6062,7 @@ sub onTorrentInitError()
 end sub
 
 sub playFreeTvStream(streamUrl as String, title as String)
+    m.isDriveChannel = false
     m.isLiveChannel = true
     m.playerFromGuide = false
     m.bgTunedTitle = title
@@ -5518,6 +6103,7 @@ end sub
 sub playVideoUrl(streamUrl as String, title as String, offset = 0 as Float, filePath = "" as String, forceHls = false as Boolean, subtitleUrl = "" as String)
     stopBackgroundPlayback()
     m.playerFromGuide = false
+    m.isDriveChannel = false
     if m.video <> invalid
         m.video.translation = [0, 0]
         m.video.width = 1280
@@ -5981,7 +6567,13 @@ sub onVideoStateChange()
             ' it back on the guide so Left/Right reach onKeyEvent instead of
             ' being treated as video trick-play commands.
             focusGuideScreen()
-            if m.guideInfoHint <> invalid then m.guideInfoHint.text = "▲▼ Browse   OK Full Screen   ◀▶ Source"
+            if m.guideInfoHint <> invalid
+                if m.guideSource = "drive"
+                    m.guideInfoHint.text = "▲▼ Browse   OK Full Screen   ◀▶ Filter"
+                else
+                    m.guideInfoHint.text = "▲▼ Browse   OK Full Screen   ◀▶ Source"
+                end if
+            end if
             return
         end if
         if m.state = "player"
@@ -6011,6 +6603,19 @@ sub onVideoStateChange()
             if m.guideInfoHint <> invalid then m.guideInfoHint.text = "Channel unavailable. Try another."
             if m.guideInfoNow <> invalid then m.guideInfoNow.text = "Unable to tune this channel"
         end if
+        if st = "finished"
+            chainedChunk = false
+            if isChunkedHlsStream()
+                chainedChunk = chainToNextHlsChunk()
+            end if
+            if chainedChunk
+                return
+            end if
+            if m.isDriveChannel
+                advanceDriveChannelPlayback()
+                return
+            end if
+        end if
         return
     end if
 
@@ -6036,6 +6641,11 @@ sub onVideoStateChange()
         end if
 
         if chainedChunk
+            return
+        end if
+
+        if m.isDriveChannel
+            advanceDriveChannelPlayback()
             return
         end if
 
