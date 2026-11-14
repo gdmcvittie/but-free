@@ -33,11 +33,13 @@ export function normalizeGameRecord(game) {
   let rec = { ...game };
   let c = String(rec.console || '').toLowerCase().trim();
 
-  // 1. Check ID for console tag (e.g. gm_switch_..., gm_ps2_..., gm_psp_...)
+  // 1. Check ID for console tag (e.g. gm_switch_..., gm_ps2_..., gm_psp_..., gm_psx_..., gmpc_...)
   const idStr = String(rec.id || '');
-  if (idStr.startsWith('gm_switch_') || idStr.includes('_switch_')) c = 'switch';
-  else if (idStr.startsWith('gm_ps2_') || idStr.includes('_ps2_')) c = 'ps2';
-  else if (idStr.startsWith('gm_psp_') || idStr.includes('_psp_')) c = 'psp';
+  if (idStr.startsWith('gm_switch_') || idStr.includes('_switch_') || idStr.includes('switch')) c = 'switch';
+  else if (idStr.startsWith('gm_ps2_') || idStr.includes('_ps2_') || idStr.includes('ps2')) c = 'ps2';
+  else if (idStr.startsWith('gm_psp_') || idStr.includes('_psp_') || idStr.includes('psp')) c = 'psp';
+  else if (idStr.startsWith('gm_psx_') || idStr.includes('_psx_') || idStr.includes('psx')) c = 'psx';
+  else if (idStr.startsWith('gmpc_') || idStr.startsWith('gm_pc_') || idStr.includes('_pc_')) c = 'pc';
 
   // 2. Check title, filename, originalFilename, and files array
   const filename = String(rec.filename || rec.originalFilename || '');
@@ -72,6 +74,7 @@ export function normalizeGameRecord(game) {
   }
 
   rec.console = c;
+  rec.isPcGame = c === 'pc';
 
   // Systems not supported by in-browser emulator cores are download-only
   const downloadOnlySystems = new Set([
@@ -106,7 +109,7 @@ export function loadDatabase() {
       let modified = false;
       for (const [id, game] of Object.entries(db.games || {})) {
         const norm = normalizeGameRecord(game);
-        if (norm.console !== game.console || norm.isDownloadOnly !== game.isDownloadOnly) {
+        if (norm.console !== game.console || norm.isDownloadOnly !== game.isDownloadOnly || norm.isPcGame !== game.isPcGame) {
           db.games[id] = norm;
           modified = true;
         }

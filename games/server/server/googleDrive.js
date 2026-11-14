@@ -59,14 +59,10 @@ const EXTENSION_CONSOLE_MAP = {
   // NEC / SNK / Other
   pce: 'pce',
   p8: 'pico8',
-  // PC / archive parts (classified as pc unless a console folder hint wins)
+  // PC executables
   exe: 'pc',
   msi: 'pc',
-  bat: 'pc',
-  '7z': 'pc',
-  rar: 'pc',
-  zip: 'snes', // legacy fallback or detected from subfolder
-  bin: 'sega' // detected from folder context for PC installers / disc images
+  bat: 'pc'
 };
 
 // Folder-name variants -> console key (used for subfolder hints at any depth)
@@ -158,6 +154,61 @@ function formatBytes(bytes) {
   return `${size.toFixed(unitIdx === 0 ? 0 : 1)} ${units[unitIdx]}`;
 }
 
+export function resolveConsoleKey(folderName) {
+  if (!folderName) return 'other';
+  const lower = String(folderName).toLowerCase().trim();
+  const norm = lower.replace(/[-_.]+/g, ' ');
+
+  // Switch: check first so it's NEVER misclassified
+  if (norm === 'switch' || /\b(switch|nintendo\s*switch|nsw|nx)\b/.test(norm)) return 'switch';
+  // PC: check explicit PC names
+  if (norm === 'pc' || norm === 'pc games' || norm === 'windows' || /\b(gog|steam|epic|itch)\b/.test(norm)) return 'pc';
+  // Sony consoles: PS2, PSP, PS3, PS4, PS5, Vita, PSX
+  if (/\b(ps\s*2|playstation\s*2)\b/.test(norm)) return 'ps2';
+  if (/\b(psp|playstation\s*portable)\b/.test(norm)) return 'psp';
+  if (/\b(ps\s*3|playstation\s*3)\b/.test(norm)) return 'ps3';
+  if (/\b(ps\s*4|playstation\s*4)\b/.test(norm)) return 'ps4';
+  if (/\b(ps\s*5|playstation\s*5)\b/.test(norm)) return 'ps5';
+  if (/\b(ps\s*vita|playstation\s*vita|vita)\b/.test(norm)) return 'vita';
+  if (/\b(ps\s*1|psx|ps\s*one|psone|playstation\s*1|playstation\s*one)\b/.test(norm)) return 'psx';
+  if (norm === 'playstation' || norm === 'sony playstation') return 'psx';
+
+  // Nintendo retro
+  if (/\b(n64|nintendo\s*64)\b/.test(norm)) return 'n64';
+  if (/\b(snes|super\s*nintendo|sfc)\b/.test(norm)) return 'snes';
+  if (/\b(nes|famicom)\b/.test(norm)) return 'nes';
+  if (/\b(gba|game\s*boy\s*advance)\b/.test(norm)) return 'gba';
+  if (/\b(gbc|game\s*boy\s*color)\b/.test(norm)) return 'gbc';
+  if (/\b(gb|game\s*boy)\b/.test(norm)) return 'gb';
+  if (/\b(gamecube|game\s*cube|gc|ngc)\b/.test(norm)) return 'gamecube';
+  if (norm === 'wii' || norm.startsWith('wii ') || norm.endsWith(' wii')) return 'wii';
+  if (/\b(wii\s*u|wiiu)\b/.test(norm)) return 'wiiu';
+  if (/\b(3ds|nintendo\s*3ds)\b/.test(norm)) return '3ds';
+  if (/\b(nds|ds|nintendo\s*ds)\b/.test(norm)) return 'nds';
+
+  // Sega
+  if (/\b(genesis|sega|mega\s*drive)\b/.test(norm)) return 'sega';
+  if (/\b(dreamcast|dc)\b/.test(norm)) return 'dreamcast';
+  if (/\b(saturn)\b/.test(norm)) return 'saturn';
+  if (/\b(gg|game\s*gear)\b/.test(norm)) return 'gg';
+  if (/\b(sms|master\s*system)\b/.test(norm)) return 'sms';
+
+  // Xbox
+  if (/\b(xbox\s*360|xbox360|x360)\b/.test(norm)) return 'xbox360';
+  if (/\b(xbox\s*one|xboxone|xone)\b/.test(norm)) return 'xboxone';
+  if (/\b(xbox)\b/.test(norm)) return 'xbox';
+
+  // Other retro
+  if (/\b(pce|pc\s*engine|turbografx)\b/.test(norm)) return 'pce';
+  if (/\b(pico8|pico-8|pico)\b/.test(norm)) return 'pico8';
+  if (/\b(atari)\b/.test(norm)) return 'atari';
+  if (/\b(amiga)\b/.test(norm)) return 'amiga';
+  if (/\b(c64|commodore)\b/.test(norm)) return 'c64';
+  if (/\b(dos|ms-dos)\b/.test(norm)) return 'dos';
+
+  return lower.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'other';
+}
+
 export function cleanGameTitle(rawName, isFolder = false) {
   if (!rawName) return 'Unknown Game';
   let clean = String(rawName).trim();
@@ -190,7 +241,12 @@ export function detectConsoleFromFilename(filename, ext = '', fileSize = 0, fold
   const lower = name.toLowerCase();
   const norm = lower.replace(/[-_.]+/g, ' ');
 
-  // 1. Explicit console bracketed/parenthetical tags or serial codes
+  // 1. Nintendo Switch
+  if (['nsp', 'nsz', 'xci', 'xcz'].includes(ext) || /\b(switch|nintendo\s*switch|nsw|nx)\b/.test(norm)) {
+    return 'switch';
+  }
+
+  // 2. Explicit console bracketed/parenthetical tags or serial codes
   if (/\b(ps\s*5|playstation\s*5)\b/.test(norm)) return 'ps5';
   if (/\b(ps\s*4|playstation\s*4)\b/.test(norm)) return 'ps4';
   if (/\b(ps\s*3|playstation\s*3)\b|(blus|bles|bcus|bces|mrtc|npeb|npub)[-_\s]?\d{4,5}/i.test(name)) return 'ps3';
@@ -199,13 +255,13 @@ export function detectConsoleFromFilename(filename, ext = '', fileSize = 0, fold
   if (/\b(ps\s*vita|playstation\s*vita|vita)\b/.test(norm)) return 'vita';
   if (/\b(ps\s*1|psx|ps\s*one|psone|playstation\s*1|playstation\s*one)\b/.test(norm)) return 'psx';
 
-  // 2. Specific unique file extensions
+  // 3. Specific unique file extensions
   if (ext === 'cso') return 'psp';
   if (ext === 'vpk') return 'vita';
   if (ext === 'pkg' || ext === 'rap') return 'ps3';
   if (ext === 'cue') return 'psx';
 
-  // 3. For .iso and .chd: PS1 physical discs were CD-ROMs maxing out at 700 MB.
+  // 4. For .iso and .chd: PS1 physical discs were CD-ROMs maxing out at 700 MB.
   // Any disc image above 850 MB is a DVD, which is PlayStation 2!
   // (Only apply this size heuristic if not in a known non-Sony console folder like Dreamcast or Gamecube)
   const isNonSonyFolder = folderHint && !['psx', 'ps1', 'ps2', 'psp', 'ps3', 'ps4', 'ps5', 'vita', 'pc'].includes(folderHint);
@@ -1037,10 +1093,9 @@ export const GoogleDrive = {
       const fLower = (folder.name || '').toLowerCase().trim();
       const fNorm = fLower.replace(/[-_.]+/g, ' ');
       const isKnownUmbrella = /^(sony|sony playstation|nintendo|retro games|roms|games|collection|systems|emulation)$/i.test(fNorm);
-      const hint = folderHint(folder.name);
 
       // Check for subfolders if it's a known umbrella container OR if it has no direct console hint
-      if (isKnownUmbrella || (!hint && depth < 2)) {
+      if (isKnownUmbrella && depth < 2) {
         const subs = await driveQueryFiles(
           `'${folder.id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
           'id,name'
@@ -1054,8 +1109,7 @@ export const GoogleDrive = {
           return !IGNORED_FOLDER_NAMES.has(sLower);
         });
 
-        const hasConsoleSubs = validSubs.some(s => folderHint(s.name) !== null);
-        if (hasConsoleSubs || (isKnownUmbrella && validSubs.length > 0)) {
+        if (validSubs.length > 0) {
           for (const sub of validSubs) {
             await resolveConsoleFolder(sub, folder.id, depth + 1);
           }
@@ -1063,11 +1117,7 @@ export const GoogleDrive = {
         }
       }
 
-      // If it's "PlayStation" with no subfolders, it's PS1/PSX
-      const consoleKey = hint || (/^(playstation|sony playstation)$/i.test(fNorm) ? 'psx' : (
-        fLower.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'other'
-      ));
-
+      const consoleKey = resolveConsoleKey(folder.name);
       consoleFolders.push({ id: folder.id, name: folder.name, consoleKey, parentId });
       console.log(`[GoogleDrive] Console folder mapped: "${folder.name}" -> console "${consoleKey}" (ID: ${folder.id})`);
     };
@@ -1189,7 +1239,7 @@ export const GoogleDrive = {
         const coverUrl = await findCoverForGame(sf.name, title, consoleKey, sf.id);
 
         recognizedGames.push({
-          id: `gm_${consoleKey}_${sf.id}`,
+          id: consoleKey === 'pc' ? `gmpc_${sf.id}` : `gm_${consoleKey}_${sf.id}`,
           driveId: sf.id,
           driveFileId: mainFile ? mainFile.id : null,
           folderId: sf.id,
@@ -1230,7 +1280,7 @@ export const GoogleDrive = {
         const coverUrl = await findCoverForGame(cleanStem, title, consoleKey, cFolder.id);
 
         recognizedGames.push({
-          id: `gm_${file.id}`,
+          id: consoleKey === 'pc' ? `gmpc_${file.id}` : `gm_${consoleKey}_${file.id}`,
           driveId: file.id,
           folderId: cFolder.id,
           source: 'drive',
@@ -1255,7 +1305,7 @@ export const GoogleDrive = {
       const ext = fileExt(file.name);
       if (IGNORED_FILE_EXTS.has(ext) || POSTER_IMAGE_EXTS.has(ext)) continue;
 
-      const fileConsole = detectConsoleFromFilename(file.name, ext, Number(file.size || 0)) || EXTENSION_CONSOLE_MAP[ext] || 'pc';
+      const fileConsole = detectConsoleFromFilename(file.name, ext, Number(file.size || 0)) || EXTENSION_CONSOLE_MAP[ext] || 'other';
       const isPlayable = SUPPORTED_EMULATOR_CONSOLES.has(fileConsole);
       const isDownload = !isPlayable || PC_FILE_EXTS.has(ext);
       const cleanStem = file.name.replace(/\.[^.]+$/, '');
@@ -1263,7 +1313,7 @@ export const GoogleDrive = {
       const coverUrl = await findCoverForGame(cleanStem, title, fileConsole, user.gamesFolderId);
 
       recognizedGames.push({
-        id: `gm_${file.id}`,
+        id: fileConsole === 'pc' ? `gmpc_${file.id}` : `gm_${fileConsole}_${file.id}`,
         driveId: file.id,
         folderId: null,
         source: 'drive',
