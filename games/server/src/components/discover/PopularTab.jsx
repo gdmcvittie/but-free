@@ -101,13 +101,13 @@ export default function PopularTab({ onDownloadDispatched }) {
         </button>
 
         <div className="relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
             placeholder="Filter titles..."
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            className="pl-9 pr-3 py-2 bg-slate-900 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 w-48"
+            className="workstation-search-input pl-8 pr-3 py-1.5 rounded-sm text-xs text-white placeholder-zinc-500 focus:outline-none transition-colors w-48"
           />
         </div>
         <button onClick={() => loadPopular(true)} disabled={loading} className="btn btn-secondary btn-sm whitespace-nowrap">

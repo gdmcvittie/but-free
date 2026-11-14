@@ -293,6 +293,131 @@ async function processPosterBuffer(buffer, sourceMime) {
   }
 }
 
+/**
+ * Search the internet for game box art, poster art, or screenshots.
+ * Strategy 1: Steam Store API & CDN (ultra-fast, high-resolution vertical posters, headers, or screenshots).
+ * Strategy 2: Open-web image search (DuckDuckGo images) targeting official box art, front cover, or screenshots.
+ */
+async function searchInternetGameArt(cleanTitle, consoleKey = '') {
+  const clean = String(cleanTitle || '')
+    .replace(/\[[^\]]*\]/g, '')
+    .replace(/\([^\)]*\)/g, '')
+    .replace(/[-_]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!clean || clean.length < 2) return null;
+
+  const platformName = consoleKey && consoleKey !== 'pc' && consoleKey !== 'other' ? consoleKey : '';
+
+  // 1. Try Steam Store search (high-res vertical library box art, header art, or official screenshots)
+  try {
+    const steamUrl = `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(clean)}&l=english&cc=US`;
+    const sRes = await fetch(steamUrl, { signal: AbortSignal.timeout(3500) });
+    if (sRes.ok) {
+      const sData = await sRes.json();
+      if (sData.items && sData.items.length > 0) {
+        const topApp = sData.items[0];
+        const appId = topApp.id;
+
+        // Try Steam Library vertical 600x900 box art
+        try {
+          const libUrl = `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/library_600x900.jpg`;
+          const libRes = await fetch(libUrl, { signal: AbortSignal.timeout(3000) });
+          if (libRes.ok) {
+            const buf = Buffer.from(await libRes.arrayBuffer());
+            if (buf.length > 1000) {
+              return { buffer: buf, mime: libRes.headers.get('content-type') || 'image/jpeg', source: 'Steam vertical box art' };
+            }
+          }
+        } catch (_) {}
+
+        // Try Steam header capsule
+        try {
+          const headUrl = `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`;
+          const headRes = await fetch(headUrl, { signal: AbortSignal.timeout(3000) });
+          if (headRes.ok) {
+            const buf = Buffer.from(await headRes.arrayBuffer());
+            if (buf.length > 1000) {
+              return { buffer: buf, mime: headRes.headers.get('content-type') || 'image/jpeg', source: 'Steam header poster' };
+            }
+          }
+        } catch (_) {}
+
+        // Try Steam full-resolution screenshot from app details
+        try {
+          const detRes = await fetch(`https://store.steampowered.com/api/appdetails?appids=${appId}`, { signal: AbortSignal.timeout(3000) });
+          if (detRes.ok) {
+            const detData = await detRes.json();
+            const screenshots = detData[appId]?.data?.screenshots;
+            if (screenshots && screenshots.length > 0) {
+              const ssUrl = screenshots[0].path_full || screenshots[0].path_thumbnail;
+              const ssRes = await fetch(ssUrl, { signal: AbortSignal.timeout(3500) });
+              if (ssRes.ok) {
+                const buf = Buffer.from(await ssRes.arrayBuffer());
+                if (buf.length > 1000) {
+                  return { buffer: buf, mime: ssRes.headers.get('content-type') || 'image/jpeg', source: 'Steam screenshot' };
+                }
+              }
+            }
+          }
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
+
+  // 2. Open-web image search for box art cover or screenshot
+  const queries = [
+    `${clean} ${platformName} box art cover`.trim(),
+    `${clean} video game screenshot`.trim()
+  ];
+
+  for (const query of queries) {
+    try {
+      const vqdRes = await fetch(`https://duckduckgo.com/?q=${encodeURIComponent(query)}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+        signal: AbortSignal.timeout(3500)
+      });
+      if (!vqdRes.ok) continue;
+      const html = await vqdRes.text();
+      const match = html.match(/vqd=["']?([0-9-]+)/);
+      const vqd = match ? match[1] : null;
+      if (!vqd) continue;
+
+      const imgApi = `https://duckduckgo.com/i.js?l=us-en&o=json&q=${encodeURIComponent(query)}&vqd=${vqd}&f=,,,`;
+      const ddgRes = await fetch(imgApi, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': 'https://duckduckgo.com/'
+        },
+        signal: AbortSignal.timeout(3500)
+      });
+      if (!ddgRes.ok) continue;
+
+      const ddgData = await ddgRes.json();
+      const results = ddgData.results || [];
+      for (let i = 0; i < Math.min(3, results.length); i++) {
+        const candidateUrl = results[i].image;
+        if (!candidateUrl || !candidateUrl.startsWith('http')) continue;
+        try {
+          const imgDl = await fetch(candidateUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+            signal: AbortSignal.timeout(4000)
+          });
+          if (imgDl.ok) {
+            const buf = Buffer.from(await imgDl.arrayBuffer());
+            const mime = imgDl.headers.get('content-type') || '';
+            if (buf.length > 1000 && (mime.startsWith('image/') || candidateUrl.match(/\.(jpe?g|png|webp)/i))) {
+              return { buffer: buf, mime: mime || 'image/jpeg', source: 'Web image search' };
+            }
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  return null;
+}
+
 export const GoogleDrive = {
   async listFolders(user, parentId = 'root') {
     const accessToken = await GoogleAuth.getValidAccessToken(user);
@@ -904,6 +1029,33 @@ export const GoogleDrive = {
           } catch (_) {}
         }
       }
+      // 5. Fallback for unsupported consoles / PC / folders or missing Libretro art:
+      // Search internet for game box art, poster art, or screenshots
+      if (!coverUrl && postersFolder) {
+        try {
+          const netArt = await searchInternetGameArt(title, consoleKey);
+          if (netArt && netArt.buffer && netArt.buffer.length > 500) {
+            const processed = await processPosterBuffer(netArt.buffer, netArt.mime);
+            const destFolder = await ensureConsolePostersFolder(consoleKey);
+            if (destFolder) {
+              const posterName = `${sanitizeDriveName(stem)}.${processed.ext}`;
+              const uploaded = await this.uploadBufferToDrive(
+                user,
+                processed.buffer,
+                posterName,
+                processed.mime,
+                destFolder.id
+              );
+              if (uploaded && uploaded.id) {
+                const canonicalIndex = await getPosterIndex(destFolder.id);
+                indexPosterFile(canonicalIndex, { ...uploaded, parents: [destFolder.id] });
+                coverUrl = `/api/drive/file/${uploaded.id}`;
+                console.log(`[GoogleDrive] Saved ${netArt.source} for "${title}" (${consoleKey}) -> ${posterName}`);
+              }
+            }
+          }
+        } catch (_) {}
+      }
       return coverUrl;
     };
 
@@ -1079,6 +1231,33 @@ export const GoogleDrive = {
           } catch (_) {
             // Best-effort scrape
           }
+        }
+
+        // 6. If Libretro scraping missed, search internet for game box art / screenshot
+        if (!coverUrl) {
+          try {
+            const netArt = await searchInternetGameArt(cleanTitle, consoleKey);
+            if (netArt && netArt.buffer && netArt.buffer.length > 500) {
+              const processed = await processPosterBuffer(netArt.buffer, netArt.mime);
+              const destFolder = await ensureConsolePostersFolder(consoleKey);
+              if (destFolder) {
+                const posterName = `${sanitizeDriveName(baseNoExt)}.${processed.ext}`;
+                const uploaded = await this.uploadBufferToDrive(
+                  user,
+                  processed.buffer,
+                  posterName,
+                  processed.mime,
+                  destFolder.id
+                );
+                if (uploaded && uploaded.id) {
+                  const canonicalIndex = await getPosterIndex(destFolder.id);
+                  indexPosterFile(canonicalIndex, { ...uploaded, parents: [destFolder.id] });
+                  coverUrl = `/api/drive/file/${uploaded.id}`;
+                  console.log(`[GoogleDrive] Saved ${netArt.source} for "${cleanTitle}" (${consoleKey}) -> ${posterName}`);
+                }
+              }
+            }
+          } catch (_) {}
         }
       }
 

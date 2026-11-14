@@ -379,13 +379,13 @@ export default function ItchTab({ user, onDownloadDispatched, onLibraryUpdated }
 
           <form onSubmit={(e) => { e.preventDefault(); setPage(1); loadGames(platform, query, sort, 1); }} className="flex gap-2">
             <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
                 placeholder="Search itch.io games, homebrew ROMs..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-white/10 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 transition-colors"
+                className="workstation-search-input w-full pl-10 pr-4 py-2 rounded-sm text-sm text-white placeholder-zinc-500 focus:outline-none transition-colors"
               />
             </div>
             <button type="submit" className="btn btn-primary">Search</button>

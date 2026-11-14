@@ -72,15 +72,15 @@ export default function LibraryView({
         {/* Action Controls */}
         <div className="flex items-center gap-2">
           <div className={`relative ${isMobileLandscape1080 ? 'min-w-[170px] max-w-[260px]' : 'min-w-[240px]'}`}>
-            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               placeholder="Filter assets (Ctrl+K)..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-10 py-1.5 bg-[#1f1f1f] border border-[#383838] rounded-sm text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#31a8ff] transition-colors"
+              className="workstation-search-input w-full pl-8 pr-10 py-1.5 rounded-sm text-xs text-white placeholder-zinc-500 focus:outline-none transition-colors"
             />
-            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] font-mono text-slate-500 border border-[#333] px-1 rounded bg-[#181818] pointer-events-none">
+            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] font-mono text-zinc-500 border border-[#2a2a2a] px-1 rounded bg-[#141414] pointer-events-none">
               ⌘K
             </span>
           </div>
@@ -109,7 +109,7 @@ export default function LibraryView({
                 className={`filter-chip ${isSelected ? 'active' : ''}`}
               >
                 <span className="console-key font-mono text-[11px]">{key}</span>
-                <span className={`text-[9.5px] px-1.5 py-0.2 rounded-sm font-mono ${isSelected ? 'bg-[#31a8ff] text-black font-bold' : 'bg-[#181818] border border-[#333] text-slate-400'}`}>
+                <span className="filter-chip-count">
                   {count}
                 </span>
               </button>

@@ -46,13 +46,13 @@ export default function FavoritesView({
 
         {favoriteGames.length > 0 && (
           <div className="relative min-w-[240px]">
-            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               placeholder="Filter favorites (Ctrl+K)..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 bg-[#1f1f1f] border border-[#383838] rounded-sm text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#31a8ff] transition-colors"
+              className="workstation-search-input w-full pl-8 pr-3 py-1.5 rounded-sm text-xs text-white placeholder-zinc-500 focus:outline-none transition-colors"
             />
           </div>
         )}
