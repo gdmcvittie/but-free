@@ -56,56 +56,27 @@ export function normalizeGameRecord(game) {
   let rec = { ...game };
   let c = String(rec.console || '').toLowerCase().trim();
 
-  // 1. Check ID for console tag (e.g. gm_switch_..., gm_ps2_..., gm_psp_..., gm_psx_..., gmpc_...)
-  const idStr = String(rec.id || '');
-  if (idStr.startsWith('gm_switch_') || idStr.includes('_switch_')) c = 'switch';
-  else if (idStr.startsWith('gm_ps2_') || idStr.includes('_ps2_')) c = 'ps2';
-  else if (idStr.startsWith('gm_psp_') || idStr.includes('_psp_')) c = 'psp';
-  else if (idStr.startsWith('gm_psx_') || idStr.includes('_psx_')) c = 'psx';
-  else if (idStr.startsWith('gmpc_') || idStr.startsWith('gm_pc_') || idStr.includes('_pc_')) c = 'pc';
-
-  // 2. Check title, filename, originalFilename, and files array
-  const filename = String(rec.filename || rec.originalFilename || '');
-  const title = String(rec.title || '');
-  const filesList = Array.isArray(rec.files) ? rec.files.map(f => f.name || '').join(' ') : '';
-  const allText = `${title} ${filename} ${filesList}`.toLowerCase();
-
-  // Switch check: if filename/title or any file has Switch extension or keyword
-  if (
+  // If the game has a known folderId from Drive, the folder strictly identifies the console:
+  // PSX folder ID: 1-uX6WmUJgOXxHOENtGVxHeUTtN8SsFjB
+  // PSP folder ID: 1nNU8lY5MvCKWt1Ag7_ilrhMx14r7H1BE
+  // PS2 folder ID: 1VK_3Y8-atKyF6QvSmvV1GtpnYEh90Ljg
+  if (rec.folderId === '1-uX6WmUJgOXxHOENtGVxHeUTtN8SsFjB') {
+    c = 'psx';
+  } else if (rec.folderId === '1nNU8lY5MvCKWt1Ag7_ilrhMx14r7H1BE') {
+    c = 'psp';
+  } else if (rec.folderId === '1VK_3Y8-atKyF6QvSmvV1GtpnYEh90Ljg') {
+    c = 'ps2';
+  } else if (
     c === 'switch' ||
-    c.includes('xci') ||
-    c.includes('nsp') ||
-    /\.(nsp|nsz|xci|xcz)\b/i.test(allText) ||
-    /\b(switch|nintendo\s*switch|nsw)\b/i.test(allText) ||
-    title.toLowerCase().trim() === 'switch' ||
-    filename.toLowerCase().trim() === 'switch'
+    String(rec.id || '').includes('switch') ||
+    /\.(nsp|nsz|xci|xcz)\b/i.test(String(rec.filename || '')) ||
+    rec.folderId === '16MNr8eJDS_KmymZvfqQP3OgG3Z6zxJaG'
   ) {
     c = 'switch';
-  }
-  // PSP check
-  else if (
-    c === 'psp' ||
-    /\.(cso|pbp)\b/i.test(allText) ||
-    /\b(psp|playstation\s*portable)\b/i.test(allText) ||
-    /(ulus|ules|ucus|uces|uljs|uljm|ucjs|npeg|npug|npuh|npez|npuz)[-_\s]?\d{4,5}/i.test(allText)
-  ) {
-    c = 'psp';
-  }
-  // PS2 check: any Sony ISO > 700MB, or with GB size, or with PS2 serial code
-  else if (
-    c === 'ps2' ||
-    /\b(ps\s*2|playstation\s*2)\b/i.test(allText) ||
-    /(slus|sles|scus|sces|slpm|slps|scaj|scka)[-_\s]?\d{4,5}/i.test(allText) ||
-    ((c === 'psx' || c === 'ps1' || c === 'playstation' || c === 'pc' || !c) && (
-      filename.toLowerCase().endsWith('.iso') ||
-      String(rec.sizeFormatted || '').includes('GB') ||
-      (rec.size && Number(rec.size) > 700 * 1024 * 1024)
-    ))
-  ) {
-    c = 'ps2';
-  }
-  // Unrecognized console slug (e.g. subfolder of PC like "takeover-2", "mortal-shell-ii-devout-edition")
-  else if (!KNOWN_CONSOLES.has(c)) {
+  } else if (rec.isFolder && c !== 'switch') {
+    // All individual game subfolders (Takeover 2, Shrek 2, Road Rash, etc.) are PC games!
+    c = 'pc';
+  } else if (!KNOWN_CONSOLES.has(c)) {
     c = 'pc';
   }
 
@@ -117,12 +88,10 @@ export function normalizeGameRecord(game) {
     'switch', 'ps2', 'psp', 'ps3', 'ps4', 'ps5', 'vita', 'pc',
     'gamecube', 'wii', 'wiiu', '3ds', 'xbox', 'xbox360', 'xboxone'
   ]);
-  if (downloadOnlySystems.has(c)) {
-    rec.isDownloadOnly = true;
-  }
+  rec.isDownloadOnly = downloadOnlySystems.has(c);
 
-  // Ensure coverUrl fallback if null or missing or broken string
-  if (!rec.coverUrl || rec.coverUrl === 'null' || rec.coverUrl === 'undefined') {
+  // Ensure coverUrl fallback
+  if (!rec.coverUrl || rec.coverUrl === 'null' || rec.coverUrl === 'undefined' || rec.coverUrl.includes('console=')) {
     rec.coverUrl = `/api/games/cover?title=${encodeURIComponent(rec.title || 'Game')}&console=${encodeURIComponent(rec.console || '')}`;
   }
 
@@ -148,8 +117,10 @@ export function loadDatabase() {
         const consoleLower = String(game.console || '').toLowerCase().trim();
         const filenameLower = String(game.filename || '').toLowerCase().trim();
 
-        // 1. Remove emulator metadata / cache folders mistakenly added as games
+        // 1. Remove non-game files (xml, json) and emulator metadata folders
         if (
+          filenameLower.endsWith('.xml') ||
+          filenameLower.endsWith('.json') ||
           isIgnoredName(consoleLower) ||
           isIgnoredName(titleLower) ||
           isIgnoredName(filenameLower)
@@ -159,8 +130,11 @@ export function loadDatabase() {
           continue;
         }
 
-        // 2. Remove errant folder container card named "switch" or "pc" under PC
-        if (['switch', 'pc', 'ps2', 'psp', 'psx'].includes(titleLower) && game.isFolder && (game.isPcGame || game.console === 'pc')) {
+        // 2. Remove errant folder container cards named after consoles
+        if (
+          ['switch', 'pc', 'ps2', 'psp', 'psx', 'nintendo 64', 'nintendo ds', 'playstation'].includes(titleLower) &&
+          (game.isFolder || !game.files || game.files.length === 0 || game.isPcGame || (game.size && game.size < 500))
+        ) {
           delete db.games[id];
           modified = true;
           continue;
@@ -321,8 +295,14 @@ export function getGames(userId) {
     if (isIgnoredName(norm.title) || isIgnoredName(norm.console) || isIgnoredName(norm.filename)) {
       continue;
     }
+    if (norm.filename && (norm.filename.endsWith('.xml') || norm.filename.endsWith('.json'))) {
+      continue;
+    }
     // Exclude folder containers that are literally named after a console
-    if (['switch', 'pc', 'ps2', 'psp', 'psx'].includes(titleLower) && norm.isFolder && (!norm.files || norm.files.length === 0 || norm.isPcGame)) {
+    if (
+      ['switch', 'pc', 'ps2', 'psp', 'psx', 'nintendo 64', 'nintendo ds', 'playstation'].includes(titleLower) &&
+      (norm.isFolder || !norm.files || norm.files.length === 0 || norm.isPcGame || (norm.size && norm.size < 500))
+    ) {
       continue;
     }
     results.push({
@@ -352,8 +332,14 @@ export function saveGames(userId, gameList, source = 'drive') {
     if (isIgnoredName(norm.title) || isIgnoredName(norm.console) || isIgnoredName(norm.filename)) {
       continue;
     }
+    if (norm.filename && (norm.filename.endsWith('.xml') || norm.filename.endsWith('.json'))) {
+      continue;
+    }
     // Do not save a card that is literally a console folder container under PC
-    if (['switch', 'pc', 'ps2', 'psp', 'psx'].includes(titleLower) && norm.isFolder && (norm.isPcGame || norm.console === 'pc')) {
+    if (
+      ['switch', 'pc', 'ps2', 'psp', 'psx', 'nintendo 64', 'nintendo ds', 'playstation'].includes(titleLower) &&
+      (norm.isFolder || !norm.files || norm.files.length === 0 || norm.isPcGame || (norm.size && norm.size < 500))
+    ) {
       continue;
     }
     db.games[norm.id] = {

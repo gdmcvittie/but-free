@@ -110,7 +110,11 @@ const FOLDER_CONSOLE_HINTS = [
 // File extensions that mark a Drive folder as a PC game installation
 const PC_FILE_EXTS = new Set(['exe', 'msi', 'bat', '7z', 'rar', 'zip', 'bin', 'iso', 'img', '001', 'dat']);
 
-const IGNORED_FILE_EXTS = new Set(['txt', 'nfo', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'html', 'pdf', 'url', 'srm', 'cfg', 'ini', 'md5', 'sha1', 'sfv', 'doc', 'docx', 'log', 'state']);
+const IGNORED_FILE_EXTS = new Set([
+  'txt', 'nfo', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'html', 'pdf', 'url',
+  'srm', 'cfg', 'ini', 'md5', 'sha1', 'sfv', 'doc', 'docx', 'log', 'state',
+  'json', 'xml', 'db', 'tmp', 'bak'
+]);
 
 export const IGNORED_FOLDER_NAMES = new Set([
   'posters', 'save_states', 'savestates', 'game_saves', '.git', 'node_modules', 'temp', 'tmp',
@@ -1328,21 +1332,20 @@ export const GoogleDrive = {
 
         if (gameFiles.length === 0) continue;
 
-        // Detect effective console from contents: Switch, PSP, or PS2 ROMs can NEVER be PC games
+        // Effective console is strictly determined by the console folder
         let effectiveConsole = consoleKey;
         const hasSwitchRom = gameFiles.some(f => ['nsp', 'nsz', 'xci', 'xcz'].includes(fileExt(f.name)));
-        const hasPspRom = gameFiles.some(f => ['cso', 'pbp'].includes(fileExt(f.name)));
-        const hasPs2Rom = gameFiles.some(f => fileExt(f.name) === 'iso' && Number(f.size || 0) > 800 * 1024 * 1024);
+        if (hasSwitchRom && consoleKey !== 'switch') effectiveConsole = 'switch';
 
-        if (hasSwitchRom) effectiveConsole = 'switch';
-        else if (hasPspRom) effectiveConsole = 'psp';
-        else if (hasPs2Rom && (consoleKey === 'psx' || consoleKey === 'pc')) effectiveConsole = 'ps2';
+        const title = cleanGameTitle(sf.name, true);
+        if (['switch', 'pc', 'ps2', 'psp', 'psx', 'n64', 'nds', 'playstation'].includes(title.toLowerCase())) {
+          continue;
+        }
 
         const effectivePlayable = SUPPORTED_EMULATOR_CONSOLES.has(effectiveConsole);
         const mainFile = [...gameFiles].sort((a, b) => Number(b.size || 0) - Number(a.size || 0))[0];
         const mainExt = fileExt(mainFile.name);
         const totalSize = gameFiles.reduce((sum, f) => sum + Number(f.size || 0), 0);
-        const title = cleanGameTitle(sf.name, true);
         const isDownload = !effectivePlayable || PC_FILE_EXTS.has(mainExt);
 
         const coverUrl = await findCoverForGame(sf.name, title, effectiveConsole, sf.id);
@@ -1384,15 +1387,15 @@ export const GoogleDrive = {
         }
 
         let fileConsole = consoleKey;
-        if (['nsp', 'nsz', 'xci', 'xcz'].includes(ext)) fileConsole = 'switch';
-        else if (['cso', 'pbp'].includes(ext)) fileConsole = 'psp';
-        else if (ext === 'iso' && (consoleKey === 'ps2' || Number(file.size || 0) > 800 * 1024 * 1024)) fileConsole = 'ps2';
-        else if ((ext === 'cue' || ext === 'bin' || ext === 'chd') && consoleKey === 'psx') fileConsole = 'psx';
+        if (['nsp', 'nsz', 'xci', 'xcz'].includes(ext) && consoleKey !== 'switch') fileConsole = 'switch';
 
         const filePlayable = SUPPORTED_EMULATOR_CONSOLES.has(fileConsole);
         const isDownload = !filePlayable || PC_FILE_EXTS.has(ext);
         const cleanStem = file.name.replace(/\.[^.]+$/, '');
         const title = cleanGameTitle(file.name);
+        if (['switch', 'pc', 'ps2', 'psp', 'psx', 'n64', 'nds', 'playstation'].includes(title.toLowerCase())) {
+          continue;
+        }
         const coverUrl = await findCoverForGame(cleanStem, title, fileConsole, cFolder.id);
 
         recognizedGames.push({
