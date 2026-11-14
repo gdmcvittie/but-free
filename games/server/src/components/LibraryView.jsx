@@ -50,9 +50,6 @@ export default function LibraryView({
             <h1 className={`font-bold ${isMobileLandscape1080 ? 'text-base sm:text-lg' : 'text-xl'} text-white tracking-tight flex items-center gap-2`}>
               <span className="text-white font-extrabold">{selectedConsole ? selectedConsole.toUpperCase() : 'ALL FORMATS'}</span>
             </h1>
-            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-sm bg-[#222222] text-[#31a8ff] border border-[#383838]">
-              {filteredGames.length} {filteredGames.length === 1 ? 'ITEM' : 'ITEMS'}
-            </span>
           </div>
           {!isMobileLandscape1080 && (
             <p className="text-xs text-slate-400 mt-1 flex items-center gap-2">
@@ -105,9 +102,6 @@ export default function LibraryView({
                 className={`filter-chip ${isSelected ? 'active' : ''}`}
               >
                 <span className="console-key font-mono text-[11px]">{key}</span>
-                <span className="filter-chip-count">
-                  {count}
-                </span>
               </button>
             );
           })}
