@@ -298,7 +298,7 @@ export default function App() {
   }
 
   return (
-    <div className={`flex flex-col md:flex-row h-screen bg-[#070a12] text-slate-200 overflow-hidden ${isMobileLandscape1080 ? 'mobile-landscape-1080' : ''}`}>
+    <div className={`flex flex-col md:flex-row h-screen bg-[#181818] text-slate-200 overflow-hidden ${isMobileLandscape1080 ? 'mobile-landscape-1080' : ''}`}>
       {/* Sleek Sidebar Navigation */}
       <Sidebar
         currentView={currentView}
@@ -314,65 +314,92 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 min-w-0 flex flex-col h-screen overflow-y-auto relative">
-        {currentView === 'library' && (
-          <LibraryView
-            games={games}
-            loading={loadingGames}
-            selectedConsole={libraryConsole}
-            onSelectConsole={setLibraryConsole}
-            onPlayGame={handlePlayGame}
-            onToggleFavorite={handleToggleFavorite}
-            onScanDrive={handleScanDrive}
-            isScanning={isScanning}
-            user={user}
-            onOpenSettings={() => setCurrentView('settings')}
-            isMobileLandscape1080={isMobileLandscape1080}
-          />
-        )}
+      <main className="flex-1 min-w-0 flex flex-col h-screen overflow-hidden relative">
+        <div className="flex-1 min-w-0 flex flex-col overflow-y-auto">
+          {currentView === 'library' && (
+            <LibraryView
+              games={games}
+              loading={loadingGames}
+              selectedConsole={libraryConsole}
+              onSelectConsole={setLibraryConsole}
+              onPlayGame={handlePlayGame}
+              onToggleFavorite={handleToggleFavorite}
+              onScanDrive={handleScanDrive}
+              isScanning={isScanning}
+              user={user}
+              onOpenSettings={() => setCurrentView('settings')}
+              isMobileLandscape1080={isMobileLandscape1080}
+            />
+          )}
 
-        {currentView === 'recent' && (
-          <RecentlyPlayedView
-            games={games}
-            onPlayGame={handlePlayGame}
-            onToggleFavorite={handleToggleFavorite}
-            onNavigateToLibrary={() => setCurrentView('library')}
-          />
-        )}
+          {currentView === 'recent' && (
+            <RecentlyPlayedView
+              games={games}
+              onPlayGame={handlePlayGame}
+              onToggleFavorite={handleToggleFavorite}
+              onNavigateToLibrary={() => setCurrentView('library')}
+            />
+          )}
 
-        {currentView === 'discover' && (
-          <DiscoverView
-            user={user}
-            onOpenSettings={() => setCurrentView('settings')}
-            onDownloadDispatched={() => setCurrentView('downloads')}
-            onLibraryUpdated={fetchGames}
-          />
-        )}
+          {currentView === 'discover' && (
+            <DiscoverView
+              user={user}
+              onOpenSettings={() => setCurrentView('settings')}
+              onDownloadDispatched={() => setCurrentView('downloads')}
+              onLibraryUpdated={fetchGames}
+            />
+          )}
 
-        {currentView === 'downloads' && (
-          <DownloadsView
-            user={user}
-            onOpenSettings={() => setCurrentView('settings')}
-          />
-        )}
+          {currentView === 'downloads' && (
+            <DownloadsView
+              user={user}
+              onOpenSettings={() => setCurrentView('settings')}
+            />
+          )}
 
-        {currentView === 'favorites' && (
-          <FavoritesView
-            games={games}
-            onPlayGame={handlePlayGame}
-            onToggleFavorite={handleToggleFavorite}
-            onNavigateToLibrary={() => setCurrentView('library')}
-          />
-        )}
+          {currentView === 'favorites' && (
+            <FavoritesView
+              games={games}
+              onPlayGame={handlePlayGame}
+              onToggleFavorite={handleToggleFavorite}
+              onNavigateToLibrary={() => setCurrentView('library')}
+            />
+          )}
 
-        {currentView === 'settings' && (
-          <SettingsView
-            user={user}
-            onOpenAuthModal={() => setAuthModalOpen(true)}
-            onOpenDrivePicker={() => setDrivePickerOpen(true)}
-            onLibraryUpdated={fetchGames}
-          />
-        )}
+          {currentView === 'settings' && (
+            <SettingsView
+              user={user}
+              onOpenAuthModal={() => setAuthModalOpen(true)}
+              onOpenDrivePicker={() => setDrivePickerOpen(true)}
+              onLibraryUpdated={fetchGames}
+            />
+          )}
+        </div>
+
+        {/* Photoshop Desktop Workstation Status Bar */}
+        <footer className="workstation-status-bar">
+          <div className="workstation-status-item">
+            <span className={`workstation-status-dot ${user ? '' : 'inactive'}`} />
+            <span>{user ? 'MOUNTED' : 'STANDBY'}</span>
+            <span className="text-[#444]">|</span>
+            <span>ASSETS: {games.length}</span>
+            {libraryConsole && (
+              <>
+                <span className="text-[#444]">|</span>
+                <span>SYSTEM: {libraryConsole.toUpperCase()}</span>
+              </>
+            )}
+          </div>
+          <div className="workstation-status-item">
+            {user?.gamesFolderName ? (
+              <span>DRIVE: /{user.gamesFolderName}</span>
+            ) : (
+              <span className="text-amber-400">DRIVE: UNLINKED</span>
+            )}
+            <span className="text-[#444]">|</span>
+            <span>ENGINE: RETRO-JS 2.4</span>
+          </div>
+        </footer>
       </main>
 
       {/* In-Browser Emulator Modal */}
@@ -400,12 +427,12 @@ export default function App() {
           onClick={() => {
             if (toastMessage.onClick) toastMessage.onClick();
           }}
-          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 p-3.5 px-4 rounded-xl bg-slate-900/95 text-slate-100 border border-amber-500/50 shadow-2xl backdrop-blur-md cursor-pointer max-w-md animate-in fade-in slide-in-from-bottom-4 duration-200"
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 p-3 px-3.5 rounded-sm bg-[#222222] text-slate-200 border border-amber-500/60 shadow-2xl cursor-pointer max-w-md animate-in fade-in slide-in-from-bottom-4 duration-200"
         >
-          <span className="text-xl text-amber-400 shrink-0">⚠️</span>
+          <span className="text-lg text-amber-400 shrink-0">⚠️</span>
           <span className="text-xs font-medium leading-relaxed flex-1">{toastMessage.text}</span>
           {toastMessage.action && (
-            <span className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-purple-600 hover:bg-purple-500 text-white shrink-0">
+            <span className="px-2 py-0.5 rounded-sm text-[11px] font-semibold bg-[#0078d4] hover:bg-[#1084d8] text-white shrink-0">
               {toastMessage.action}
             </span>
           )}

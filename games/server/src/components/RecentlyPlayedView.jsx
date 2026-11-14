@@ -59,26 +59,29 @@ export default function RecentlyPlayedView({
   }, [rows, games]);
 
   return (
-    <div className="flex-1 flex flex-col bg-[#070a12] p-3 sm:p-6 lg:p-8">
+    <div className="flex-1 flex flex-col bg-[#181818] p-3 sm:p-5 lg:p-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-5 pb-3 border-b border-[#2b2b2b]">
         <div>
-          <h1 className="font-heading font-extrabold text-3xl text-white tracking-tight flex items-center gap-3">
-            <span>Recently played</span>
-            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
-              {recentGames.length} {recentGames.length === 1 ? 'Game' : 'Games'}
+          <div className="flex items-center gap-2.5">
+            <h1 className="font-bold text-xl text-white tracking-tight flex items-center gap-2">
+              <span className="text-xs uppercase tracking-wider text-slate-400 font-bold">HISTORY:</span>
+              <span className="text-white font-extrabold">RECENTLY PLAYED</span>
+            </h1>
+            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-sm bg-[#222222] text-[#31a8ff] border border-[#383838]">
+              {recentGames.length} {recentGames.length === 1 ? 'RECORD' : 'RECORDS'}
             </span>
-          </h1>
-          <p className="text-sm text-slate-400 mt-1">
+          </div>
+          <p className="text-xs text-slate-400 mt-1 font-mono">
             {recentGames.length > 0
-              ? 'Your last 50 games, most recently played first.'
-              : 'Play something and it will show up here.'}
+              ? 'Workstation execution log: last 50 launched ROMs.'
+              : 'Launch an asset and it will appear in your workstation history log.'}
           </p>
         </div>
       </div>
 
       {error && (
-        <div className="mb-6 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-sm">
+        <div className="mb-4 px-3 py-2 rounded-sm bg-[#2a1e1e] border border-red-500/40 text-red-300 text-xs font-mono">
           {error}
         </div>
       )}
@@ -86,21 +89,21 @@ export default function RecentlyPlayedView({
       {/* Loading */}
       {loading ? (
         <div className="flex-1 flex flex-col items-center justify-center py-20 text-slate-400 gap-3">
-          <div className="w-10 h-10 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm font-medium">Loading your play history...</p>
+          <div className="w-8 h-8 border-2 border-[#31a8ff] border-t-transparent rounded-full animate-spin" />
+          <p className="text-xs font-mono">Querying execution logs...</p>
         </div>
       ) : recentGames.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center py-24 text-center glass-panel p-8 rounded-2xl border border-white/5 max-w-xl mx-auto">
-          <div className="w-16 h-16 rounded-2xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 mb-4">
-            <History className="w-8 h-8" />
+        <div className="flex-1 flex flex-col items-center justify-center py-20 text-center glass-panel p-6 rounded-sm border border-[#383838] max-w-lg mx-auto">
+          <div className="w-12 h-12 rounded-sm bg-[#222222] border border-[#383838] flex items-center justify-center text-[#31a8ff] mb-3">
+            <History className="w-6 h-6" />
           </div>
-          <h3 className="font-heading font-bold text-xl text-white mb-2">No Games Played Yet</h3>
-          <p className="text-slate-400 text-sm max-w-md mb-6 leading-relaxed">
-            Launch a game from your library and FREEPLAY keeps your last 50 played games here.
+          <h3 className="font-bold text-base text-white mb-1.5">No Execution Records</h3>
+          <p className="text-slate-400 text-xs max-w-sm mb-5 leading-relaxed">
+            Launch a game from your asset bin and Freeplay records your session history here.
           </p>
           <button onClick={onNavigateToLibrary} className="btn btn-primary">
-            <Gamepad2 className="w-4 h-4" />
-            <span>Browse Game Library</span>
+            <Gamepad2 className="w-3.5 h-3.5" />
+            <span>Browse Asset Library</span>
           </button>
         </div>
       ) : (
@@ -117,14 +120,14 @@ export default function RecentlyPlayedView({
                   <img
                     src={game.coverUrl}
                     alt={game.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    className="w-full h-full object-cover transition-opacity duration-200"
                     loading="lazy"
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center p-3 text-center">
-                    <Gamepad2 className="w-8 h-8 text-purple-400/60 mb-1 group-hover:scale-110 transition-transform" />
-                    <span className="text-[10px] font-bold text-slate-400 uppercase font-heading">
-                      {game.console || 'RETRO'}
+                    <Gamepad2 className="w-7 h-7 text-slate-600 mb-1" />
+                    <span className="text-[9.5px] font-bold text-slate-500 uppercase font-mono">
+                      {game.console || 'ROM'}
                     </span>
                   </div>
                 )}
@@ -145,18 +148,27 @@ export default function RecentlyPlayedView({
                   }`}
                   title={game.isFavorite ? 'Remove Favorite' : 'Add to Favorites'}
                 >
-                  <Heart className={`w-3.5 h-3.5 ${game.isFavorite ? 'fill-amber-400' : 'text-slate-300'}`} />
+                  <Heart className={`w-3 h-3 ${game.isFavorite ? 'fill-amber-400 text-amber-400' : 'fill-transparent text-slate-400'}`} />
                 </button>
 
                 {/* Hover Play Overlay */}
                 <div className="game-card-overlay absolute inset-0 flex items-center justify-center p-2">
-                  <div className="w-10 h-10 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-lg shadow-purple-600/50 transform translate-y-1 group-hover:translate-y-0 transition-transform">
+                  <div className="px-3 py-1 rounded-sm bg-[#31a8ff] hover:bg-[#52c5ff] text-black flex items-center gap-1.5 font-bold text-xs shadow-md">
                     {isGameDownloadOnly(game) ? (
-                      <Download className="w-4 h-4" />
+                      <>
+                        <Download className="w-3.5 h-3.5" />
+                        <span>DOWNLOAD</span>
+                      </>
                     ) : game.console === 'web' ? (
-                      <Globe className="w-4 h-4" />
+                      <>
+                        <Globe className="w-3.5 h-3.5" />
+                        <span>OPEN</span>
+                      </>
                     ) : (
-                      <Play className="w-4 h-4 ml-0.5 fill-white" />
+                      <>
+                        <Play className="w-3.5 h-3.5 fill-black" />
+                        <span>RESUME</span>
+                      </>
                     )}
                   </div>
                 </div>
@@ -168,9 +180,9 @@ export default function RecentlyPlayedView({
                   {game.title}
                 </div>
                 <div className="game-card-sub">
-                  <span className="truncate">played {formatAgo(game.playedAt) || 'recently'}</span>
-                  <span className="text-purple-400 font-semibold group-hover:underline shrink-0">
-                    {isGameDownloadOnly(game) ? 'Files ↓' : game.console === 'web' ? 'Web Play →' : 'Play Again →'}
+                  <span className="truncate font-mono text-[10px] text-slate-500">{formatAgo(game.playedAt) || 'recently'}</span>
+                  <span className="text-[#31a8ff] font-semibold text-[10.5px] group-hover:underline shrink-0">
+                    {isGameDownloadOnly(game) ? 'Files ↓' : game.console === 'web' ? 'Web Play →' : 'Launch →'}
                   </span>
                 </div>
               </div>

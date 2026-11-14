@@ -51,13 +51,13 @@ export default function DiscoverView({ user, onOpenSettings, onDownloadDispatche
 
   if (!user?.gamesFolderId) {
     return (
-      <div className="flex-1 flex flex-col min-h-screen bg-[#070a12] p-8 items-center justify-center">
-        <div className="glass-panel p-10 max-w-md text-center space-y-4">
-          <div className="w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 mx-auto">
-            <HardDrive className="w-7 h-7" />
+      <div className="flex-1 flex flex-col min-h-screen bg-[#181818] p-8 items-center justify-center">
+        <div className="glass-panel p-8 max-w-md text-center space-y-4 rounded-sm border border-[#383838] bg-[#222222]">
+          <div className="w-12 h-12 rounded-sm bg-[#14283d] border border-[#31a8ff] flex items-center justify-center text-[#31a8ff] mx-auto">
+            <HardDrive className="w-6 h-6" />
           </div>
-          <h2 className="font-heading font-bold text-xl text-white">Select your Games folder first</h2>
-          <p className="text-xs text-slate-400 leading-relaxed">
+          <h2 className="font-bold text-base text-white">Select your Games folder first</h2>
+          <p className="text-xs text-slate-400 leading-relaxed font-mono">
             Repacks, itch.io and GOG downloads are fetched by the cloud Downloader node and saved straight into
             your Google Drive Games folder. Pick that folder to get started.
           </p>
@@ -70,16 +70,16 @@ export default function DiscoverView({ user, onOpenSettings, onDownloadDispatche
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-[#070a12] p-3 sm:p-6 lg:p-8">
+    <div className="flex-1 flex flex-col bg-[#181818] p-3 sm:p-5 lg:p-6">
       {/* Sticky Section Nav Header */}
-      <div className="sticky top-0 z-20 bg-[#070a12]/95 backdrop-blur-md pt-2 pb-3 border-b border-white/5 mb-6">
+      <div className="sticky top-0 z-20 bg-[#181818] pt-2 pb-3 border-b border-[#2b2b2b] mb-5">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
           <div>
-            <div className="flex items-center gap-2 text-xs uppercase font-bold text-pink-400 font-heading tracking-wider">
+            <div className="flex items-center gap-2 text-xs uppercase font-bold text-[#31a8ff] font-mono tracking-wider">
               <Sparkles className="w-3.5 h-3.5" />
               <span>{isMobile ? 'Indie & Homebrew Games' : 'PC & Homebrew Download Hub'}</span>
             </div>
-            <h1 className="font-heading font-extrabold text-2xl sm:text-3xl text-white tracking-tight mt-0.5">
+            <h1 className="font-bold text-xl sm:text-2xl text-white tracking-tight mt-0.5">
               Discover &amp; Download to Drive
             </h1>
           </div>

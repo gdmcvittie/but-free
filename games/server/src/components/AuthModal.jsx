@@ -35,39 +35,39 @@ export default function AuthModal({ isOpen, onClose }) {
         </button>
 
         {/* Modal Brand Header */}
-        <div className="text-center pt-2 pb-6">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center text-white mx-auto mb-3 shadow-lg shadow-purple-500/30">
-            <Gamepad2 className="w-8 h-8" />
+        <div className="text-center pt-2 pb-5">
+          <div className="adobe-app-badge mx-auto mb-3" style={{ width: 40, height: 40, borderRadius: 5 }}>
+            <span className="adobe-app-badge-text" style={{ fontSize: 18 }}>Fp</span>
           </div>
-          <h2 className="font-heading font-extrabold text-2xl text-white">Connect Google Drive</h2>
-          <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto">
-            Sign in with Google to stream your ROM collection and download retro games directly to your Drive.
+          <h2 className="font-bold text-lg text-white">Connect Google Drive Storage</h2>
+          <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto font-mono">
+            Mount your cloud ROM directories directly into the Freeplay workstation.
           </p>
         </div>
 
         {error && (
-          <div className="mb-4 p-3 rounded-lg bg-red-500/15 border border-red-500/30 text-xs text-red-300">
+          <div className="mb-4 p-2.5 rounded-sm bg-[#2c1a1a] border border-red-500/30 text-xs text-red-300 font-mono">
             {error}
           </div>
         )}
 
         {/* Features Checklist */}
-        <div className="space-y-3 mb-6 bg-slate-900/60 p-4 rounded-xl border border-white/5 text-xs text-slate-300">
+        <div className="space-y-2.5 mb-5 bg-[#1a1a1a] p-3.5 rounded-sm border border-[#333333] text-xs text-slate-300 font-mono">
           <div className="flex items-center gap-3">
-            <HardDrive className="w-4 h-4 text-cyan-400 shrink-0" />
-            <span>Store ROMs in your own private Google Drive</span>
+            <HardDrive className="w-4 h-4 text-[#31a8ff] shrink-0" />
+            <span className="text-[11.5px]">Direct cloud ROM streaming from Google Drive</span>
           </div>
           <div className="flex items-center gap-3">
-            <Gamepad2 className="w-4 h-4 text-purple-400 shrink-0" />
-            <span>Zero install — play retro games directly in browser</span>
+            <Gamepad2 className="w-4 h-4 text-[#31a8ff] shrink-0" />
+            <span className="text-[11.5px]">Zero install — runs in desktop browser</span>
           </div>
           <div className="flex items-center gap-3">
             <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
-            <span>High-speed automated torrent & ROM downloader</span>
+            <span className="text-[11.5px]">High-speed torrent & ROM downloader node</span>
           </div>
           <div className="flex items-center gap-3">
             <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span>Secure OAuth 2.0 with minimal permissions</span>
+            <span className="text-[11.5px]">Secure Google OAuth 2.0 authorization</span>
           </div>
         </div>
 
@@ -79,9 +79,9 @@ export default function AuthModal({ isOpen, onClose }) {
           className="btn-google"
         >
           {loading ? (
-            <Loader2 className="w-5 h-5 animate-spin text-purple-400" />
+            <Loader2 className="w-4 h-4 animate-spin text-[#31a8ff]" />
           ) : (
-            <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
               <path
                 fill="#4285F4"
                 d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -100,7 +100,7 @@ export default function AuthModal({ isOpen, onClose }) {
               />
             </svg>
           )}
-          <span>{loading ? 'Connecting to Google...' : 'Continue with Google'}</span>
+          <span>{loading ? 'Connecting...' : 'Continue with Google'}</span>
         </button>
       </div>
     </div>

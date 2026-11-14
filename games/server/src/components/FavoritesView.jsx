@@ -26,30 +26,33 @@ export default function FavoritesView({
   }, [favoriteGames, searchQuery]);
 
   return (
-    <div className="flex-1 flex flex-col bg-[#070a12] p-3 sm:p-6 lg:p-8">
+    <div className="flex-1 flex flex-col bg-[#181818] p-3 sm:p-5 lg:p-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-5 pb-3 border-b border-[#2b2b2b]">
         <div>
-          <h1 className="font-heading font-extrabold text-3xl text-white tracking-tight flex items-center gap-3">
-            <span>Favorite Games</span>
-            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              {favoriteGames.length} {favoriteGames.length === 1 ? 'Game' : 'Games'}
+          <div className="flex items-center gap-2.5">
+            <h1 className="font-bold text-xl text-white tracking-tight flex items-center gap-2">
+              <span className="text-xs uppercase tracking-wider text-slate-400 font-bold">COLLECTION:</span>
+              <span className="text-white font-extrabold">FAVORITES</span>
+            </h1>
+            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-sm bg-[#222222] text-amber-400 border border-[#383838]">
+              {favoriteGames.length} {favoriteGames.length === 1 ? 'PINNED' : 'PINNED'}
             </span>
-          </h1>
-          <p className="text-sm text-slate-400 mt-1">
-            Quickly jump back into your most-played retro classics and favorite ROMs.
+          </div>
+          <p className="text-xs text-slate-400 mt-1 font-mono">
+            Pinned ROM assets and high-priority bookmarks.
           </p>
         </div>
 
         {favoriteGames.length > 0 && (
-          <div className="relative min-w-[260px]">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <div className="relative min-w-[240px]">
+            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
-              placeholder="Search your favorites..."
+              placeholder="Filter favorites (Ctrl+K)..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-slate-900/80 border border-white/10 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 transition-colors"
+              className="w-full pl-8 pr-3 py-1.5 bg-[#1f1f1f] border border-[#383838] rounded-sm text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#31a8ff] transition-colors"
             />
           </div>
         )}
@@ -57,27 +60,27 @@ export default function FavoritesView({
 
       {/* Grid or Empty State */}
       {favoriteGames.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center py-24 text-center glass-panel p-8 rounded-2xl border border-white/5 max-w-xl mx-auto">
-          <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 mb-4">
-            <Heart className="w-8 h-8" />
+        <div className="flex-1 flex flex-col items-center justify-center py-20 text-center glass-panel p-6 rounded-sm border border-[#383838] max-w-lg mx-auto">
+          <div className="w-12 h-12 rounded-sm bg-[#222222] border border-[#383838] flex items-center justify-center text-amber-400 mb-3">
+            <Heart className="w-6 h-6" />
           </div>
-          <h3 className="font-heading font-bold text-xl text-white mb-2">No Favorites Yet</h3>
-          <p className="text-slate-400 text-sm max-w-md mb-6 leading-relaxed">
-            Click the heart icon on any game in your library to pin it here for instant one-click play.
+          <h3 className="font-bold text-base text-white mb-1.5">No Pinned Favorites</h3>
+          <p className="text-slate-400 text-xs max-w-sm mb-5 leading-relaxed">
+            Click the bookmark icon on any asset card in your library to pin it to this workspace view.
           </p>
           <button onClick={onNavigateToLibrary} className="btn btn-primary">
-            <Gamepad2 className="w-4 h-4" />
-            <span>Browse Game Library</span>
+            <Gamepad2 className="w-3.5 h-3.5" />
+            <span>Browse Asset Library</span>
           </button>
         </div>
       ) : filteredGames.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center py-24 text-center">
-          <p className="text-slate-400 text-sm">No favorite games match "{searchQuery}"</p>
+        <div className="flex-1 flex flex-col items-center justify-center py-20 text-center">
+          <p className="text-slate-400 text-xs font-mono">No favorites match "{searchQuery}"</p>
           <button
             onClick={() => setSearchQuery('')}
             className="btn btn-secondary btn-sm mt-3"
           >
-            Clear Search
+            Clear Filter
           </button>
         </div>
       ) : (
@@ -94,14 +97,14 @@ export default function FavoritesView({
                   <img
                     src={game.coverUrl}
                     alt={game.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    className="w-full h-full object-cover transition-opacity duration-200"
                     loading="lazy"
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center p-3 text-center">
-                    <Gamepad2 className="w-8 h-8 text-purple-400/60 mb-1 group-hover:scale-110 transition-transform" />
-                    <span className="text-[10px] font-bold text-slate-400 uppercase font-heading">
-                      {game.console || 'RETRO'}
+                    <Gamepad2 className="w-7 h-7 text-slate-600 mb-1" />
+                    <span className="text-[9.5px] font-bold text-slate-500 uppercase font-mono">
+                      {game.console || 'ROM'}
                     </span>
                   </div>
                 )}
@@ -120,18 +123,27 @@ export default function FavoritesView({
                   className="game-card-fav-btn"
                   title="Remove from favorites"
                 >
-                  <Heart className="w-3.5 h-3.5 fill-amber-400" />
+                  <Heart className="w-3 h-3 fill-amber-400 text-amber-400" />
                 </button>
 
                 {/* Hover Play Overlay */}
                 <div className="game-card-overlay absolute inset-0 flex items-center justify-center p-2">
-                  <div className="w-10 h-10 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-lg shadow-purple-600/50 transform translate-y-1 group-hover:translate-y-0 transition-transform">
+                  <div className="px-3 py-1 rounded-sm bg-[#31a8ff] hover:bg-[#52c5ff] text-black flex items-center gap-1.5 font-bold text-xs shadow-md">
                     {isGameDownloadOnly(game) ? (
-                      <Download className="w-4 h-4" />
+                      <>
+                        <Download className="w-3.5 h-3.5" />
+                        <span>DOWNLOAD</span>
+                      </>
                     ) : game.console === 'web' ? (
-                      <Globe className="w-4 h-4" />
+                      <>
+                        <Globe className="w-3.5 h-3.5" />
+                        <span>OPEN</span>
+                      </>
                     ) : (
-                      <Play className="w-4 h-4 ml-0.5 fill-white" />
+                      <>
+                        <Play className="w-3.5 h-3.5 fill-black" />
+                        <span>LAUNCH</span>
+                      </>
                     )}
                   </div>
                 </div>
@@ -143,8 +155,8 @@ export default function FavoritesView({
                   {game.title}
                 </div>
                 <div className="game-card-sub">
-                  <span className="uppercase font-semibold tracking-wider">{game.console}</span>
-                  <span>{game.sizeFormatted || ''}</span>
+                  <span className="uppercase font-mono text-[10px] text-slate-500">{game.console}</span>
+                  <span className="font-mono text-[10px] text-slate-500">{game.sizeFormatted || ''}</span>
                 </div>
               </div>
             </div>

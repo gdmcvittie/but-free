@@ -157,35 +157,38 @@ export default function SettingsView({
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-[#070a12] p-6 sm:p-8">
+    <div className="flex-1 flex flex-col bg-[#181818] p-4 sm:p-6 lg:p-7">
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="font-heading font-extrabold text-3xl text-white tracking-tight flex items-center gap-3">
-          <span>Cloud Settings</span>
-        </h1>
-        <p className="text-sm text-slate-400 mt-1 max-w-2xl">
-          Manage your Google Drive game storage, connection to the central Downloader server, and library preferences.
+      <div className="mb-6 pb-3 border-b border-[#2b2b2b]">
+        <div className="flex items-center gap-2">
+          <span className="text-xs uppercase tracking-wider text-slate-400 font-bold font-mono">PREFERENCES:</span>
+          <h1 className="font-bold text-xl text-white tracking-tight">
+            <span>WORKSTATION SETTINGS</span>
+          </h1>
+        </div>
+        <p className="text-xs text-slate-400 mt-1 max-w-2xl font-mono">
+          Manage mounted Google Drive game storage, connection to the central Downloader server, and library preferences.
         </p>
       </div>
 
       {/* Status banner */}
       {statusMessage && (
-        <div className="mb-6 p-4 rounded-xl bg-purple-600/15 border border-purple-500/30 text-purple-200 text-xs flex items-center justify-between animate-in fade-in">
+        <div className="mb-5 p-3 rounded-sm bg-[#16293d] border border-[#31a8ff] text-[#52c5ff] text-xs flex items-center justify-between font-mono animate-in fade-in">
           <span>{statusMessage}</span>
           <button onClick={() => setStatusMessage(null)} className="icon-btn icon-btn-sm">✕</button>
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-5xl">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 max-w-5xl">
         {/* Card 1: Google Account Profile */}
-        <div className="glass-panel p-6 rounded-2xl border border-white/5 space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-white/5">
-            <h3 className="font-heading font-bold text-base text-white flex items-center gap-2">
-              <User className="w-4 h-4 text-purple-400" />
+        <div className="glass-panel p-5 rounded-sm border border-[#383838] bg-[#222222] space-y-4">
+          <div className="flex items-center justify-between pb-2.5 border-b border-[#2e2e2e]">
+            <h3 className="font-bold text-sm text-white flex items-center gap-2">
+              <User className="w-4 h-4 text-[#31a8ff]" />
               <span>Google Account</span>
             </h3>
             {user && (
-              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+              <span className="text-[9.5px] uppercase font-mono font-bold tracking-wider px-1.5 py-0.5 rounded-sm bg-[#162e20] text-emerald-400 border border-emerald-500/30">
                 Connected
               </span>
             )}
@@ -193,22 +196,22 @@ export default function SettingsView({
 
           {user ? (
             <div className="space-y-4">
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3.5">
                 {user.avatar ? (
-                  <img src={user.avatar} alt={user.name} className="w-14 h-14 rounded-full ring-2 ring-purple-500/40" />
+                  <img src={user.avatar} alt={user.name} className="w-12 h-12 rounded-sm ring-1 ring-[#31a8ff]" />
                 ) : (
-                  <div className="w-14 h-14 rounded-full bg-purple-600/30 flex items-center justify-center text-purple-300 font-bold text-lg">
+                  <div className="w-12 h-12 rounded-sm bg-[#1c2e3d] flex items-center justify-center text-[#31a8ff] font-bold text-base">
                     {user.name ? user.name[0].toUpperCase() : 'G'}
                   </div>
                 )}
                 <div>
-                  <h4 className="font-semibold text-white text-base">{user.name || 'Google User'}</h4>
-                  <p className="text-xs text-slate-400">{user.email}</p>
-                  <p className="text-[11px] text-slate-500 mt-0.5">Authenticated via Google OAuth 2.0</p>
+                  <h4 className="font-semibold text-white text-sm">{user.name || 'Google User'}</h4>
+                  <p className="text-xs text-slate-400 font-mono">{user.email}</p>
+                  <p className="text-[10px] text-slate-500 mt-0.5 font-mono">Authenticated via Google OAuth 2.0</p>
                 </div>
               </div>
 
-              <div className="pt-2">
+              <div className="pt-1">
                 <button
                   type="button"
                   onClick={handleLogout}
@@ -236,38 +239,38 @@ export default function SettingsView({
         </div>
 
         {/* Card 2: Google Drive Games Folder */}
-        <div className="glass-panel p-6 rounded-2xl border border-white/5 space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-white/5">
-            <h3 className="font-heading font-bold text-base text-white flex items-center gap-2">
-              <HardDrive className="w-4 h-4 text-cyan-400" />
+        <div className="glass-panel p-5 rounded-sm border border-[#383838] bg-[#222222] space-y-4">
+          <div className="flex items-center justify-between pb-2.5 border-b border-[#2e2e2e]">
+            <h3 className="font-bold text-sm text-white flex items-center gap-2">
+              <HardDrive className="w-4 h-4 text-[#31a8ff]" />
               <span>Google Drive Games Folder</span>
             </h3>
           </div>
 
-          <p className="text-xs text-slate-400 leading-relaxed">
-            Your retro ROMs (.nes, .sfc, .gba, .iso, .zip, etc.) are streamed from and downloaded into this folder.
+          <p className="text-xs text-slate-400 leading-relaxed font-mono">
+            ROM assets (.nes, .sfc, .gba, .z64, .iso, .zip) are mounted from this folder.
           </p>
 
-          <div className="p-3.5 rounded-xl bg-slate-900/80 border border-white/5 flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-cyan-500/10 text-cyan-400">
-              <Folder className="w-5 h-5" />
+          <div className="p-3 rounded-sm bg-[#1c1c1c] border border-[#333333] flex items-center gap-3">
+            <div className="p-1.5 rounded-sm bg-[#14283d] text-[#31a8ff]">
+              <Folder className="w-4 h-4" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Active Folder</div>
-              <div className="text-sm font-semibold text-white truncate">
-                {user?.gamesFolderName || 'No folder selected'}
+              <div className="text-[9.5px] uppercase font-mono font-bold text-slate-500 tracking-wider">Mount Path</div>
+              <div className="text-xs font-semibold text-white font-mono truncate">
+                {user?.gamesFolderName ? `/${user.gamesFolderName}` : 'No folder mounted'}
               </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2.5 pt-1">
+          <div className="flex flex-wrap gap-2 pt-1">
             <button
               type="button"
               onClick={onOpenDrivePicker}
               className="btn btn-primary btn-sm"
             >
               <FolderPlus className="w-3.5 h-3.5" />
-              <span>{user?.gamesFolderId ? 'Change Games Folder' : 'Select Games Folder'}</span>
+              <span>{user?.gamesFolderId ? 'Change Mount Folder' : 'Select Mount Folder'}</span>
             </button>
 
             <button
@@ -276,36 +279,36 @@ export default function SettingsView({
               disabled={scanning || !user?.gamesFolderId}
               className="btn btn-secondary btn-sm"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${scanning ? 'animate-spin text-purple-400' : ''}`} />
-              <span>{scanning ? 'Scanning...' : 'Scan Library Now'}</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${scanning ? 'animate-spin text-[#31a8ff]' : ''}`} />
+              <span>{scanning ? 'Syncing...' : 'Sync Assets'}</span>
             </button>
           </div>
         </div>
 
         {/* Card 3: Downloader Server Node */}
-        <div className="glass-panel p-6 rounded-2xl border border-white/5 space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-white/5">
-            <h3 className="font-heading font-bold text-base text-white flex items-center gap-2">
-              <Server className="w-4 h-4 text-purple-400" />
+        <div className="glass-panel p-5 rounded-sm border border-[#383838] bg-[#222222] space-y-4">
+          <div className="flex items-center justify-between pb-2.5 border-b border-[#2e2e2e]">
+            <h3 className="font-bold text-sm text-white flex items-center gap-2">
+              <Server className="w-4 h-4 text-[#31a8ff]" />
               <span>Central Downloader Server</span>
             </h3>
-            <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full border ${
+            <span className={`text-[9.5px] uppercase font-mono font-bold tracking-wider px-1.5 py-0.5 rounded-sm border ${
               downloaderStatus.online
-                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                : 'bg-red-500/15 text-red-400 border-red-500/30'
+                ? 'bg-[#162e20] text-emerald-400 border-emerald-500/30'
+                : 'bg-[#2a1616] text-red-400 border-red-500/30'
             }`}>
               {downloaderStatus.checking ? 'Checking...' : downloaderStatus.online ? 'Online' : 'Offline'}
             </span>
           </div>
 
-          <p className="text-xs text-slate-400 leading-relaxed">
-            The shared high-speed VPS node fetches torrents, magnets, and ROM packs, and uploads them directly to your personal Google Drive Games folder.
+          <p className="text-xs text-slate-400 leading-relaxed font-mono">
+            Shared VPS node fetches torrents & magnets, uploading directly to your Google Drive Games folder.
           </p>
 
-          <div className="p-3.5 rounded-xl bg-slate-900/80 border border-white/5 flex items-center justify-between text-xs">
+          <div className="p-3 rounded-sm bg-[#1c1c1c] border border-[#333333] flex items-center justify-between text-xs font-mono">
             <div>
-              <span className="text-slate-500 text-[11px] block">Server URL</span>
-              <span className="font-mono text-slate-300">{downloaderStatus.url}</span>
+              <span className="text-slate-500 text-[10px] block">Server Endpoint</span>
+              <span className="text-slate-300 text-xs">{downloaderStatus.url}</span>
             </div>
             <button
               onClick={checkDownloader}
@@ -318,20 +321,20 @@ export default function SettingsView({
         </div>
 
         {/* Card 4: Library & Emulation Preferences */}
-        <div className="glass-panel p-6 rounded-2xl border border-white/5 space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-white/5">
-            <h3 className="font-heading font-bold text-base text-white flex items-center gap-2">
-              <Sliders className="w-4 h-4 text-cyan-400" />
+        <div className="glass-panel p-5 rounded-sm border border-[#383838] bg-[#222222] space-y-4">
+          <div className="flex items-center justify-between pb-2.5 border-b border-[#2e2e2e]">
+            <h3 className="font-bold text-sm text-white flex items-center gap-2">
+              <Sliders className="w-4 h-4 text-[#31a8ff]" />
               <span>Library Preferences</span>
             </h3>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <strong className="text-xs text-white block">Auto-Scan on Startup</strong>
+                <strong className="text-xs text-white block">Auto-Sync on Startup</strong>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  Check Google Drive for newly added ROMs when opening FREEPLAY.
+                  Check Google Drive for newly added ROMs when opening the Freeplay workstation.
                 </p>
               </div>
               <input
@@ -341,15 +344,15 @@ export default function SettingsView({
                   setAutoScan(e.target.checked);
                   handleSaveSettings({ autoScan: e.target.checked });
                 }}
-                className="w-4 h-4 accent-purple-600 rounded cursor-pointer"
+                className="w-4 h-4 accent-[#0078d4] rounded-sm cursor-pointer"
               />
             </div>
 
-            <div className="flex items-center justify-between gap-4 pt-2 border-t border-white/5">
+            <div className="flex items-center justify-between gap-4 pt-2 border-t border-[#2e2e2e]">
               <div>
                 <strong className="text-xs text-white block">Organize by Console Subfolders</strong>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  Downloads are sorted into SNES, GBA, PS1, Genesis, etc. subfolders in Google Drive.
+                  Downloads are sorted into SNES, GBA, PS1, N64 subfolders in Google Drive.
                 </p>
               </div>
               <input
@@ -359,22 +362,22 @@ export default function SettingsView({
                   setOrganizeByConsole(e.target.checked);
                   handleSaveSettings({ organizeByConsole: e.target.checked });
                 }}
-                className="w-4 h-4 accent-purple-600 rounded cursor-pointer"
+                className="w-4 h-4 accent-[#0078d4] rounded-sm cursor-pointer"
               />
             </div>
           </div>
         </div>
 
         {/* Android app download */}
-        <div className="glass-panel p-6 rounded-2xl border border-white/5 space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-white/5">
-            <h3 className="font-heading font-bold text-base text-white flex items-center gap-2">
+        <div className="glass-panel p-5 rounded-sm border border-[#383838] bg-[#222222] space-y-4">
+          <div className="flex items-center justify-between pb-2.5 border-b border-[#2e2e2e]">
+            <h3 className="font-bold text-sm text-white flex items-center gap-2">
               <Smartphone className="w-4 h-4 text-emerald-400" />
               <span>FREEPLAY for Android</span>
             </h3>
           </div>
-          <p className="text-xs text-slate-400 leading-relaxed">
-            Install the Android app to connect to your cloud library and play games you have favorited or played offline. Emulator cores are included in the app.
+          <p className="text-xs text-slate-400 leading-relaxed font-mono">
+            Install the Android client to connect to your cloud library and play offline.
           </p>
           <a href="/freeplay.apk" download="freeplay.apk" className="btn btn-primary btn-sm self-start">
             <Download className="w-3.5 h-3.5" />
@@ -403,7 +406,7 @@ export default function SettingsView({
           </p>
 
           {adminMessage && (
-            <div className="p-3 rounded-xl bg-purple-600/15 border border-purple-500/30 text-purple-200 text-xs flex items-center justify-between">
+            <div className="p-2.5 rounded-sm bg-[#16293d] border border-[#31a8ff] text-[#52c5ff] text-xs font-mono flex items-center justify-between">
               <span>{adminMessage}</span>
               <button onClick={() => setAdminMessage(null)} className="icon-btn icon-btn-sm">✕</button>
             </div>

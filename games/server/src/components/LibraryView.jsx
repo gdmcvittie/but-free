@@ -42,41 +42,47 @@ export default function LibraryView({
   }, [games, selectedConsole, searchQuery]);
 
   return (
-    <div className={`flex-1 flex flex-col bg-[#070a12] ${isMobileLandscape1080 ? 'p-2 sm:p-3' : 'p-3 sm:p-6 lg:p-8'}`}>
-      {/* Top Header Row */}
-      <div className={`flex flex-col md:flex-row md:items-center justify-between gap-3 ${isMobileLandscape1080 ? 'mb-2.5' : 'mb-8'}`}>
+    <div className={`flex-1 flex flex-col bg-[#181818] ${isMobileLandscape1080 ? 'p-2 sm:p-3' : 'p-3 sm:p-5 lg:p-6'}`}>
+      {/* Top Header Row (Photoshop Application / Shelf Bar) */}
+      <div className={`flex flex-col md:flex-row md:items-center justify-between gap-3 ${isMobileLandscape1080 ? 'mb-2.5' : 'mb-5 pb-3 border-b border-[#2b2b2b]'}`}>
         <div>
-          <h1 className={`font-heading font-extrabold ${isMobileLandscape1080 ? 'text-lg sm:text-xl' : 'text-3xl'} text-white tracking-tight flex items-center gap-2.5`}>
-            <span>{isMobileLandscape1080 && selectedConsole ? selectedConsole.toUpperCase() : 'Games Library'}</span>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
-              {filteredGames.length} {filteredGames.length === 1 ? 'Game' : 'Games'}
+          <div className="flex items-center gap-2.5">
+            <h1 className={`font-bold ${isMobileLandscape1080 ? 'text-base sm:text-lg' : 'text-xl'} text-white tracking-tight flex items-center gap-2`}>
+              <span className="text-xs uppercase tracking-wider text-slate-400 font-bold">ASSET BIN:</span>
+              <span className="text-white font-extrabold">{selectedConsole ? selectedConsole.toUpperCase() : 'ALL FORMATS'}</span>
+            </h1>
+            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-sm bg-[#222222] text-[#31a8ff] border border-[#383838]">
+              {filteredGames.length} {filteredGames.length === 1 ? 'ITEM' : 'ITEMS'}
             </span>
-          </h1>
+          </div>
           {!isMobileLandscape1080 && (
-            <p className="text-sm text-slate-400 mt-1">
+            <p className="text-xs text-slate-400 mt-1 flex items-center gap-2">
               {user?.gamesFolderName ? (
-                <span className="flex items-center gap-1.5">
-                  <HardDrive className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Connected to Google Drive: <strong>{user.gamesFolderName}</strong></span>
+                <span className="flex items-center gap-1.5 font-mono text-[11px]">
+                  <HardDrive className="w-3.5 h-3.5 text-[#31a8ff]" />
+                  <span>MOUNT: <strong>/{user.gamesFolderName}</strong></span>
                 </span>
               ) : (
-                'Connect your Google Drive Games folder in Settings to play your collection'
+                <span>No Google Drive folder linked. Connect your collection in Settings.</span>
               )}
             </p>
           )}
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-2.5">
-          <div className={`relative ${isMobileLandscape1080 ? 'min-w-[180px] max-w-[280px]' : 'min-w-[260px]'}`}>
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+        <div className="flex items-center gap-2">
+          <div className={`relative ${isMobileLandscape1080 ? 'min-w-[170px] max-w-[260px]' : 'min-w-[240px]'}`}>
+            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
-              placeholder="Search games..."
+              placeholder="Filter assets (Ctrl+K)..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 bg-slate-900/80 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 transition-colors"
+              className="w-full pl-8 pr-10 py-1.5 bg-[#1f1f1f] border border-[#383838] rounded-sm text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#31a8ff] transition-colors"
             />
+            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] font-mono text-slate-500 border border-[#333] px-1 rounded bg-[#181818] pointer-events-none">
+              ⌘K
+            </span>
           </div>
 
           <button
@@ -85,15 +91,15 @@ export default function LibraryView({
             className="btn btn-secondary btn-sm"
             title="Scan Google Drive for new games"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin text-purple-400' : ''}`} />
-            <span>{isScanning ? 'Scanning...' : 'Scan'}</span>
+            <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin text-[#31a8ff]' : ''}`} />
+            <span>{isScanning ? 'Syncing...' : 'Sync Drive'}</span>
           </button>
         </div>
       </div>
 
       {/* Consoles / System Filter Bar (Hidden in 1080p landscape since consoles are along the sidebar) */}
       {!isMobileLandscape1080 && (
-        <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-6 scrollbar-none">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-3 mb-4 scrollbar-none">
           {consoles.map(({ key, count }) => {
             const isSelected = selectedConsole === key;
             return (
@@ -102,8 +108,8 @@ export default function LibraryView({
                 onClick={() => selectConsole(key)}
                 className={`filter-chip ${isSelected ? 'active' : ''}`}
               >
-                <span className="console-key">{key}</span>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isSelected ? 'bg-purple-500/30 text-purple-200' : 'bg-white/10 text-slate-400'}`}>
+                <span className="console-key font-mono text-[11px]">{key}</span>
+                <span className={`text-[9.5px] px-1.5 py-0.2 rounded-sm font-mono ${isSelected ? 'bg-[#31a8ff] text-black font-bold' : 'bg-[#181818] border border-[#333] text-slate-400'}`}>
                   {count}
                 </span>
               </button>
@@ -115,26 +121,26 @@ export default function LibraryView({
       {/* Game Cards Grid */}
       {loading ? (
         <div className="flex-1 flex flex-col items-center justify-center py-20 text-slate-400 gap-3">
-          <div className="w-10 h-10 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm font-medium">Loading your cloud games...</p>
+          <div className="w-8 h-8 border-2 border-[#31a8ff] border-t-transparent rounded-full animate-spin" />
+          <p className="text-xs font-mono">Indexing cloud assets...</p>
         </div>
       ) : filteredGames.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center py-24 text-center glass-panel p-8 rounded-2xl border border-white/5 max-w-xl mx-auto">
-          <div className="w-16 h-16 rounded-2xl bg-purple-600/10 border border-purple-500/20 flex items-center justify-center text-purple-400 mb-4">
-            <Gamepad2 className="w-8 h-8" />
+        <div className="flex-1 flex flex-col items-center justify-center py-20 text-center glass-panel p-6 rounded-sm border border-[#383838] max-w-lg mx-auto">
+          <div className="w-12 h-12 rounded-sm bg-[#222222] border border-[#383838] flex items-center justify-center text-[#31a8ff] mb-3">
+            <Gamepad2 className="w-6 h-6" />
           </div>
-          <h3 className="font-heading font-bold text-xl text-white mb-2">
-            {games.length === 0 ? 'No Games in Library' : 'No Games Match Filter'}
+          <h3 className="font-bold text-base text-white mb-1.5">
+            {games.length === 0 ? 'No Assets in Mounted Folder' : 'No Assets Match Query'}
           </h3>
-          <p className="text-slate-400 text-sm max-w-md mb-6 leading-relaxed">
+          <p className="text-slate-400 text-xs max-w-sm mb-5 leading-relaxed">
             {games.length === 0 ? (
               user?.gamesFolderName ? (
-                `We didn't find any supported ROM files in your Google Drive folder "${user.gamesFolderName}". Put your .nes, .smc, .sfc, .gba, .iso or .zip files into Google Drive and click Scan.`
+                `No supported ROM or game files found in Google Drive folder "${user.gamesFolderName}". Add your ROM files (.nes, .smc, .sfc, .gba, .z64, .iso, .zip) and sync.`
               ) : (
-                'Connect your Google Drive and select a "Games" folder in Settings to start playing your cloud ROM collection.'
+                'Mount your Google Drive games folder in Settings to populate your workstation library.'
               )
             ) : (
-              'Try changing your console filter or clearing your search term.'
+              'Adjust your console filter tab or clear your search term.'
             )}
           </p>
           {games.length === 0 ? (
@@ -142,8 +148,8 @@ export default function LibraryView({
               onClick={user?.gamesFolderName ? onScanDrive : onOpenSettings}
               className="btn btn-primary"
             >
-              {user?.gamesFolderName ? <RefreshCw className="w-4 h-4" /> : <HardDrive className="w-4 h-4" />}
-              <span>{user?.gamesFolderName ? 'Scan Drive Folder' : 'Configure Games Folder'}</span>
+              {user?.gamesFolderName ? <RefreshCw className="w-3.5 h-3.5" /> : <HardDrive className="w-3.5 h-3.5" />}
+              <span>{user?.gamesFolderName ? 'Sync Drive Folder' : 'Configure Mount'}</span>
             </button>
           ) : (
             <button
@@ -168,14 +174,14 @@ export default function LibraryView({
                   <img
                     src={game.coverUrl}
                     alt={game.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    className="w-full h-full object-cover transition-opacity duration-200"
                     loading="lazy"
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center p-3 text-center">
-                    <Gamepad2 className="w-8 h-8 text-purple-400/60 mb-1 group-hover:scale-110 transition-transform" />
-                    <span className="text-[10px] font-bold text-slate-400 uppercase font-heading">
-                      {game.console || 'RETRO'}
+                    <Gamepad2 className="w-7 h-7 text-slate-600 mb-1" />
+                    <span className="text-[9.5px] font-bold text-slate-500 uppercase font-mono">
+                      {game.console || 'ROM'}
                     </span>
                   </div>
                 )}
@@ -195,18 +201,27 @@ export default function LibraryView({
                   title={game.isFavorite ? 'Remove Favorite' : 'Add to Favorites'}
                   aria-label={game.isFavorite ? `Remove ${game.title} from favorites` : `Add ${game.title} to favorites`}
                 >
-                  <Heart className={`w-3.5 h-3.5 ${game.isFavorite ? 'fill-amber-400 text-amber-400' : 'fill-transparent text-white'}`} />
+                  <Heart className={`w-3 h-3 ${game.isFavorite ? 'fill-amber-400 text-amber-400' : 'fill-transparent text-slate-400'}`} />
                 </button>
 
                 {/* Hover Play Overlay */}
                 <div className="game-card-overlay absolute inset-0 flex items-center justify-center p-2">
-                  <div className="w-10 h-10 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-lg shadow-purple-600/50 transform translate-y-1 group-hover:translate-y-0 transition-transform">
+                  <div className="px-3 py-1 rounded-sm bg-[#31a8ff] hover:bg-[#52c5ff] text-black flex items-center gap-1.5 font-bold text-xs shadow-md">
                     {isGameDownloadOnly(game) ? (
-                      <Download className="w-4 h-4" />
+                      <>
+                        <Download className="w-3.5 h-3.5" />
+                        <span>DOWNLOAD</span>
+                      </>
                     ) : game.console === 'web' ? (
-                      <Globe className="w-4 h-4" />
+                      <>
+                        <Globe className="w-3.5 h-3.5" />
+                        <span>OPEN</span>
+                      </>
                     ) : (
-                      <Play className="w-4 h-4 ml-0.5 fill-white" />
+                      <>
+                        <Play className="w-3.5 h-3.5 fill-black" />
+                        <span>LAUNCH</span>
+                      </>
                     )}
                   </div>
                 </div>
@@ -218,8 +233,8 @@ export default function LibraryView({
                   {game.title}
                 </div>
                 <div className="game-card-sub">
-                  <span className="truncate">{game.sizeFormatted || (game.size ? `${(game.size / 1024 / 1024).toFixed(1)} MB` : 'ROM')}</span>
-                  <span className="text-purple-400 font-semibold group-hover:underline shrink-0">
+                  <span className="truncate font-mono text-[10px] text-slate-500">{game.sizeFormatted || (game.size ? `${(game.size / 1024 / 1024).toFixed(1)} MB` : 'ROM')}</span>
+                  <span className="text-[#31a8ff] font-semibold text-[10.5px] group-hover:underline shrink-0">
                     {isGameDownloadOnly(game) ? 'Files ↓' : game.console === 'web' ? 'Web Play →' : 'Play →'}
                   </span>
                 </div>

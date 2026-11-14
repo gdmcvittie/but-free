@@ -41,8 +41,11 @@ export default function Sidebar({
     <>
       {/* Mobile Top App Bar (Hidden in 1080p mobile landscape) */}
       <header className="mobile-header">
-        <div className="mobile-title" onClick={() => setCurrentView('library')} style={{ cursor: 'pointer' }}>
-          FREE<span style={{ color: '#a855f7' }}>PLAY</span>
+        <div className="mobile-title" onClick={() => setCurrentView('library')} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div className="adobe-app-badge" style={{ width: 24, height: 24, borderRadius: 3 }}>
+            <span className="adobe-app-badge-text" style={{ fontSize: 11 }}>Fp</span>
+          </div>
+          <span style={{ fontWeight: 800, letterSpacing: '0.5px' }}>FREEPLAY</span>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
@@ -65,13 +68,19 @@ export default function Sidebar({
         {/* Brand Header */}
         <div className="sidebar-header-row">
           <div
-            className="sidebar-title"
+            className="sidebar-brand-wrapper"
             onClick={() => setCurrentView('library')}
-            style={{ cursor: 'pointer' }}
+            title="Freeplay Games Workstation"
           >
-            FREE<span style={{ color: '#a855f7' }}>PLAY</span>
+            <div className="adobe-app-badge">
+              <span className="adobe-app-badge-text">Fp</span>
+            </div>
+            <div className="sidebar-brand-meta">
+              <span className="sidebar-brand-title">FREEPLAY</span>
+              <span className="sidebar-brand-subtitle">WORKSTATION</span>
+            </div>
           </div>
-          <span className="sidebar-cloud-badge">ARCADE</span>
+          <span className="sidebar-cloud-badge">PRO</span>
         </div>
 
         {/* Navigation Items */}
@@ -143,7 +152,7 @@ export default function Sidebar({
           {isMobileLandscape1080 && consoles.length > 0 && (
             <div className="handheld-consoles-section">
               <div className="handheld-consoles-header">
-                <Layers size={13} className="text-purple-400" />
+                <Layers size={13} className="text-[#31a8ff]" />
                 <span>CONSOLES</span>
               </div>
               <div className="handheld-consoles-list">

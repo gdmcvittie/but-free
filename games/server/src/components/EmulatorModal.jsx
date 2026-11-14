@@ -1047,9 +1047,9 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
                     href={l.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900/80 border border-white/5 hover:border-purple-500/40 text-xs text-slate-300 transition"
+                    className="flex items-center gap-2 px-3 py-2 rounded-sm bg-[#1c1c1c] border border-[#333333] hover:border-[#31a8ff] text-xs text-slate-300 transition"
                   >
-                    <Download className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                    <Download className="w-3.5 h-3.5 text-[#31a8ff] shrink-0" />
                     <span className="truncate">{l.name}</span>
                   </a>
                 ))}
@@ -1144,26 +1144,26 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
   const screenArea = (
     <div className="relative flex-1 w-full bg-black flex items-center justify-center overflow-hidden min-h-0">
       {isLoading && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950 gap-4 z-20">
-          <div className="w-10 h-10 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
-          <div className="text-sm font-semibold text-white">{loadStage}</div>
-          <div className="w-56 h-1.5 rounded-full bg-slate-800 overflow-hidden">
-            <div className="h-full bg-gradient-to-br from-purple-500 to-indigo-600 transition-all duration-200" style={{ width: `${loadProgress}%` }} />
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#181818] gap-3 z-20">
+          <div className="w-8 h-8 border-2 border-[#31a8ff] border-t-transparent rounded-full animate-spin" />
+          <div className="text-xs font-semibold text-white font-mono">{loadStage}</div>
+          <div className="w-56 h-1 rounded-none bg-[#242424] overflow-hidden border border-[#333333]">
+            <div className="h-full bg-[#0078d4] transition-all duration-200" style={{ width: `${loadProgress}%` }} />
           </div>
         </div>
       )}
       {error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-slate-950 z-30 p-6">
+        <div className="absolute inset-0 flex items-center justify-center bg-[#181818] z-30 p-6">
           <div className="text-center max-w-sm">
-            <h3 className="font-heading font-bold text-base text-red-400 mb-2">Emulation Error</h3>
-            <p className="text-xs text-slate-400 mb-4 leading-relaxed">{error}</p>
+            <h3 className="font-bold text-sm text-red-400 mb-2 font-mono">Emulation Error</h3>
+            <p className="text-xs text-slate-400 mb-4 leading-relaxed font-mono">{error}</p>
             <button onClick={onClose} className="btn btn-secondary btn-sm">Close Game</button>
           </div>
         </div>
       )}
       <div ref={screenMountRef} className="game-screen-mount w-full h-full" tabIndex={-1} />
       {toast && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-xl bg-purple-600/90 text-white text-xs font-semibold shadow-lg backdrop-blur">
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 px-3 py-1.5 rounded-sm bg-[#222222] text-[#31a8ff] border border-[#383838] text-xs font-mono font-semibold shadow-lg">
           {toast}
         </div>
       )}

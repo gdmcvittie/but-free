@@ -27,32 +27,27 @@ export default function LoginGate({ authError, onClearAuthError }) {
   };
 
   return (
-    <div className="min-h-screen bg-[#070a12] flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Background Ambient Glows */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-purple-600/10 rounded-full blur-[140px] pointer-events-none" />
-      <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-cyan-600/10 rounded-full blur-[120px] pointer-events-none" />
-
-      <div className="glass-panel w-full max-w-lg rounded-3xl p-8 border border-white/10 relative z-10 shadow-2xl space-y-6 animate-in fade-in zoom-in-95 duration-300">
+    <div className="min-h-screen bg-[#181818] flex items-center justify-center p-4 relative overflow-hidden">
+      <div className="glass-panel w-full max-w-md rounded-sm p-7 border border-[#383838] bg-[#222222] relative z-10 shadow-2xl space-y-5 animate-in fade-in duration-200">
         {/* Brand Header */}
-        <div className="text-center space-y-3">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500 via-indigo-600 to-cyan-500 flex items-center justify-center text-white mx-auto shadow-xl shadow-purple-500/25">
-            <Gamepad2 className="w-9 h-9" />
+        <div className="text-center space-y-2.5">
+          <div className="adobe-app-badge mx-auto" style={{ width: 44, height: 44, borderRadius: 6 }}>
+            <span className="adobe-app-badge-text" style={{ fontSize: 20 }}>Fp</span>
           </div>
           <div>
-            <div className="font-heading font-extrabold text-3xl tracking-wide flex items-center justify-center gap-1.5">
-              <span className="text-white">FREE</span>
-              <span className="text-purple-400">PLAY</span>
+            <div className="font-extrabold text-2xl tracking-wide flex items-center justify-center gap-1.5 text-white">
+              <span>FREEPLAY</span>
             </div>
-            <p className="text-xs uppercase font-bold text-cyan-400 tracking-widest mt-0.5">Cloud Retro Arcade</p>
+            <p className="text-[10px] uppercase font-bold text-[#31a8ff] tracking-widest font-mono mt-0.5">Cloud Asset Workstation</p>
           </div>
           <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
-            Authentication is required. Sign in with your Google account to connect your private Google Drive ROM library and play retro classics in your browser.
+            Authentication required. Connect your Google account to mount your Google Drive ROM collection into the Freeplay workstation.
           </p>
         </div>
 
         {/* Error notification */}
         {displayedError && (
-          <div className="p-3.5 rounded-xl bg-red-500/15 border border-red-500/30 text-xs text-red-300 flex items-center justify-between">
+          <div className="p-3 rounded-sm bg-[#2c1a1a] border border-red-500/40 text-xs text-red-300 flex items-center justify-between font-mono">
             <span>{displayedError}</span>
             <button
               onClick={() => {
@@ -75,9 +70,9 @@ export default function LoginGate({ authError, onClearAuthError }) {
             className="btn-google"
           >
             {loading ? (
-              <Loader2 className="w-5 h-5 animate-spin text-purple-600" />
+              <Loader2 className="w-4 h-4 animate-spin text-[#31a8ff]" />
             ) : (
-              <svg className="w-5 h-5" viewBox="0 0 24 24">
+              <svg className="w-4 h-4" viewBox="0 0 24 24">
                 <path
                   fill="#4285F4"
                   d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -96,33 +91,25 @@ export default function LoginGate({ authError, onClearAuthError }) {
                 />
               </svg>
             )}
-            <span>{loading ? 'Connecting to Google OAuth...' : 'Sign in with Google'}</span>
+            <span>{loading ? 'Connecting to OAuth...' : 'Sign in with Google'}</span>
           </button>
         </div>
 
         {/* Highlight Features */}
-        <div className="space-y-3 pt-2 text-xs text-slate-300">
-          <div className="p-3 rounded-xl bg-slate-900/60 border border-white/5 flex items-center gap-3">
-            <HardDrive className="w-4 h-4 text-cyan-400 shrink-0" />
+        <div className="space-y-2 pt-1 text-xs text-slate-300">
+          <div className="p-2.5 rounded-sm bg-[#1a1a1a] border border-[#333333] flex items-center gap-3">
+            <HardDrive className="w-4 h-4 text-[#31a8ff] shrink-0" />
             <div>
-              <strong className="text-white block">Google Drive Storage</strong>
-              <span className="text-slate-400 text-[11px]">Stream your own ROMs directly from the cloud without using device storage.</span>
+              <strong className="text-white block text-[11.5px]">Google Drive Cloud Storage</strong>
+              <span className="text-slate-400 text-[10.5px]">Direct streaming access to your cloud ROM folders without saving locally.</span>
             </div>
           </div>
 
-          <div className="p-3 rounded-xl bg-slate-900/60 border border-white/5 flex items-center gap-3">
-            <Play className="w-4 h-4 text-purple-400 shrink-0" />
+          <div className="p-2.5 rounded-sm bg-[#1a1a1a] border border-[#333333] flex items-center gap-3">
+            <Play className="w-4 h-4 text-[#31a8ff] shrink-0" />
             <div>
-              <strong className="text-white block">Instant In-Browser Emulation</strong>
-              <span className="text-slate-400 text-[11px]">Play SNES, Genesis, GBA, PS1, N64 and more with gamepad & keyboard support.</span>
-            </div>
-          </div>
-
-          <div className="p-3 rounded-xl bg-slate-900/60 border border-white/5 flex items-center gap-3">
-            <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
-            <div>
-              <strong className="text-white block">Central VPS Downloader</strong>
-              <span className="text-slate-400 text-[11px]">One-click torrent downloads automatically saved directly to your Google Drive.</span>
+              <strong className="text-white block text-[11.5px]">In-Browser Workstation Engine</strong>
+              <span className="text-slate-400 text-[10.5px]">Play PS1, N64, NDS, GBA, SNES and arcade titles in your desktop browser.</span>
             </div>
           </div>
         </div>

@@ -68,18 +68,21 @@ export default function DownloadsView({ user, onOpenSettings }) {
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-[#070a12] p-6 sm:p-8">
+    <div className="flex-1 flex flex-col bg-[#181818] p-4 sm:p-6 lg:p-7">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-6 pb-3 border-b border-[#2b2b2b]">
         <div>
-          <h1 className="font-heading font-extrabold text-3xl text-white tracking-tight flex items-center gap-3">
-            <span>Downloader & Swarm</span>
-            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-              VPS Downloader
+          <div className="flex items-center gap-2">
+            <span className="text-xs uppercase tracking-wider text-slate-400 font-bold font-mono">NODE PIPELINE:</span>
+            <h1 className="font-bold text-xl text-white tracking-tight">
+              <span>CENTRAL DOWNLOADER</span>
+            </h1>
+            <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-sm bg-[#14283d] text-[#31a8ff] border border-[#31a8ff]">
+              VPS INGEST
             </span>
-          </h1>
-          <p className="text-sm text-slate-400 mt-1">
-            Game torrents and direct downloads are fetched by the cloud downloader and transferred directly to your Google Drive Games folder.
+          </div>
+          <p className="text-xs text-slate-400 mt-1 font-mono">
+            Game torrents and ROM packs are ingested by the remote worker and saved directly into your mounted Google Drive folder.
           </p>
         </div>
 
@@ -93,7 +96,7 @@ export default function DownloadsView({ user, onOpenSettings }) {
           </button>
           <button
             onClick={fetchDownloads}
-            className="icon-btn"
+            className="icon-btn icon-btn-sm"
             title="Refresh queue"
           >
             <RefreshCw className="w-3.5 h-3.5" />
@@ -102,25 +105,25 @@ export default function DownloadsView({ user, onOpenSettings }) {
       </div>
 
       {/* Manual Add Download Box */}
-      <div className="glass-panel p-5 mb-8 border border-white/10">
-        <h2 className="font-heading font-bold text-sm text-white mb-3 flex items-center gap-2">
-          <Plus className="w-4 h-4 text-purple-400" />
-          <span>Add Custom Magnet or Torrent Link</span>
+      <div className="glass-panel p-4 mb-6 border border-[#383838] bg-[#222222] rounded-sm">
+        <h2 className="font-bold text-xs text-white mb-2.5 flex items-center gap-2">
+          <Plus className="w-3.5 h-3.5 text-[#31a8ff]" />
+          <span>Ingest Custom Magnet or Torrent Link</span>
         </h2>
-        <form onSubmit={handleAddDownload} className="flex flex-col sm:flex-row gap-3">
+        <form onSubmit={handleAddDownload} className="flex flex-col sm:flex-row gap-2">
           <input
             type="text"
             placeholder="magnet:?xt=urn:btih:... or .torrent URL"
             value={inputMagnet}
             onChange={(e) => setInputMagnet(e.target.value)}
-            className="flex-1 px-4 py-2.5 bg-slate-900 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+            className="flex-1 px-3 py-1.5 bg-[#181818] border border-[#383838] rounded-sm text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#31a8ff] font-mono"
           />
           <input
             type="text"
-            placeholder="Game Name (Optional)"
+            placeholder="Asset Title (Optional)"
             value={inputTitle}
             onChange={(e) => setInputTitle(e.target.value)}
-            className="w-full sm:w-60 px-4 py-2.5 bg-slate-900 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+            className="w-full sm:w-56 px-3 py-1.5 bg-[#181818] border border-[#383838] rounded-sm text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#31a8ff]"
           />
           <button
             type="submit"
@@ -128,7 +131,7 @@ export default function DownloadsView({ user, onOpenSettings }) {
             className="btn btn-primary whitespace-nowrap text-xs"
           >
             {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-            <span>Send to Downloader</span>
+            <span>Dispatch to Node</span>
           </button>
         </form>
 
@@ -172,20 +175,20 @@ export default function DownloadsView({ user, onOpenSettings }) {
                       {item.kind === 'game-direct' && (
                         <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 shrink-0">Direct</span>
                       )}
-                      <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                      <span className={`text-[9.5px] font-bold font-mono uppercase px-1.5 py-0.5 rounded-sm ${
                         isCompleted
-                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                          ? 'bg-[#162e20] text-emerald-400 border border-emerald-500/30'
                           : isError
-                          ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                          ? 'bg-[#2a1616] text-red-400 border border-red-500/30'
                           : isUploading
-                          ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
-                          : 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                          ? 'bg-[#14283d] text-[#31a8ff] border border-[#31a8ff]'
+                          : 'bg-[#252525] text-slate-300 border border-[#383838]'
                       }`}>
                         {item.stage === 'queued' ? (item.queuePosition ? `Queued #${item.queuePosition}` : 'Queued') : (item.stage || item.status)}
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-4 text-[11px] text-slate-400 mt-1">
+                    <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1 font-mono">
                       {isDownloading && (
                         <>
                           <span>Speed: {item.downloadSpeed ? `${(item.downloadSpeed / 1024 / 1024).toFixed(1)} MB/s` : '0 MB/s'}</span>
@@ -193,13 +196,13 @@ export default function DownloadsView({ user, onOpenSettings }) {
                         </>
                       )}
                       {isUploading && (
-                        <span className="flex items-center gap-1 text-cyan-300">
+                        <span className="flex items-center gap-1 text-[#31a8ff]">
                           <HardDrive className="w-3 h-3" />
                           <span>Uploading to Google Drive Games folder...</span>
                         </span>
                       )}
                       {isCompleted && (
-                        <span className="text-emerald-400 font-medium">Successfully saved to your Google Drive</span>
+                        <span className="text-emerald-400 font-medium">Successfully saved to Google Drive</span>
                       )}
                       {isError && (
                         <span className="text-red-400">{item.error || 'Transfer failed'}</span>
@@ -220,10 +223,10 @@ export default function DownloadsView({ user, onOpenSettings }) {
 
                 {/* Progress Bar */}
                 {!isCompleted && !isError && (
-                  <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                  <div className="w-full bg-[#181818] rounded-none h-1 overflow-hidden border border-[#2b2b2b]">
                     <div
                       className={`h-full transition-all duration-300 ${
-                        isUploading ? 'bg-cyan-400' : 'bg-purple-500'
+                        isUploading ? 'bg-[#31a8ff]' : 'bg-[#0078d4]'
                       }`}
                       style={{
                         width: `${isUploading ? item.uploadPercent || 50 : item.downloadPercent || 5}%`
