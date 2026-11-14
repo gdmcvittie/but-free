@@ -359,6 +359,30 @@ app.get('/api/drive/file/:driveId', async (req, res) => {
   }
 });
 
+// Proxy cached / remote game poster image securely
+app.get('/api/proxy-image', async (req, res) => {
+  const targetUrl = req.query.url;
+  if (!targetUrl || typeof targetUrl !== 'string' || !targetUrl.startsWith('http')) {
+    return res.status(400).send('Invalid image URL');
+  }
+  try {
+    const upstream = await fetch(targetUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      signal: AbortSignal.timeout(6000)
+    });
+    if (!upstream.ok) return res.status(upstream.status).send('Upstream image error');
+    const contentType = upstream.headers.get('content-type') || 'image/jpeg';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    return res.send(buf);
+  } catch (err) {
+    return res.status(502).send(err.message);
+  }
+});
+
 // Stream game ROM to in-browser emulator with HTTP range requests
 app.get(['/api/games/stream/:driveId', '/api/games/stream/:driveId/:filename'], async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });

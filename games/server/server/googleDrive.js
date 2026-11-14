@@ -71,6 +71,7 @@ const EXTENSION_CONSOLE_MAP = {
 
 // Folder-name variants -> console key (used for subfolder hints at any depth)
 const FOLDER_CONSOLE_HINTS = [
+  { names: ['pc', 'pc games', 'windows', 'gog', 'steam', 'epic', 'epic games', 'itch', 'itch.io', 'dos'], console: 'pc' },
   { names: ['snes', 'super nintendo', 'super famicom', 'sfc'], console: 'snes' },
   { names: ['nes', 'famicom'], console: 'nes' },
   { names: ['gba', 'game boy advance', 'gameboy advance'], console: 'gba' },
@@ -157,23 +158,87 @@ function formatBytes(bytes) {
   return `${size.toFixed(unitIdx === 0 ? 0 : 1)} ${units[unitIdx]}`;
 }
 
-export function cleanGameTitle(rawName) {
+export function cleanGameTitle(rawName, isFolder = false) {
   if (!rawName) return 'Unknown Game';
-  // Strip extension
-  let clean = rawName.replace(/\.[^/.]+$/, '').trim();
-  // Strip typical scene / region tags
+  let clean = String(rawName).trim();
+  if (isFolder) {
+    clean = clean.replace(/\.(rar|zip|7z|tar|gz|iso)$/i, '').trim();
+  } else {
+    clean = clean.replace(/\.[^/.]+$/, '').trim();
+  }
+  // Strip scene release groups (-RUNE, -TENOKE, -CODEX, -FLT, -DODI, -FitGirl, etc.)
+  clean = clean.replace(/-[A-Za-z0-9_]{3,15}$/g, '');
+  // Strip bracketed scene tags: [FitGirl Repack], [GOG], [!], [b1], etc.
+  clean = clean.replace(/\s*\[[^\]]*\]/gi, '');
+  // Strip typical scene / region / disc / version tags:
   clean = clean
-    .replace(/\s*\((USA|Europe|Japan|En,Ja|World|Beta|Rev\s*\d+|v\d+\.\d+|Proto|Demo|Unl|Sample)[^)]*\)/gi, '')
-    .replace(/\s*\[(!|b\d+|h\d+|t\d+|o\d+|p\d+|f\d+|a\d+)[^\]]*\]/gi, '')
+    .replace(/\s*\((USA|Europe|Japan|En,Ja|World|Beta|Rev\s*\d+|v\d+\.\d+|Proto|Demo|Unl|Sample|Disc\s*\d+|Disk\s*\d+|Track\s*\d+)[^)]*\)/gi, '')
     .replace(/\s+-\s+(USA|Europe|Japan)$/i, '')
-    .trim();
+    .replace(/[._ -]v\d+(\.\d+)*/gi, '')
+    .replace(/[._ -]build[._ -]?\d+/gi, '')
+    .replace(/[._ -](repack|deluxe|complete|gold|goty|edition|definitive|remastered)/gi, ' ');
+  // If dots or underscores are used as word separators, replace them with spaces:
+  if (clean.includes('.') || clean.includes('_')) {
+    clean = clean.replace(/[._]/g, ' ');
+  }
+  clean = clean.replace(/\s+/g, ' ').trim();
   return clean || rawName;
+}
+
+export function getBoxArtCandidateUrls(cleanTitle, consoleKey, rawFilename = '') {
+  const systemName = LIBRETRO_SYSTEM_NAMES[consoleKey];
+  if (!systemName) return [];
+
+  const candidates = [];
+  const addCandidate = (name) => {
+    if (!name) return;
+    const sanitized = String(name)
+      .replace(/[&]/g, '_')
+      .replace(/[/\\:*?"<>|]/g, '_')
+      .trim();
+    if (!sanitized) return;
+    const url = `https://thumbnails.libretro.com/${encodeURIComponent(systemName)}/Named_Boxarts/${encodeURIComponent(sanitized)}.png`;
+    if (!candidates.includes(url)) candidates.push(url);
+  };
+
+  // 1. Raw filename base without extension (e.g. "Crash Bandicoot (USA)")
+  if (rawFilename) {
+    const rawStem = rawFilename.replace(/\.[^/.]+$/, '').trim();
+    addCandidate(rawStem);
+  }
+
+  // 2. Cleaned title
+  addCandidate(cleanTitle);
+
+  // 3. Region variants (Libretro Named_Boxarts is almost exclusively indexed by region)
+  addCandidate(`${cleanTitle} (USA)`);
+  addCandidate(`${cleanTitle} (Europe)`);
+  addCandidate(`${cleanTitle} (World)`);
+  addCandidate(`${cleanTitle} (Japan)`);
+  addCandidate(`${cleanTitle} (En,Ja)`);
+  addCandidate(`${cleanTitle} (Europe, Australia)`);
+
+  return candidates;
+}
+
+export async function fetchFirstWorkingBoxArt(candidateUrls, timeoutMs = 3000) {
+  for (const url of candidateUrls) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+      if (res.ok) {
+        const buf = Buffer.from(await res.arrayBuffer());
+        if (buf.length > 500) {
+          return { buffer: buf, mime: res.headers.get('content-type') || 'image/png', sourceUrl: url };
+        }
+      }
+    } catch (_) {}
+  }
+  return null;
 }
 
 export function getBoxArtUrl(title, consoleKey) {
   const systemName = LIBRETRO_SYSTEM_NAMES[consoleKey];
   if (!systemName) return null;
-  // Libretro thumbnails format: replaces slashes/colons/question marks with underscores
   const sanitizedTitle = title
     .replace(/[&]/g, '_')
     .replace(/[/\\:*?"<>|]/g, '_')
@@ -294,22 +359,31 @@ async function processPosterBuffer(buffer, sourceMime) {
 }
 
 /**
- * Search the internet for game box art, poster art, or screenshots.
- * Strategy 1: Steam Store API & CDN (ultra-fast, high-resolution vertical posters, headers, or screenshots).
- * Strategy 2: Open-web image search (DuckDuckGo images) targeting official box art, front cover, or screenshots.
+ * Multi-tiered search for game box art / poster art / screenshots:
+ * Tier 1: Libretro Thumbnails with automatic region fallback (USA, Europe, World, Japan).
+ * Tier 2: Steam Store API & CDN (library 600x900 vertical poster, header, screenshot).
+ * Tier 3: GOG Catalog API (high-res official cover images for PC & classic releases).
+ * Tier 4: Wikipedia PageImages API (official infobox covers for retro & PC games).
+ * Tier 5: Open-web search (DuckDuckGo images).
  */
-async function searchInternetGameArt(cleanTitle, consoleKey = '') {
-  const clean = String(cleanTitle || '')
-    .replace(/\[[^\]]*\]/g, '')
-    .replace(/\([^\)]*\)/g, '')
-    .replace(/[-_]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+async function searchInternetGameArt(cleanTitle, consoleKey = '', rawFilename = '') {
+  const clean = cleanGameTitle(cleanTitle || rawFilename || '', false);
   if (!clean || clean.length < 2) return null;
 
-  const platformName = consoleKey && consoleKey !== 'pc' && consoleKey !== 'other' ? consoleKey : '';
+  const canonKey = String(consoleKey || '').toLowerCase().trim();
 
-  // 1. Try Steam Store search (high-res vertical library box art, header art, or official screenshots)
+  // Tier 1: If Libretro supports this console, check Libretro candidate URLs first
+  if (LIBRETRO_SYSTEM_NAMES[canonKey]) {
+    try {
+      const candidates = getBoxArtCandidateUrls(clean, canonKey, rawFilename);
+      const hit = await fetchFirstWorkingBoxArt(candidates, 3000);
+      if (hit) {
+        return { buffer: hit.buffer, mime: hit.mime, source: 'Libretro Box Art', sourceUrl: hit.sourceUrl };
+      }
+    } catch (_) {}
+  }
+
+  // Tier 2: Steam Store Search API & CDN (vertical box art 600x900, header, or screenshots)
   try {
     const steamUrl = `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(clean)}&l=english&cc=US`;
     const sRes = await fetch(steamUrl, { signal: AbortSignal.timeout(3500) });
@@ -326,7 +400,7 @@ async function searchInternetGameArt(cleanTitle, consoleKey = '') {
           if (libRes.ok) {
             const buf = Buffer.from(await libRes.arrayBuffer());
             if (buf.length > 1000) {
-              return { buffer: buf, mime: libRes.headers.get('content-type') || 'image/jpeg', source: 'Steam vertical box art' };
+              return { buffer: buf, mime: libRes.headers.get('content-type') || 'image/jpeg', source: 'Steam vertical box art', sourceUrl: libUrl };
             }
           }
         } catch (_) {}
@@ -338,7 +412,7 @@ async function searchInternetGameArt(cleanTitle, consoleKey = '') {
           if (headRes.ok) {
             const buf = Buffer.from(await headRes.arrayBuffer());
             if (buf.length > 1000) {
-              return { buffer: buf, mime: headRes.headers.get('content-type') || 'image/jpeg', source: 'Steam header poster' };
+              return { buffer: buf, mime: headRes.headers.get('content-type') || 'image/jpeg', source: 'Steam header poster', sourceUrl: headUrl };
             }
           }
         } catch (_) {}
@@ -355,7 +429,7 @@ async function searchInternetGameArt(cleanTitle, consoleKey = '') {
               if (ssRes.ok) {
                 const buf = Buffer.from(await ssRes.arrayBuffer());
                 if (buf.length > 1000) {
-                  return { buffer: buf, mime: ssRes.headers.get('content-type') || 'image/jpeg', source: 'Steam screenshot' };
+                  return { buffer: buf, mime: ssRes.headers.get('content-type') || 'image/jpeg', source: 'Steam screenshot', sourceUrl: ssUrl };
                 }
               }
             }
@@ -365,9 +439,61 @@ async function searchInternetGameArt(cleanTitle, consoleKey = '') {
     }
   } catch (_) {}
 
-  // 2. Open-web image search for box art cover or screenshot
+  // Tier 3: GOG Catalog API (DRM-free PC games & classic releases)
+  try {
+    const gogUrl = `https://catalog.gog.com/v1/catalog?limit=1&locale=en-US&query=${encodeURIComponent(clean)}`;
+    const gRes = await fetch(gogUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+      signal: AbortSignal.timeout(3500)
+    });
+    if (gRes.ok) {
+      const gData = await gRes.json();
+      if (gData.products && gData.products.length > 0) {
+        const prod = gData.products[0];
+        const gogCover = prod.coverVertical || prod.coverHorizontal;
+        if (gogCover) {
+          const dlRes = await fetch(gogCover, { signal: AbortSignal.timeout(4000) });
+          if (dlRes.ok) {
+            const buf = Buffer.from(await dlRes.arrayBuffer());
+            if (buf.length > 1000) {
+              return { buffer: buf, mime: dlRes.headers.get('content-type') || 'image/png', source: 'GOG cover art', sourceUrl: gogCover };
+            }
+          }
+        }
+      }
+    }
+  } catch (_) {}
+
+  // Tier 4: Wikipedia PageImages API (official infobox box art for retro consoles and PC games)
+  try {
+    const q = `${clean} ${canonKey && canonKey !== 'pc' ? canonKey + ' ' : ''}video game`.trim();
+    const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&format=json&prop=pageimages&piprop=thumbnail&pithumbsize=600&pilicense=any&generator=search&gsrsearch=${encodeURIComponent(q)}&gsrlimit=1`;
+    const wRes = await fetch(wikiUrl, {
+      headers: { 'User-Agent': 'FREEPLAY/1.0 (freeplay-retro-arcade)' },
+      signal: AbortSignal.timeout(3500)
+    });
+    if (wRes.ok) {
+      const wData = await wRes.json();
+      const pages = wData.query ? Object.values(wData.query.pages) : [];
+      if (pages.length > 0 && pages[0].thumbnail?.source) {
+        const thumbUrl = pages[0].thumbnail.source;
+        const dlRes = await fetch(thumbUrl, {
+          headers: { 'User-Agent': 'FREEPLAY/1.0 (freeplay-retro-arcade)' },
+          signal: AbortSignal.timeout(4000)
+        });
+        if (dlRes.ok) {
+          const buf = Buffer.from(await dlRes.arrayBuffer());
+          if (buf.length > 1000) {
+            return { buffer: buf, mime: dlRes.headers.get('content-type') || 'image/jpeg', source: 'Wikipedia box art', sourceUrl: thumbUrl };
+          }
+        }
+      }
+    }
+  } catch (_) {}
+
+  // Tier 5: Open-web image search (DuckDuckGo) fallback
   const queries = [
-    `${clean} ${platformName} box art cover`.trim(),
+    `${clean} ${canonKey && canonKey !== 'pc' ? canonKey + ' ' : ''}box art cover`.trim(),
     `${clean} video game screenshot`.trim()
   ];
 
@@ -386,7 +512,7 @@ async function searchInternetGameArt(cleanTitle, consoleKey = '') {
       const imgApi = `https://duckduckgo.com/i.js?l=us-en&o=json&q=${encodeURIComponent(query)}&vqd=${vqd}&f=,,,`;
       const ddgRes = await fetch(imgApi, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
           'Referer': 'https://duckduckgo.com/'
         },
         signal: AbortSignal.timeout(3500)
@@ -407,7 +533,7 @@ async function searchInternetGameArt(cleanTitle, consoleKey = '') {
             const buf = Buffer.from(await imgDl.arrayBuffer());
             const mime = imgDl.headers.get('content-type') || '';
             if (buf.length > 1000 && (mime.startsWith('image/') || candidateUrl.match(/\.(jpe?g|png|webp)/i))) {
-              return { buffer: buf, mime: mime || 'image/jpeg', source: 'Web image search' };
+              return { buffer: buf, mime: mime || 'image/jpeg', source: 'Web image search', sourceUrl: candidateUrl };
             }
           }
         } catch (_) {}
@@ -521,13 +647,13 @@ export const GoogleDrive = {
     const boundary = `freeplay_${Date.now()}_${Math.random().toString(36).substring(2)}`;
     const metadata = { name: fileName, parents: [parentId], mimeType };
 
-    const delimiter = `\r\n--${boundary}\r\n`;
-    const closeDelimiter = `\r\n--${boundary}--`;
+    const header = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`;
+    const footer = `\r\n--${boundary}--`;
 
     const multipartBody = Buffer.concat([
-      Buffer.from(delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata) + delimiter + `Content-Type: ${mimeType}\r\n\r\n`),
+      Buffer.from(header),
       buffer,
-      Buffer.from(closeDelimiter)
+      Buffer.from(footer)
     ]);
 
     const res = await fetch(uploadUrl, {
@@ -540,7 +666,11 @@ export const GoogleDrive = {
       body: multipartBody
     });
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      console.warn(`[GoogleDrive] uploadBufferToDrive failed for "${fileName}" (${res.status}):`, errBody);
+      return null;
+    }
     return await res.json();
   },
 
@@ -999,41 +1129,10 @@ export const GoogleDrive = {
         const hit = findPosterIn(looseIdx, keys);
         if (hit) coverUrl = `/api/drive/file/${hit.id}`;
       }
-      if (!coverUrl && postersFolder && LIBRETRO_SYSTEM_NAMES[consoleKey]) {
-        const remoteBoxArt = getBoxArtUrl(title, consoleKey);
-        if (remoteBoxArt) {
-          try {
-            const artRes = await fetch(remoteBoxArt, { signal: AbortSignal.timeout(4000) });
-            if (artRes.ok) {
-              const artBuf = Buffer.from(await artRes.arrayBuffer());
-              if (artBuf.length > 500) {
-                const processed = await processPosterBuffer(artBuf, artRes.headers.get('content-type'));
-                const destFolder = await ensureConsolePostersFolder(consoleKey);
-                if (destFolder) {
-                  const posterName = `${sanitizeDriveName(stem)}.${processed.ext}`;
-                  const uploaded = await this.uploadBufferToDrive(
-                    user,
-                    processed.buffer,
-                    posterName,
-                    processed.mime,
-                    destFolder.id
-                  );
-                  if (uploaded && uploaded.id) {
-                    const canonicalIndex = await getPosterIndex(destFolder.id);
-                    indexPosterFile(canonicalIndex, { ...uploaded, parents: [destFolder.id] });
-                    coverUrl = `/api/drive/file/${uploaded.id}`;
-                  }
-                }
-              }
-            }
-          } catch (_) {}
-        }
-      }
-      // 5. Fallback for unsupported consoles / PC / folders or missing Libretro art:
-      // Search internet for game box art, poster art, or screenshots
-      if (!coverUrl && postersFolder) {
+      // 4. Auto-discover box art, posters, or screenshots across Libretro, Steam, GOG, Wikipedia, Web
+      if (!coverUrl) {
         try {
-          const netArt = await searchInternetGameArt(title, consoleKey);
+          const netArt = await searchInternetGameArt(title, consoleKey, stem);
           if (netArt && netArt.buffer && netArt.buffer.length > 500) {
             const processed = await processPosterBuffer(netArt.buffer, netArt.mime);
             const destFolder = await ensureConsolePostersFolder(consoleKey);
@@ -1053,8 +1152,13 @@ export const GoogleDrive = {
                 console.log(`[GoogleDrive] Saved ${netArt.source} for "${title}" (${consoleKey}) -> ${posterName}`);
               }
             }
+            if (!coverUrl && netArt.sourceUrl) {
+              coverUrl = `/api/proxy-image?url=${encodeURIComponent(netArt.sourceUrl)}`;
+            }
           }
-        } catch (_) {}
+        } catch (err) {
+          console.warn(`[GoogleDrive] Failed art search for "${title}" (${consoleKey}):`, err.message);
+        }
       }
       return coverUrl;
     };
@@ -1199,65 +1303,35 @@ export const GoogleDrive = {
 
       let coverUrl = matchedPoster ? `/api/drive/file/${matchedPoster.id}` : null;
 
-      // 5. No poster on Drive: scrape box art, cap it at 512px on the longest
-      //    edge and save it as the ROM's filename in <root>/posters/<console>/
-      if (!coverUrl && postersFolder) {
-        const remoteBoxArt = getBoxArtUrl(cleanTitle, consoleKey);
-        if (remoteBoxArt) {
-          try {
-            const artRes = await fetch(remoteBoxArt, { signal: AbortSignal.timeout(5000) });
-            if (artRes.ok) {
-              const artBuf = Buffer.from(await artRes.arrayBuffer());
-              if (artBuf.length > 500) {
-                const processed = await processPosterBuffer(artBuf, artRes.headers.get('content-type'));
-                const destFolder = await ensureConsolePostersFolder(consoleKey);
-                if (destFolder) {
-                  const posterName = `${sanitizeDriveName(baseNoExt)}.${processed.ext}`;
-                  const uploaded = await this.uploadBufferToDrive(
-                    user,
-                    processed.buffer,
-                    posterName,
-                    processed.mime,
-                    destFolder.id
-                  );
-                  if (uploaded && uploaded.id) {
-                    const canonicalIndex = await getPosterIndex(destFolder.id);
-                    indexPosterFile(canonicalIndex, { ...uploaded, parents: [destFolder.id] });
-                    coverUrl = `/api/drive/file/${uploaded.id}`;
-                  }
-                }
+      // 5. No poster on Drive: search box art / poster / screenshot across Libretro, Steam, GOG, Wikipedia, Web
+      if (!coverUrl) {
+        try {
+          const netArt = await searchInternetGameArt(cleanTitle, consoleKey, baseNoExt);
+          if (netArt && netArt.buffer && netArt.buffer.length > 500) {
+            const processed = await processPosterBuffer(netArt.buffer, netArt.mime);
+            const destFolder = await ensureConsolePostersFolder(consoleKey);
+            if (destFolder) {
+              const posterName = `${sanitizeDriveName(baseNoExt)}.${processed.ext}`;
+              const uploaded = await this.uploadBufferToDrive(
+                user,
+                processed.buffer,
+                posterName,
+                processed.mime,
+                destFolder.id
+              );
+              if (uploaded && uploaded.id) {
+                const canonicalIndex = await getPosterIndex(destFolder.id);
+                indexPosterFile(canonicalIndex, { ...uploaded, parents: [destFolder.id] });
+                coverUrl = `/api/drive/file/${uploaded.id}`;
+                console.log(`[GoogleDrive] Saved ${netArt.source} for "${cleanTitle}" (${consoleKey}) -> ${posterName}`);
               }
             }
-          } catch (_) {
-            // Best-effort scrape
+            if (!coverUrl && netArt.sourceUrl) {
+              coverUrl = `/api/proxy-image?url=${encodeURIComponent(netArt.sourceUrl)}`;
+            }
           }
-        }
-
-        // 6. If Libretro scraping missed, search internet for game box art / screenshot
-        if (!coverUrl) {
-          try {
-            const netArt = await searchInternetGameArt(cleanTitle, consoleKey);
-            if (netArt && netArt.buffer && netArt.buffer.length > 500) {
-              const processed = await processPosterBuffer(netArt.buffer, netArt.mime);
-              const destFolder = await ensureConsolePostersFolder(consoleKey);
-              if (destFolder) {
-                const posterName = `${sanitizeDriveName(baseNoExt)}.${processed.ext}`;
-                const uploaded = await this.uploadBufferToDrive(
-                  user,
-                  processed.buffer,
-                  posterName,
-                  processed.mime,
-                  destFolder.id
-                );
-                if (uploaded && uploaded.id) {
-                  const canonicalIndex = await getPosterIndex(destFolder.id);
-                  indexPosterFile(canonicalIndex, { ...uploaded, parents: [destFolder.id] });
-                  coverUrl = `/api/drive/file/${uploaded.id}`;
-                  console.log(`[GoogleDrive] Saved ${netArt.source} for "${cleanTitle}" (${consoleKey}) -> ${posterName}`);
-                }
-              }
-            }
-          } catch (_) {}
+        } catch (err) {
+          console.warn(`[GoogleDrive] Error acquiring art for "${cleanTitle}" (${consoleKey}):`, err.message);
         }
       }
 
@@ -1319,9 +1393,10 @@ export const GoogleDrive = {
       }
 
       const totalSize = group.files.reduce((sum, f) => sum + Number(f.size || 0), 0);
-      const title = cleanGameTitle(folderName.replace(/\.(rar|zip|7z)$/i, ''));
+      const cleanStem = folderName.replace(/\.(rar|zip|7z|tar|gz|iso)$/i, '').trim();
+      const title = cleanGameTitle(folderName, true);
       const coverUrl = await findCoverForGame(
-        folderName.replace(/\.(rar|zip|7z)$/i, ''),
+        cleanStem,
         title,
         consoleKey,
         gameFolderId
