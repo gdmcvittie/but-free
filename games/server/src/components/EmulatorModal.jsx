@@ -942,7 +942,10 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
     const extFallback = consoleNormalized === 'nds' || consoleNormalized === 'ds'
       ? 'nds'
       : (consoleNormalized === 'n64' ? 'z64' : 'chd');
-    const safeFilename = game.filename || `${game.title || 'game'}.${extFallback}`;
+    let safeFilename = game.filename || `${game.title || 'game'}.${extFallback}`;
+    if (consoleNormalized === 'psx' && safeFilename.toLowerCase().endsWith('.cue')) {
+      safeFilename = safeFilename.replace(/\.cue$/i, '.bin');
+    }
     const driveId = game.driveFileId || game.driveId;
     const streamUrl = `/api/games/stream/${encodeURIComponent(driveId)}/${encodeURIComponent(safeFilename)}`;
     const ejsUrl = `/emulatorjs/index.html?core=${encodeURIComponent(consoleNormalized)}&url=${encodeURIComponent(streamUrl)}&title=${encodeURIComponent(game.title || 'Game')}`;

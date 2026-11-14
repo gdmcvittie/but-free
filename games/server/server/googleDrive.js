@@ -162,7 +162,7 @@ export function cleanGameTitle(rawName, isFolder = false) {
   if (!rawName) return 'Unknown Game';
   let clean = String(rawName).trim();
   if (isFolder) {
-    clean = clean.replace(/\.(rar|zip|7z|tar|gz|iso)$/i, '').trim();
+    clean = clean.replace(/\.(rar|zip|7z|tar|gz|iso|bin|cue|chd|pbp|exe|msi|pkg)$/i, '').trim();
   } else {
     clean = clean.replace(/\.[^/.]+$/, '').trim();
   }
@@ -221,9 +221,10 @@ export function getBoxArtCandidateUrls(cleanTitle, consoleKey, rawFilename = '')
   return candidates;
 }
 
-export async function fetchFirstWorkingBoxArt(candidateUrls, timeoutMs = 3000) {
-  for (const url of candidateUrls) {
-    try {
+export async function fetchFirstWorkingBoxArt(candidateUrls, timeoutMs = 2500) {
+  if (!candidateUrls || candidateUrls.length === 0) return null;
+  try {
+    const fetchSingle = async (url) => {
       const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
       if (res.ok) {
         const buf = Buffer.from(await res.arrayBuffer());
@@ -231,9 +232,13 @@ export async function fetchFirstWorkingBoxArt(candidateUrls, timeoutMs = 3000) {
           return { buffer: buf, mime: res.headers.get('content-type') || 'image/png', sourceUrl: url };
         }
       }
-    } catch (_) {}
+      throw new Error('Not found');
+    };
+
+    return await Promise.any(candidateUrls.map(u => fetchSingle(u)));
+  } catch (_) {
+    return null;
   }
-  return null;
 }
 
 export function getBoxArtUrl(title, consoleKey) {
@@ -585,6 +590,48 @@ export const GoogleDrive = {
       throw new Error(data.error?.message || 'Failed to create folder');
     }
     return data;
+  },
+
+  async getFileMetadata(user, fileId) {
+    if (!fileId) return null;
+    try {
+      const accessToken = await GoogleAuth.getValidAccessToken(user);
+      const url = new URL(`https://www.googleapis.com/drive/v3/files/${fileId}`);
+      url.searchParams.set('fields', 'id,name,mimeType,size,modifiedTime,parents');
+      const res = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (_) {
+      return null;
+    }
+  },
+
+  async findCompanionDiscFile(user, parentId, cueFilename) {
+    if (!parentId) return null;
+    try {
+      const accessToken = await GoogleAuth.getValidAccessToken(user);
+      const url = new URL('https://www.googleapis.com/drive/v3/files');
+      url.searchParams.set('q', `'${parentId}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`);
+      url.searchParams.set('fields', 'files(id, name, size, mimeType)');
+      url.searchParams.set('pageSize', '100');
+      const res = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const files = data.files || [];
+      const discFiles = files.filter(f => {
+        const e = fileExt(f.name);
+        return ['bin', 'iso', 'chd', 'pbp', 'img'].includes(e);
+      });
+      if (discFiles.length === 0) return null;
+      discFiles.sort((a, b) => Number(b.size || 0) - Number(a.size || 0));
+      return discFiles[0];
+    } catch (_) {
+      return null;
+    }
   },
 
   async findFileByName(user, parentId, fileName) {
@@ -1166,6 +1213,14 @@ export const GoogleDrive = {
     const recognizedGames = [];
     const downloadGroups = new Map(); // gameFolderId -> { consoleKey, files: [] }
 
+    // Index files by parent folder for companion disc sheet (.cue / .bin) pairing
+    const filesByParent = new Map();
+    for (const f of allFiles) {
+      const pId = (f.parents && f.parents[0]) || user.gamesFolderId;
+      if (!filesByParent.has(pId)) filesByParent.set(pId, []);
+      filesByParent.get(pId).push(f);
+    }
+
     for (const file of allFiles) {
       const ext = (file.name.split('.').pop() || '').toLowerCase();
       const parentId = file.parents && file.parents.length ? file.parents[0] : user.gamesFolderId;
@@ -1173,7 +1228,36 @@ export const GoogleDrive = {
 
       if (IGNORED_FILE_EXTS.has(ext)) continue;
 
+      // Handle disc sheet (.cue) vs raw image (.bin):
+      // If a .cue file has companion disc images (.bin / .iso / .chd / .pbp) in the same folder,
+      // skip the 100-byte .cue entry so only the playable image represents the game.
+      if (ext === 'cue') {
+        const siblings = filesByParent.get(parentId) || [];
+        const hasDiscCompanion = siblings.some(s => s.id !== file.id && ['bin', 'iso', 'chd', 'pbp', 'img'].includes(fileExt(s.name)));
+        if (hasDiscCompanion) {
+          continue;
+        }
+      }
+
       let consoleKey = hint || EXTENSION_CONSOLE_MAP[ext] || null;
+
+      // If this is a .bin file in a folder that has a .cue companion or PSX hints, map it to PSX
+      if (ext === 'bin') {
+        const siblings = filesByParent.get(parentId) || [];
+        const hasCue = siblings.some(s => fileExt(s.name) === 'cue');
+        if (hasCue || hint === 'psx' || /psx|ps1|playstation/i.test(folderInfo.get(parentId)?.name || '')) {
+          consoleKey = 'psx';
+        }
+        // If there are multiple .bin files (e.g. Track 1, Track 2), only treat the largest .bin as the game entry
+        const binSiblings = siblings.filter(s => fileExt(s.name) === 'bin');
+        if (binSiblings.length > 1) {
+          const largestBin = [...binSiblings].sort((a, b) => Number(b.size || 0) - Number(a.size || 0))[0];
+          if (file.id !== largestBin.id) {
+            continue;
+          }
+        }
+      }
+
       if (!consoleKey) {
         if (parentId !== user.gamesFolderId) {
           const parentInfo = folderInfo.get(parentId);
@@ -1461,8 +1545,62 @@ export const GoogleDrive = {
   },
 
   async streamFile(user, fileId, req, res) {
+    if (!fileId) {
+      if (!res.headersSent) res.status(400).end();
+      return;
+    }
+
+    // Handle HEAD requests without querying Google Drive with method HEAD (which GDrive rejects with 405)
+    if (req.method === 'HEAD') {
+      const meta = await this.getFileMetadata(user, fileId);
+      if (!meta) {
+        if (!res.headersSent) res.status(404).end();
+        return;
+      }
+
+      let targetSize = meta.size;
+      let targetMime = meta.mimeType || 'application/octet-stream';
+
+      // If requested file is a small .cue sheet, resolve companion .bin for accurate content-length
+      if (meta.name && meta.name.toLowerCase().endsWith('.cue') && meta.parents && meta.parents.length) {
+        const companion = await this.findCompanionDiscFile(user, meta.parents[0], meta.name);
+        if (companion) {
+          targetSize = companion.size || targetSize;
+          targetMime = companion.mimeType || targetMime;
+        }
+      }
+
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
+      res.setHeader('Content-Type', targetMime);
+      if (targetSize) {
+        res.setHeader('Content-Length', targetSize);
+      }
+      if (meta.modifiedTime) {
+        res.setHeader('Last-Modified', new Date(meta.modifiedTime).toUTCString());
+      }
+      return res.status(200).end();
+    }
+
+    let targetFileId = fileId;
+
+    // For GET: if file is a .cue file, redirect stream to the companion playable disc image (.bin/.iso/.chd)
+    const reqFilename = (req.params?.filename || '').toLowerCase();
+    if (reqFilename.endsWith('.cue') || reqFilename.endsWith('.bin')) {
+      try {
+        const meta = await this.getFileMetadata(user, fileId);
+        if (meta && meta.name && meta.name.toLowerCase().endsWith('.cue') && meta.parents && meta.parents.length) {
+          const companion = await this.findCompanionDiscFile(user, meta.parents[0], meta.name);
+          if (companion && companion.id) {
+            targetFileId = companion.id;
+          }
+        }
+      } catch (_) {}
+    }
+
     const accessToken = await GoogleAuth.getValidAccessToken(user);
-    const driveUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+    const driveUrl = `https://www.googleapis.com/drive/v3/files/${targetFileId}?alt=media&acknowledgeAbuse=true`;
 
     const fetchHeaders = {
       Authorization: `Bearer ${accessToken}`
@@ -1473,7 +1611,7 @@ export const GoogleDrive = {
     }
 
     const driveRes = await fetch(driveUrl, {
-      method: req.method === 'HEAD' ? 'HEAD' : 'GET',
+      method: 'GET',
       headers: fetchHeaders
     });
 
@@ -1484,6 +1622,7 @@ export const GoogleDrive = {
     // Forward range and content headers to client emulator
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
 
     const headersToForward = [
       'content-range',
@@ -1501,10 +1640,6 @@ export const GoogleDrive = {
     }
 
     res.status(driveRes.status);
-
-    if (req.method === 'HEAD') {
-      return res.end();
-    }
 
     if (!driveRes.body) {
       return res.end();

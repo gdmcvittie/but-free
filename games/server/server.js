@@ -352,6 +352,7 @@ app.post('/api/games/:id/favorite', async (req, res) => {
 app.get('/api/drive/file/:driveId', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
   try {
+    res.setHeader('Cache-Control', 'public, max-age=86400');
     await GoogleDrive.streamFile(req.user, req.params.driveId, req, res);
   } catch (err) {
     console.warn('[Drive File Stream Error]:', err.message);

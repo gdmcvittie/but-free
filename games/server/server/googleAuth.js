@@ -284,6 +284,10 @@ export const GoogleAuth = {
       }
     }
 
+    if (!token && req.query?.token) {
+      token = req.query.token;
+    }
+
     req.vipAccessDenied = false;
     if (token) {
       const user = GoogleAuth.verifySessionToken(token);
