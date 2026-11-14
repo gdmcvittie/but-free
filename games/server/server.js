@@ -310,16 +310,70 @@ app.get('/api/games', (req, res) => {
   return res.type('application/json').send(body);
 });
 
+// Scan state tracker to support non-blocking background scans and prevent proxy timeouts
+const activeScanJobs = new Map(); // userId -> { running, startedAt, finishedAt, result, error }
+
+// Scan status endpoint
+app.get('/api/games/scan/status', (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  const job = activeScanJobs.get(req.user.id);
+  res.json({
+    scanning: !!job?.running,
+    finishedAt: job?.finishedAt || null,
+    error: job?.error || null,
+    count: job?.result?.count || null
+  });
+});
+
 // Scan Google Drive Games folder
 app.post('/api/games/scan', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
+  // If a scan is already running for this user, inform client to poll
+  const existingJob = activeScanJobs.get(req.user.id);
+  if (existingJob && existingJob.running) {
+    return res.json({ success: true, scanning: true, inProgress: true });
+  }
+
+  // Create job tracker
+  const job = {
+    running: true,
+    startedAt: Date.now(),
+    finishedAt: null,
+    result: null,
+    error: null
+  };
+  activeScanJobs.set(req.user.id, job);
+
+  const scanPromise = GoogleDrive.scanGamesFolder(req.user)
+    .then((result) => {
+      job.running = false;
+      job.finishedAt = Date.now();
+      job.result = result;
+      job.error = null;
+      return result;
+    })
+    .catch((err) => {
+      console.error('[FREEPLAY Scan Error]:', err);
+      job.running = false;
+      job.finishedAt = Date.now();
+      job.error = err.message;
+      throw err;
+    });
+
+  // Race scan completion against an 8-second threshold to guarantee response before proxy timeout
   try {
-    const result = await GoogleDrive.scanGamesFolder(req.user);
-    res.json({ success: true, ...result });
-  } catch (err) {
-    console.error('[FREEPLAY Scan Error]:', err);
-    res.status(500).json({ error: err.message });
+    const fastResult = await Promise.race([
+      scanPromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('SCAN_BACKGROUNDED')), 8000))
+    ]);
+    return res.json({ success: true, scanning: false, ...fastResult });
+  } catch (raceErr) {
+    if (raceErr.message === 'SCAN_BACKGROUNDED') {
+      // Scan is running cleanly in background on Node.js; client polls /api/games/scan/status
+      return res.json({ success: true, scanning: true, inBackground: true });
+    }
+    return res.status(500).json({ error: raceErr.message });
   }
 });
 

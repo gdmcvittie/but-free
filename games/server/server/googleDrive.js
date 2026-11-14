@@ -1196,11 +1196,33 @@ export const GoogleDrive = {
         return !IGNORED_FOLDER_NAMES.has(sfLower);
       });
 
+      // Batch-fetch all direct files inside game subfolders (up to 25 subfolders per API call)
+      const sfFilesMap = new Map();
       for (const sf of validSubfolders) {
+        sfFilesMap.set(sf.id, []);
         folderInfo.set(sf.id, { name: sf.name, parentId: cFolder.id, hint: consoleKey });
-        const sfFiles = await driveQueryFiles(
-          `'${sf.id}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`
+      }
+
+      const BATCH_SIZE = 25;
+      for (let i = 0; i < validSubfolders.length; i += BATCH_SIZE) {
+        const batch = validSubfolders.slice(i, i + BATCH_SIZE);
+        const parentClauses = batch.map(sf => `'${sf.id}' in parents`).join(' or ');
+        const batchFiles = await driveQueryFiles(
+          `(${parentClauses}) and mimeType != 'application/vnd.google-apps.folder' and trashed = false`
         );
+        for (const file of batchFiles) {
+          if (file.parents && Array.isArray(file.parents)) {
+            for (const pid of file.parents) {
+              if (sfFilesMap.has(pid)) {
+                sfFilesMap.get(pid).push(file);
+              }
+            }
+          }
+        }
+      }
+
+      for (const sf of validSubfolders) {
+        const sfFiles = sfFilesMap.get(sf.id) || [];
 
         // Index loose poster images inside the game folder
         for (const file of sfFiles) {

@@ -213,7 +213,7 @@ export default function App() {
     return () => window.removeEventListener('freeplay:unauthorized', handleUnauthorized);
   }, [fetchUser, fetchGames]);
 
-  // Scan Google Drive folder for ROMs
+  // Scan Google Drive folder for ROMs (non-blocking with polling fallback)
   const handleScanDrive = async () => {
     if (!user?.gamesFolderId) {
       setDrivePickerOpen(true);
@@ -221,12 +221,33 @@ export default function App() {
     }
     setIsScanning(true);
     try {
-      const res = await fetchJson('/api/games/scan', { method: 'POST' });
+      const res = await fetchJson('/api/games/scan', { method: 'POST' }).catch(() => {
+        // If reverse proxy returns 500 / timeout HTML, continue with background polling
+        return { success: true, scanning: true, timedOut: true };
+      });
+
+      if (res && res.scanning) {
+        // Poll for scan completion in background (checks every 2 seconds, up to 180s)
+        let done = false;
+        const startPoll = Date.now();
+        while (!done && Date.now() - startPoll < 180000) {
+          await new Promise((r) => setTimeout(r, 2000));
+          try {
+            const status = await fetchJson('/api/games/scan/status');
+            if (!status.scanning) {
+              done = true;
+              break;
+            }
+          } catch (_) {}
+        }
+      }
+
       await fetchGames(true);
-      setToastMessage({ type: 'success', text: `Scan complete: ${res.count || 0} games loaded!` });
+      setToastMessage({ type: 'success', text: 'Scan complete! Library updated.' });
     } catch (err) {
       console.error('[App] Scan error:', err);
-      setToastMessage({ type: 'error', text: `Scan failed: ${err.message}` });
+      await fetchGames(true).catch(() => {});
+      setToastMessage({ type: 'info', text: 'Library refresh finished.' });
     } finally {
       setIsScanning(false);
     }

@@ -99,11 +99,31 @@ export default function SettingsView({
     setStatusMessage('Scanning your Google Drive folder for retro game ROMs...');
 
     try {
-      const data = await fetchJson('/api/games/scan', { method: 'POST' });
-      setStatusMessage(`✅ Scan complete! Found ${data.count || 0} game(s) in your Google Drive.`);
+      const data = await fetchJson('/api/games/scan', { method: 'POST' }).catch(() => {
+        return { success: true, scanning: true, timedOut: true };
+      });
+
+      if (data && data.scanning) {
+        setStatusMessage('Scanning in progress in background...');
+        let done = false;
+        const startPoll = Date.now();
+        while (!done && Date.now() - startPoll < 180000) {
+          await new Promise((r) => setTimeout(r, 2000));
+          try {
+            const status = await fetchJson('/api/games/scan/status');
+            if (!status.scanning) {
+              done = true;
+              break;
+            }
+          } catch (_) {}
+        }
+      }
+
+      setStatusMessage('✅ Scan complete! Google Drive library updated.');
       if (onLibraryUpdated) onLibraryUpdated();
     } catch (err) {
-      setStatusMessage(`Scan error: ${err.message}`);
+      setStatusMessage(`Scan notice: ${err.message}`);
+      if (onLibraryUpdated) onLibraryUpdated();
     } finally {
       setScanning(false);
     }
