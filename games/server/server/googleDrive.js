@@ -466,24 +466,54 @@ export async function searchInternetGameArt(cleanTitle, consoleKey = '', rawFile
 
   const canonKey = String(consoleKey || '').toLowerCase().trim();
 
-  // Tier 1: If Libretro supports this console, check Libretro candidate URLs first
-  if (LIBRETRO_SYSTEM_NAMES[canonKey]) {
+  // Tier 1 for PC games: Steam Store Search API (official 600x900 vertical poster)
+  if (canonKey === 'pc') {
+    try {
+      const steamUrl = `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(clean)}&l=english&cc=US`;
+      const sRes = await fetch(steamUrl, { signal: AbortSignal.timeout(4000) });
+      if (sRes.ok) {
+        const sData = await sRes.json();
+        if (sData.items && sData.items.length > 0) {
+          const topApp = sData.items[0];
+          const appId = topApp.id;
+          const libUrl = `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/library_600x900.jpg`;
+          return { buffer: null, mime: 'image/jpeg', source: 'Steam vertical box art', sourceUrl: libUrl };
+        }
+      }
+    } catch (_) {}
+  }
+
+  // Tier 1 for emulator/retro consoles: Libretro candidate URLs with region fallback
+  if (canonKey !== 'pc' && LIBRETRO_SYSTEM_NAMES[canonKey]) {
     try {
       const candidates = getBoxArtCandidateUrls(clean, canonKey, rawFilename);
-      const hit = await fetchFirstWorkingBoxArt(candidates, 2500);
+      const hit = await fetchFirstWorkingBoxArt(candidates, 3000);
       if (hit) {
         return { buffer: hit.buffer, mime: hit.mime, source: 'Libretro Box Art', sourceUrl: hit.sourceUrl };
       }
     } catch (_) {}
   }
 
-  // Tier 2: Wikipedia PageImages API (official infobox box art for Switch, PS2, PSP, PSX, and retro consoles)
+  // Tier 2: Wikipedia PageImages API (official infobox box art for Switch, PS2, PSP, PSX, PC, etc.)
   try {
-    const q = `${clean} ${canonKey && canonKey !== 'pc' ? canonKey + ' ' : ''}video game`.trim();
+    let wikiSystem = '';
+    if (canonKey === 'switch') wikiSystem = 'Nintendo Switch';
+    else if (canonKey === 'ps2') wikiSystem = 'PlayStation 2';
+    else if (canonKey === 'psp') wikiSystem = 'PlayStation Portable';
+    else if (canonKey === 'psx' || canonKey === 'ps1') wikiSystem = 'PlayStation';
+    else if (canonKey === 'snes') wikiSystem = 'Super Nintendo';
+    else if (canonKey === 'nes') wikiSystem = 'NES';
+    else if (canonKey === 'n64') wikiSystem = 'Nintendo 64';
+    else if (canonKey === 'gba') wikiSystem = 'Game Boy Advance';
+    else if (canonKey && canonKey !== 'pc') wikiSystem = canonKey;
+
+    const q = `${clean} ${wikiSystem ? wikiSystem + ' ' : ''}video game`.trim();
     const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&format=json&prop=pageimages&piprop=thumbnail&pithumbsize=600&pilicense=any&generator=search&gsrsearch=${encodeURIComponent(q)}&gsrlimit=1`;
     const wRes = await fetch(wikiUrl, {
-      headers: { 'User-Agent': 'FREEPLAY/1.0 (contact@butfree.online)' },
-      signal: AbortSignal.timeout(3500)
+      headers: {
+        'User-Agent': 'FREEPLAY/1.0 (https://games.butfree.online; contact@butfree.online) Mozilla/5.0'
+      },
+      signal: AbortSignal.timeout(5000)
     });
     if (wRes.ok) {
       const wData = await wRes.json();
@@ -495,29 +525,29 @@ export async function searchInternetGameArt(cleanTitle, consoleKey = '', rawFile
     }
   } catch (_) {}
 
-  // Tier 3: Steam Store Search API & CDN (vertical box art 600x900, header, or screenshots)
-  try {
-    const steamUrl = `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(clean)}&l=english&cc=US`;
-    const sRes = await fetch(steamUrl, { signal: AbortSignal.timeout(3000) });
-    if (sRes.ok) {
-      const sData = await sRes.json();
-      if (sData.items && sData.items.length > 0) {
-        const topApp = sData.items[0];
-        const appId = topApp.id;
-
-        // Try Steam Library vertical 600x900 box art
-        const libUrl = `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/library_600x900.jpg`;
-        return { buffer: null, mime: 'image/jpeg', source: 'Steam vertical box art', sourceUrl: libUrl };
+  // Tier 3: Steam Store Search API fallback for non-PC games (many console games have PC/Steam releases)
+  if (canonKey !== 'pc') {
+    try {
+      const steamUrl = `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(clean)}&l=english&cc=US`;
+      const sRes = await fetch(steamUrl, { signal: AbortSignal.timeout(3500) });
+      if (sRes.ok) {
+        const sData = await sRes.json();
+        if (sData.items && sData.items.length > 0) {
+          const topApp = sData.items[0];
+          const appId = topApp.id;
+          const libUrl = `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/library_600x900.jpg`;
+          return { buffer: null, mime: 'image/jpeg', source: 'Steam vertical box art', sourceUrl: libUrl };
+        }
       }
-    }
-  } catch (_) {}
+    } catch (_) {}
+  }
 
   // Tier 4: GOG Catalog API (DRM-free PC games & classic releases)
   try {
     const gogUrl = `https://catalog.gog.com/v1/catalog?limit=1&locale=en-US&query=${encodeURIComponent(clean)}`;
     const gRes = await fetch(gogUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-      signal: AbortSignal.timeout(3000)
+      signal: AbortSignal.timeout(3500)
     });
     if (gRes.ok) {
       const gData = await gRes.json();
@@ -533,11 +563,56 @@ export async function searchInternetGameArt(cleanTitle, consoleKey = '', rawFile
 
   // Tier 5: Open-web image search (DuckDuckGo) fallback
   const queries = [
-    `${clean} ${canonKey && canonKey !== 'pc' ? canonKey + ' ' : ''}box art cover`.trim(),
+    `${clean} ${canonKey === 'switch' ? 'nintendo switch' : canonKey && canonKey !== 'pc' ? canonKey : ''} box art cover`.trim(),
     `${clean} video game screenshot`.trim()
   ];
 
   for (const query of queries) {
+    try {
+      const vqdRes = await fetch(`https://duckduckgo.com/?q=${encodeURIComponent(query)}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+        signal: AbortSignal.timeout(3500)
+      });
+      if (!vqdRes.ok) continue;
+      const html = await vqdRes.text();
+      const match = html.match(/vqd=["']?([0-9-]+)/);
+      const vqd = match ? match[1] : null;
+      if (!vqd) continue;
+
+      const imgApi = `https://duckduckgo.com/i.js?l=us-en&o=json&q=${encodeURIComponent(query)}&vqd=${vqd}&f=,,,`;
+      const ddgRes = await fetch(imgApi, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Referer': 'https://duckduckgo.com/'
+        },
+        signal: AbortSignal.timeout(3500)
+      });
+      if (!ddgRes.ok) continue;
+
+      const ddgData = await ddgRes.json();
+      const results = ddgData.results || [];
+      for (let i = 0; i < Math.min(3, results.length); i++) {
+        const candidateUrl = results[i].image;
+        if (!candidateUrl || !candidateUrl.startsWith('http')) continue;
+        try {
+          const imgDl = await fetch(candidateUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+            signal: AbortSignal.timeout(4000)
+          });
+          if (imgDl.ok) {
+            const buf = Buffer.from(await imgDl.arrayBuffer());
+            const mime = imgDl.headers.get('content-type') || '';
+            if (buf.length > 1000 && (mime.startsWith('image/') || candidateUrl.match(/\.(jpe?g|png|webp)/i))) {
+              return { buffer: buf, mime: mime || 'image/jpeg', source: 'Web image search', sourceUrl: candidateUrl };
+            }
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  return null;
+}
     try {
       const vqdRes = await fetch(`https://duckduckgo.com/?q=${encodeURIComponent(query)}`, {
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
@@ -1166,7 +1241,8 @@ export const GoogleDrive = {
     const recognizedGames = [];
 
     // 2. Scan each Console Folder
-    for (const cFolder of consoleFolders) {
+    for (let cIdx = 0; cIdx < consoleFolders.length; cIdx++) {
+      const cFolder = consoleFolders[cIdx];
       const consoleKey = cFolder.consoleKey;
       const isPlayable = SUPPORTED_EMULATOR_CONSOLES.has(consoleKey);
 
@@ -1187,14 +1263,32 @@ export const GoogleDrive = {
       }
 
       // 2a. Process game subfolders within this console folder (e.g. switch/Super Mario Odyssey/ or ps2/GTA/)
-      const validSubfolders = subfolders.filter(sf => {
+      const validSubfolders = [];
+      for (const sf of subfolders) {
         const sfLower = (sf.name || '').toLowerCase().trim();
         if (sfLower === 'posters') {
           posterFoldersByParent.set(cFolder.id, sf);
-          return false;
+          continue;
         }
-        return !IGNORED_FOLDER_NAMES.has(sfLower);
-      });
+        if (IGNORED_FOLDER_NAMES.has(sfLower)) continue;
+
+        // If this subfolder is itself a recognized console (e.g. "switch", "psp", "ps2", "psx" inside "pc" or vice-versa)
+        const mappedConsole = resolveConsoleKey(sf.name);
+        if (mappedConsole !== 'other' && mappedConsole !== consoleKey) {
+          console.log(`[GoogleDrive] Detected nested console folder "${sf.name}" -> console "${mappedConsole}" inside "${cFolder.name}"`);
+          if (!consoleFolders.some(cf => cf.id === sf.id)) {
+            consoleFolders.push({ id: sf.id, name: sf.name, consoleKey: mappedConsole, parentId: cFolder.id });
+          }
+          continue; // DO NOT treat this folder as a game card!
+        }
+
+        // Never treat a folder titled literally after a console as a game card under a different console
+        if (['switch', 'pc', 'ps2', 'psp', 'psx', 'n64', 'snes', 'gba', 'nes'].includes(sfLower) && sfLower !== consoleKey) {
+          continue;
+        }
+
+        validSubfolders.push(sf);
+      }
 
       // Batch-fetch all direct files inside game subfolders (up to 25 subfolders per API call)
       const sfFilesMap = new Map();
@@ -1252,16 +1346,27 @@ export const GoogleDrive = {
 
         if (gameFiles.length === 0) continue;
 
+        // Detect effective console from contents: Switch, PSP, or PS2 ROMs can NEVER be PC games
+        let effectiveConsole = consoleKey;
+        const hasSwitchRom = gameFiles.some(f => ['nsp', 'nsz', 'xci', 'xcz'].includes(fileExt(f.name)));
+        const hasPspRom = gameFiles.some(f => ['cso', 'pbp'].includes(fileExt(f.name)));
+        const hasPs2Rom = gameFiles.some(f => fileExt(f.name) === 'iso' && Number(f.size || 0) > 800 * 1024 * 1024);
+
+        if (hasSwitchRom) effectiveConsole = 'switch';
+        else if (hasPspRom) effectiveConsole = 'psp';
+        else if (hasPs2Rom && (consoleKey === 'psx' || consoleKey === 'pc')) effectiveConsole = 'ps2';
+
+        const effectivePlayable = SUPPORTED_EMULATOR_CONSOLES.has(effectiveConsole);
         const mainFile = [...gameFiles].sort((a, b) => Number(b.size || 0) - Number(a.size || 0))[0];
         const mainExt = fileExt(mainFile.name);
         const totalSize = gameFiles.reduce((sum, f) => sum + Number(f.size || 0), 0);
         const title = cleanGameTitle(sf.name, true);
-        const isDownload = !isPlayable || PC_FILE_EXTS.has(mainExt);
+        const isDownload = !effectivePlayable || PC_FILE_EXTS.has(mainExt);
 
-        const coverUrl = await findCoverForGame(sf.name, title, consoleKey, sf.id);
+        const coverUrl = await findCoverForGame(sf.name, title, effectiveConsole, sf.id);
 
         recognizedGames.push({
-          id: consoleKey === 'pc' ? `gmpc_${sf.id}` : `gm_${consoleKey}_${sf.id}`,
+          id: effectiveConsole === 'pc' ? `gmpc_${sf.id}` : `gm_${effectiveConsole}_${sf.id}`,
           driveId: sf.id,
           driveFileId: mainFile ? mainFile.id : null,
           folderId: sf.id,
@@ -1269,8 +1374,8 @@ export const GoogleDrive = {
           source: 'drive',
           filename: sf.name,
           title,
-          console: consoleKey,
-          isPcGame: consoleKey === 'pc',
+          console: effectiveConsole,
+          isPcGame: effectiveConsole === 'pc',
           isDownloadOnly: isDownload,
           size: totalSize,
           sizeFormatted: formatBytes(totalSize),
@@ -1296,20 +1401,27 @@ export const GoogleDrive = {
           continue;
         }
 
-        const isDownload = !isPlayable || PC_FILE_EXTS.has(ext);
+        let fileConsole = consoleKey;
+        if (['nsp', 'nsz', 'xci', 'xcz'].includes(ext)) fileConsole = 'switch';
+        else if (['cso', 'pbp'].includes(ext)) fileConsole = 'psp';
+        else if (ext === 'iso' && (consoleKey === 'ps2' || Number(file.size || 0) > 800 * 1024 * 1024)) fileConsole = 'ps2';
+        else if ((ext === 'cue' || ext === 'bin' || ext === 'chd') && consoleKey === 'psx') fileConsole = 'psx';
+
+        const filePlayable = SUPPORTED_EMULATOR_CONSOLES.has(fileConsole);
+        const isDownload = !filePlayable || PC_FILE_EXTS.has(ext);
         const cleanStem = file.name.replace(/\.[^.]+$/, '');
         const title = cleanGameTitle(file.name);
-        const coverUrl = await findCoverForGame(cleanStem, title, consoleKey, cFolder.id);
+        const coverUrl = await findCoverForGame(cleanStem, title, fileConsole, cFolder.id);
 
         recognizedGames.push({
-          id: consoleKey === 'pc' ? `gmpc_${file.id}` : `gm_${consoleKey}_${file.id}`,
+          id: fileConsole === 'pc' ? `gmpc_${file.id}` : `gm_${fileConsole}_${file.id}`,
           driveId: file.id,
           folderId: cFolder.id,
           source: 'drive',
           filename: file.name,
           title,
-          console: consoleKey,
-          isPcGame: consoleKey === 'pc',
+          console: fileConsole,
+          isPcGame: fileConsole === 'pc',
           isDownloadOnly: isDownload,
           size: Number(file.size || 0),
           sizeFormatted: formatBytes(file.size),
@@ -1327,7 +1439,11 @@ export const GoogleDrive = {
       const ext = fileExt(file.name);
       if (IGNORED_FILE_EXTS.has(ext) || POSTER_IMAGE_EXTS.has(ext)) continue;
 
-      const fileConsole = detectConsoleFromFilename(file.name, ext, Number(file.size || 0)) || EXTENSION_CONSOLE_MAP[ext] || 'other';
+      let fileConsole = detectConsoleFromFilename(file.name, ext, Number(file.size || 0)) || EXTENSION_CONSOLE_MAP[ext] || 'other';
+      if (['nsp', 'nsz', 'xci', 'xcz'].includes(ext)) fileConsole = 'switch';
+      else if (['cso', 'pbp'].includes(ext)) fileConsole = 'psp';
+      else if (ext === 'iso' && Number(file.size || 0) > 800 * 1024 * 1024) fileConsole = 'ps2';
+
       const isPlayable = SUPPORTED_EMULATOR_CONSOLES.has(fileConsole);
       const isDownload = !isPlayable || PC_FILE_EXTS.has(ext);
       const cleanStem = file.name.replace(/\.[^.]+$/, '');
@@ -1351,15 +1467,26 @@ export const GoogleDrive = {
       });
     }
 
-    const breakdown = {};
+    // Sanitize: filter out any errant console folder cards
+    const cleanRecognizedGames = [];
     for (const g of recognizedGames) {
+      const tLower = (g.title || '').toLowerCase().trim();
+      if (['switch', 'pc', 'ps2', 'psp', 'psx'].includes(tLower) && g.isFolder && (g.isPcGame || g.console === 'pc')) {
+        console.log(`[GoogleDrive] Filtered errant console folder card "${g.title}" under ${g.console}`);
+        continue;
+      }
+      cleanRecognizedGames.push(g);
+    }
+
+    const breakdown = {};
+    for (const g of cleanRecognizedGames) {
       breakdown[g.console] = (breakdown[g.console] || 0) + 1;
     }
-    console.log(`[GoogleDrive] Scan complete! Found ${recognizedGames.length} games across ${consoleFolders.length} console folders.`);
+    console.log(`[GoogleDrive] Scan complete! Found ${cleanRecognizedGames.length} games across ${consoleFolders.length} console folders.`);
     console.log(`[GoogleDrive] Breakdown by console:`, JSON.stringify(breakdown));
 
     // Save into database (drive-sourced records only; bookmarks survive)
-    Database.saveGames(user.id, recognizedGames, 'drive');
+    Database.saveGames(user.id, cleanRecognizedGames, 'drive');
 
     // Sync game library JSON to the root of the user's games folder in Google Drive
     const userGamesFilename = this.getUserMetaFilename(user, 'games.json');

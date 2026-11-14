@@ -166,15 +166,19 @@ export default function LibraryView({
                     alt={game.title}
                     className="w-full h-full object-cover transition-opacity duration-200"
                     loading="lazy"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                      const fallback = e.currentTarget.parentElement?.querySelector('.poster-fallback');
+                      if (fallback) fallback.classList.remove('hidden');
+                    }}
                   />
-                ) : (
-                  <div className="flex flex-col items-center justify-center p-3 text-center">
-                    <Gamepad2 className="w-7 h-7 text-slate-600 mb-1" />
-                    <span className="text-[9.5px] font-bold text-slate-500 uppercase font-mono">
-                      {game.console || 'ROM'}
-                    </span>
-                  </div>
-                )}
+                ) : null}
+                <div className={`poster-fallback w-full h-full flex flex-col items-center justify-center p-3 text-center ${game.coverUrl ? 'hidden' : ''}`}>
+                  <Gamepad2 className="w-7 h-7 text-slate-600 mb-1" />
+                  <span className="text-[9.5px] font-bold text-slate-500 uppercase font-mono">
+                    {game.console || 'ROM'}
+                  </span>
+                </div>
 
                 {/* Console Badge in Top-Right */}
                 <span className={`badge-console badge-${(game.console || '').toLowerCase()} badge-top-right`}>

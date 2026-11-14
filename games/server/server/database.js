@@ -35,22 +35,25 @@ export function normalizeGameRecord(game) {
 
   // 1. Check ID for console tag (e.g. gm_switch_..., gm_ps2_..., gm_psp_..., gm_psx_..., gmpc_...)
   const idStr = String(rec.id || '');
-  if (idStr.startsWith('gm_switch_') || idStr.includes('_switch_') || idStr.includes('switch')) c = 'switch';
-  else if (idStr.startsWith('gm_ps2_') || idStr.includes('_ps2_') || idStr.includes('ps2')) c = 'ps2';
-  else if (idStr.startsWith('gm_psp_') || idStr.includes('_psp_') || idStr.includes('psp')) c = 'psp';
-  else if (idStr.startsWith('gm_psx_') || idStr.includes('_psx_') || idStr.includes('psx')) c = 'psx';
+  if (idStr.startsWith('gm_switch_') || idStr.includes('_switch_')) c = 'switch';
+  else if (idStr.startsWith('gm_ps2_') || idStr.includes('_ps2_')) c = 'ps2';
+  else if (idStr.startsWith('gm_psp_') || idStr.includes('_psp_')) c = 'psp';
+  else if (idStr.startsWith('gm_psx_') || idStr.includes('_psx_')) c = 'psx';
   else if (idStr.startsWith('gmpc_') || idStr.startsWith('gm_pc_') || idStr.includes('_pc_')) c = 'pc';
 
   // 2. Check title, filename, originalFilename, and files array
   const filename = String(rec.filename || rec.originalFilename || '');
+  const title = String(rec.title || '');
   const filesList = Array.isArray(rec.files) ? rec.files.map(f => f.name || '').join(' ') : '';
-  const allText = `${rec.title || ''} ${filename} ${filesList}`.toLowerCase();
+  const allText = `${title} ${filename} ${filesList}`.toLowerCase();
 
-  // Switch check
+  // Switch check: if filename/title or any file has Switch extension or keyword
   if (
     c === 'switch' ||
     /\.(nsp|nsz|xci|xcz)\b/i.test(allText) ||
-    /\b(switch|nintendo\s*switch|nsw)\b/i.test(allText)
+    /\b(switch|nintendo\s*switch|nsw)\b/i.test(allText) ||
+    title.toLowerCase().trim() === 'switch' ||
+    filename.toLowerCase().trim() === 'switch'
   ) {
     c = 'switch';
   }
@@ -250,13 +253,22 @@ export function removeGame(userId, gameId) {
 export function getGames(userId) {
   const userGames = Object.values(db.games).filter((g) => g.userId === userId);
   const userFavs = new Set(db.favorites[userId] || []);
-  return userGames.map((g) => {
+  const results = [];
+
+  for (const g of userGames) {
     const norm = normalizeGameRecord(g);
-    return {
+    const titleLower = String(norm.title || '').toLowerCase().trim();
+    // Exclude folder containers that are literally named after a console
+    if (['switch', 'pc', 'ps2', 'psp', 'psx'].includes(titleLower) && norm.isFolder && (!norm.files || norm.files.length === 0 || norm.isPcGame)) {
+      continue;
+    }
+    results.push({
       ...norm,
       isFavorite: userFavs.has(norm.id)
-    };
-  });
+    });
+  }
+
+  return results;
 }
 
 export function getGame(gameId) {
@@ -272,8 +284,14 @@ export function saveGames(userId, gameList, source = 'drive') {
   }
 
   for (const game of gameList) {
-    db.games[game.id] = {
-      ...game,
+    const norm = normalizeGameRecord(game);
+    const titleLower = String(norm.title || '').toLowerCase().trim();
+    // Do not save a card that is literally a console folder container under PC
+    if (['switch', 'pc', 'ps2', 'psp', 'psx'].includes(titleLower) && norm.isFolder && (norm.isPcGame || norm.console === 'pc')) {
+      continue;
+    }
+    db.games[norm.id] = {
+      ...norm,
       source,
       userId
     };

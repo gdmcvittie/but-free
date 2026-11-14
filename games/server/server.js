@@ -414,8 +414,14 @@ app.get('/api/drive/file/:driveId', async (req, res) => {
   }
 });
 
-// Dynamic Game Cover Art Endpoint (on-demand art resolution with in-memory caching)
-const coverArtCache = new Map();
+// Dynamic Game Cover Art Endpoint (on-demand art resolution with in-memory and disk caching)
+const COVERS_DIR = process.env.COVERS_DIR || path.join(__dirname, 'data', 'covers');
+if (!fs.existsSync(COVERS_DIR)) {
+  try {
+    fs.mkdirSync(COVERS_DIR, { recursive: true });
+  } catch (_) {}
+}
+const coverBufferCache = new Map();
 
 function generatePlaceholderSvg(title, consoleKey) {
   const cleanTitle = (title || 'Game')
@@ -423,21 +429,61 @@ function generatePlaceholderSvg(title, consoleKey) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
-  const cBadge = String(consoleKey || 'ROM')
-    .toUpperCase()
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  const canonKey = String(consoleKey || 'ROM').toLowerCase().trim();
+  const cBadge = canonKey.toUpperCase();
+
+  // Thematic background gradients per console family
+  let gradStart = '#18181b';
+  let gradEnd = '#27272a';
+  let accent = '#31a8ff';
+  if (canonKey === 'switch') {
+    gradStart = '#4a0808'; gradEnd = '#1a0505'; accent = '#e60012';
+  } else if (canonKey === 'ps2') {
+    gradStart = '#071b38'; gradEnd = '#050c18'; accent = '#0055ff';
+  } else if (canonKey === 'psx' || canonKey === 'ps1') {
+    gradStart = '#122544'; gradEnd = '#0b1424'; accent = '#003791';
+  } else if (canonKey === 'psp') {
+    gradStart = '#062638'; gradEnd = '#06131c'; accent = '#00a2ff';
+  } else if (canonKey === 'pc') {
+    gradStart = '#2b123d'; gradEnd = '#0f0817'; accent = '#a855f7';
+  } else if (canonKey === 'snes' || canonKey === 'gba') {
+    gradStart = '#241242'; gradEnd = '#0c0717'; accent = '#8b5cf6';
+  } else if (canonKey === 'n64' || canonKey === 'gamecube') {
+    gradStart = '#0a2e1d'; gradEnd = '#05140c'; accent = '#10b981';
+  }
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" fill="none">
-    <rect width="300" height="400" rx="8" fill="#18181b"/>
-    <rect x="2" y="2" width="296" height="396" rx="6" stroke="#27272a" stroke-width="2"/>
-    <circle cx="150" cy="160" r="48" fill="#27272a"/>
-    <path d="M135 160h30M150 145v30" stroke="#71717a" stroke-width="4" stroke-linecap="round"/>
-    <text x="150" y="250" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="700" fill="#a1a1aa" text-anchor="middle">${cleanTitle.slice(0, 24)}</text>
-    <rect x="110" y="270" width="80" height="22" rx="4" fill="#3f3f46"/>
-    <text x="150" y="285" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600" fill="#f4f4f5" text-anchor="middle">${cBadge}</text>
+    <defs>
+      <linearGradient id="bg" x1="0" y1="0" x2="300" y2="400" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="${gradStart}"/>
+        <stop offset="100%" stop-color="${gradEnd}"/>
+      </linearGradient>
+      <linearGradient id="overlay" x1="0" y1="0" x2="0" y2="400" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.08"/>
+        <stop offset="50%" stop-color="#000000" stop-opacity="0"/>
+        <stop offset="100%" stop-color="#000000" stop-opacity="0.65"/>
+      </linearGradient>
+    </defs>
+    <rect width="300" height="400" rx="8" fill="url(#bg)"/>
+    <rect width="300" height="400" rx="8" fill="url(#overlay)"/>
+    <rect x="2" y="2" width="296" height="396" rx="6" stroke="${accent}" stroke-opacity="0.3" stroke-width="2"/>
+    
+    <!-- Console Banner -->
+    <rect x="12" y="16" width="276" height="28" rx="4" fill="#000000" fill-opacity="0.6"/>
+    <text x="150" y="35" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="800" fill="${accent}" letter-spacing="2" text-anchor="middle">${cBadge}</text>
+
+    <!-- Art Centerpiece Icon -->
+    <circle cx="150" cy="180" r="54" fill="#000000" fill-opacity="0.4"/>
+    <circle cx="150" cy="180" r="50" stroke="${accent}" stroke-width="2" stroke-opacity="0.5"/>
+    <path d="M132 175h36M150 157v36" stroke="#ffffff" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="132" cy="195" r="4" fill="${accent}"/>
+    <circle cx="168" cy="195" r="4" fill="${accent}"/>
+
+    <!-- Title and Footer -->
+    <rect x="12" y="300" width="276" height="84" rx="6" fill="#000000" fill-opacity="0.75"/>
+    <text x="150" y="336" font-family="system-ui, -apple-system, sans-serif" font-size="15" font-weight="800" fill="#ffffff" text-anchor="middle">${cleanTitle.slice(0, 22)}</text>
+    ${cleanTitle.length > 22 ? `<text x="150" y="356" font-family="system-ui, -apple-system, sans-serif" font-size="12" font-weight="600" fill="#a1a1aa" text-anchor="middle">${cleanTitle.slice(22, 44)}</text>` : ''}
+    <text x="150" y="374" font-family="system-ui, -apple-system, sans-serif" font-size="9" font-weight="700" fill="${accent}" letter-spacing="1.5" text-anchor="middle">AUTHENTIC ASSET</text>
   </svg>`;
 }
 
@@ -449,28 +495,84 @@ app.get('/api/games/cover', async (req, res) => {
   }
 
   const clean = cleanGameTitle(title, false);
+  const safeFilename = `${String(consoleKey || 'gen').toLowerCase()}_${clean.toLowerCase().replace(/[^a-z0-9_-]/g, '_')}`;
+  const diskPathJpg = path.join(COVERS_DIR, `${safeFilename}.jpg`);
+  const diskPathPng = path.join(COVERS_DIR, `${safeFilename}.png`);
+
+  // 1. Check in-memory cache
   const cacheKey = `${String(consoleKey || '').toLowerCase()}:${clean.toLowerCase()}`;
-  if (coverArtCache.has(cacheKey)) {
-    const cachedUrl = coverArtCache.get(cacheKey);
+  if (coverBufferCache.has(cacheKey)) {
+    const item = coverBufferCache.get(cacheKey);
+    res.setHeader('Content-Type', item.contentType);
     res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
-    return res.redirect(cachedUrl);
+    return res.send(item.buffer);
   }
 
+  // 2. Check disk cache
+  if (fs.existsSync(diskPathJpg)) {
+    try {
+      const buf = fs.readFileSync(diskPathJpg);
+      coverBufferCache.set(cacheKey, { buffer: buf, contentType: 'image/jpeg' });
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+      return res.send(buf);
+    } catch (_) {}
+  }
+  if (fs.existsSync(diskPathPng)) {
+    try {
+      const buf = fs.readFileSync(diskPathPng);
+      coverBufferCache.set(cacheKey, { buffer: buf, contentType: 'image/png' });
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+      return res.send(buf);
+    } catch (_) {}
+  }
+
+  // 3. Search and fetch internet game art directly on the server (never 302 redirect!)
   try {
     const netArt = await searchInternetGameArt(clean, consoleKey, raw || '');
-    if (netArt && netArt.sourceUrl) {
-      const redirectUrl = `/api/proxy-image?url=${encodeURIComponent(netArt.sourceUrl)}`;
-      coverArtCache.set(cacheKey, redirectUrl);
-      res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
-      return res.redirect(redirectUrl);
+    if (netArt) {
+      let buf = netArt.buffer;
+      let mime = netArt.mime || 'image/jpeg';
+
+      if (!buf && netArt.sourceUrl) {
+        try {
+          const upstream = await fetch(netArt.sourceUrl, {
+            headers: {
+              'User-Agent': 'FREEPLAY/1.0 (https://games.butfree.online; contact@butfree.online) Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+              'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+              'Referer': new URL(netArt.sourceUrl).origin + '/'
+            },
+            signal: AbortSignal.timeout(8000)
+          });
+          if (upstream.ok) {
+            buf = Buffer.from(await upstream.arrayBuffer());
+            mime = upstream.headers.get('content-type') || mime;
+          }
+        } catch (fetchErr) {
+          console.warn(`[Cover Art] Failed to download image from ${netArt.sourceUrl}:`, fetchErr.message);
+        }
+      }
+
+      if (buf && buf.length > 500) {
+        const ext = mime.includes('png') ? 'png' : 'jpg';
+        const savePath = path.join(COVERS_DIR, `${safeFilename}.${ext}`);
+        fs.promises.writeFile(savePath, buf).catch(() => {});
+        coverBufferCache.set(cacheKey, { buffer: buf, contentType: mime });
+        res.setHeader('Content-Type', mime);
+        res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+        return res.send(buf);
+      }
     }
   } catch (err) {
     console.warn(`[Cover Art] Lookup error for "${title}":`, err.message);
   }
 
+  // 4. Return branded styled SVG poster
+  const svg = generatePlaceholderSvg(clean, consoleKey);
   res.setHeader('Content-Type', 'image/svg+xml');
   res.setHeader('Cache-Control', 'public, max-age=86400');
-  return res.send(generatePlaceholderSvg(clean, consoleKey));
+  return res.send(svg);
 });
 
 app.head('/api/games/cover', (req, res) => {
@@ -493,7 +595,7 @@ app.get(['/api/proxy-image', '/api/proxy-media'], async (req, res) => {
 
     const upstream = await fetch(targetUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'User-Agent': 'FREEPLAY/1.0 (https://games.butfree.online; contact@butfree.online) Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
         'Referer': parsedOrigin ? `${parsedOrigin}/` : 'https://google.com/',
         'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
       },
