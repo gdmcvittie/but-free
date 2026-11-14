@@ -77,7 +77,7 @@ export default function Sidebar({
             </div>
             <div className="sidebar-brand-meta">
               <span className="sidebar-brand-title">FREEPLAY</span>
-              <span className="sidebar-brand-subtitle">WORKSTATION</span>
+              <span className="sidebar-brand-subtitle">ARCADE</span>
             </div>
           </div>
           <span className="sidebar-cloud-badge">PRO</span>
