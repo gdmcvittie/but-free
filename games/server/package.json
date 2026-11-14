@@ -11,7 +11,7 @@
     "dev:server": "node server.js",
     "dev:client": "vite",
     "start": "node server.js",
-    "build": "vite build",
+    "build": "vite build && node -e \"import('fs').then(f => { try { f.mkdirSync('tmp', { recursive: true }); f.writeFileSync('tmp/restart.txt', String(Date.now())); } catch (_) {} })\"",
     "download:cores": "node scripts/download-cores.js"
   },
   "dependencies": {

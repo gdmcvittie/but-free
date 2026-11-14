@@ -66,12 +66,16 @@ export function normalizeGameRecord(game) {
   ) {
     c = 'psp';
   }
-  // PS2 check
+  // PS2 check: any Sony ISO > 700MB, or with GB size, or with PS2 serial code
   else if (
     c === 'ps2' ||
     /\b(ps\s*2|playstation\s*2)\b/i.test(allText) ||
     /(slus|sles|scus|sces|slpm|slps|scaj|scka)[-_\s]?\d{4,5}/i.test(allText) ||
-    ((c === 'psx' || c === 'ps1' || c === 'playstation') && rec.size && Number(rec.size) > 850 * 1024 * 1024)
+    ((c === 'psx' || c === 'ps1' || c === 'playstation' || c === 'pc' || !c) && (
+      filename.toLowerCase().endsWith('.iso') ||
+      String(rec.sizeFormatted || '').includes('GB') ||
+      (rec.size && Number(rec.size) > 700 * 1024 * 1024)
+    ))
   ) {
     c = 'ps2';
   }
@@ -111,8 +115,21 @@ export function loadDatabase() {
 
       let modified = false;
       for (const [id, game] of Object.entries(db.games || {})) {
+        const titleLower = String(game.title || '').toLowerCase().trim();
+        // Remove errant folder container card named "switch" or "pc" under PC
+        if (['switch', 'pc', 'ps2', 'psp', 'psx'].includes(titleLower) && game.isFolder && (game.isPcGame || game.console === 'pc')) {
+          delete db.games[id];
+          modified = true;
+          continue;
+        }
+
         const norm = normalizeGameRecord(game);
-        if (norm.console !== game.console || norm.isDownloadOnly !== game.isDownloadOnly || norm.isPcGame !== game.isPcGame) {
+        if (
+          norm.console !== game.console ||
+          norm.isDownloadOnly !== game.isDownloadOnly ||
+          norm.isPcGame !== game.isPcGame ||
+          norm.coverUrl !== game.coverUrl
+        ) {
           db.games[id] = norm;
           modified = true;
         }

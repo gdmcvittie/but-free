@@ -1157,7 +1157,7 @@ export const GoogleDrive = {
       if (!IGNORED_FOLDER_NAMES.has(lower)) topLevelFolders.push(f);
     }
 
-    // Resolve console folders, expanding umbrella containers (e.g. "PlayStation", "Sony", "Nintendo", "Roms")
+    // Resolve console folders, expanding umbrella containers (e.g. "PlayStation", "Sony", "Nintendo", "Roms", etc.)
     const consoleFolders = []; // [{ id, name, consoleKey, parentId }]
     const visitedFolders = new Set();
 
@@ -1167,10 +1167,10 @@ export const GoogleDrive = {
 
       const fLower = (folder.name || '').toLowerCase().trim();
       const fNorm = fLower.replace(/[-_.]+/g, ' ');
-      const isKnownUmbrella = /^(sony|sony playstation|nintendo|retro games|roms|games|collection|systems|emulation)$/i.test(fNorm);
+      const isKnownUmbrella = /^(sony|playstation|sony playstation|nintendo|retro games|retro|roms|games|collection|systems|emulation)$/i.test(fNorm);
 
-      // Check for subfolders if it's a known umbrella container OR if it has no direct console hint
-      if (isKnownUmbrella && depth < 2) {
+      // Check for subfolders if it could be an umbrella or container folder
+      if (depth < 2) {
         const subs = await driveQueryFiles(
           `'${folder.id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
           'id,name'
@@ -1184,7 +1184,10 @@ export const GoogleDrive = {
           return !IGNORED_FOLDER_NAMES.has(sLower);
         });
 
-        if (validSubs.length > 0) {
+        // If it's a known umbrella OR if its children are recognized console folders (e.g. ps2, psp, psx, switch inside it)
+        const hasConsoleChildren = validSubs.some(s => resolveConsoleKey(s.name) !== 'other');
+        if ((isKnownUmbrella || hasConsoleChildren) && validSubs.length > 0) {
+          console.log(`[GoogleDrive] Expanding container folder "${folder.name}" (${validSubs.length} subfolders)`);
           for (const sub of validSubs) {
             await resolveConsoleFolder(sub, folder.id, depth + 1);
           }
