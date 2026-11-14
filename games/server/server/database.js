@@ -28,6 +28,29 @@ function ensureDir() {
   }
 }
 
+export const KNOWN_CONSOLES = new Set([
+  'nes', 'snes', 'gb', 'gbc', 'gba', 'sega', 'genesis', 'megadrive',
+  'neo', 'neogeo', 'arcade', 'pce', 'tg16', 'gg', 'sms', 'pc', 'web',
+  'switch', 'psx', 'ps1', 'ps2', 'ps3', 'ps4', 'ps5', 'psp', 'vita',
+  'n64', 'nds', '3ds', 'gamecube', 'wii', 'wiiu', 'xbox', 'xbox360',
+  'xboxone', 'saturn', 'dreamcast', 'atari', 'amiga', 'c64', 'dos', 'vb', 'pico8'
+]);
+
+export const IGNORED_NAMES = new Set([
+  'system', 'plugins', 'textures', 'game', 'ppsspp-state', 'ppsspp_state', 'ppsspp',
+  'savedata', 'cheats', 'cache', 'shaders', 'bios', 'logs', 'screenshots',
+  'retroarch', 'retroarch-save-files', 'saves', 'memcards', 'games'
+]);
+
+export function isIgnoredName(name) {
+  if (!name) return false;
+  const lower = String(name).toLowerCase().trim();
+  const clean = lower.replace(/[-_.\s]+/g, '');
+  if (IGNORED_NAMES.has(lower) || IGNORED_NAMES.has(clean)) return true;
+  if (clean.startsWith('ppsspp') || clean.includes('savestate') || clean.includes('gamesave')) return true;
+  return false;
+}
+
 export function normalizeGameRecord(game) {
   if (!game) return game;
   let rec = { ...game };
@@ -50,6 +73,8 @@ export function normalizeGameRecord(game) {
   // Switch check: if filename/title or any file has Switch extension or keyword
   if (
     c === 'switch' ||
+    c.includes('xci') ||
+    c.includes('nsp') ||
     /\.(nsp|nsz|xci|xcz)\b/i.test(allText) ||
     /\b(switch|nintendo\s*switch|nsw)\b/i.test(allText) ||
     title.toLowerCase().trim() === 'switch' ||
@@ -78,6 +103,10 @@ export function normalizeGameRecord(game) {
     ))
   ) {
     c = 'ps2';
+  }
+  // Unrecognized console slug (e.g. subfolder of PC like "takeover-2", "mortal-shell-ii-devout-edition")
+  else if (!KNOWN_CONSOLES.has(c)) {
+    c = 'pc';
   }
 
   rec.console = c;
@@ -116,7 +145,21 @@ export function loadDatabase() {
       let modified = false;
       for (const [id, game] of Object.entries(db.games || {})) {
         const titleLower = String(game.title || '').toLowerCase().trim();
-        // Remove errant folder container card named "switch" or "pc" under PC
+        const consoleLower = String(game.console || '').toLowerCase().trim();
+        const filenameLower = String(game.filename || '').toLowerCase().trim();
+
+        // 1. Remove emulator metadata / cache folders mistakenly added as games
+        if (
+          isIgnoredName(consoleLower) ||
+          isIgnoredName(titleLower) ||
+          isIgnoredName(filenameLower)
+        ) {
+          delete db.games[id];
+          modified = true;
+          continue;
+        }
+
+        // 2. Remove errant folder container card named "switch" or "pc" under PC
         if (['switch', 'pc', 'ps2', 'psp', 'psx'].includes(titleLower) && game.isFolder && (game.isPcGame || game.console === 'pc')) {
           delete db.games[id];
           modified = true;
@@ -275,6 +318,9 @@ export function getGames(userId) {
   for (const g of userGames) {
     const norm = normalizeGameRecord(g);
     const titleLower = String(norm.title || '').toLowerCase().trim();
+    if (isIgnoredName(norm.title) || isIgnoredName(norm.console) || isIgnoredName(norm.filename)) {
+      continue;
+    }
     // Exclude folder containers that are literally named after a console
     if (['switch', 'pc', 'ps2', 'psp', 'psx'].includes(titleLower) && norm.isFolder && (!norm.files || norm.files.length === 0 || norm.isPcGame)) {
       continue;
@@ -303,6 +349,9 @@ export function saveGames(userId, gameList, source = 'drive') {
   for (const game of gameList) {
     const norm = normalizeGameRecord(game);
     const titleLower = String(norm.title || '').toLowerCase().trim();
+    if (isIgnoredName(norm.title) || isIgnoredName(norm.console) || isIgnoredName(norm.filename)) {
+      continue;
+    }
     // Do not save a card that is literally a console folder container under PC
     if (['switch', 'pc', 'ps2', 'psp', 'psx'].includes(titleLower) && norm.isFolder && (norm.isPcGame || norm.console === 'pc')) {
       continue;

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Play, Heart, Search, RefreshCw, HardDrive, Globe, Download, Gamepad2 } from 'lucide-react';
-import { isGameDownloadOnly } from '../utils/consoles';
+import { isGameDownloadOnly, isValidConsoleKey } from '../utils/consoles';
 
 export default function LibraryView({
   games = [],
@@ -22,8 +22,10 @@ export default function LibraryView({
   const consoles = useMemo(() => {
     const counts = {};
     games.forEach((g) => {
-      const key = (g.console || 'other').toLowerCase();
-      counts[key] = (counts[key] || 0) + 1;
+      const key = (g.console || '').toLowerCase().trim();
+      if (isValidConsoleKey(key)) {
+        counts[key] = (counts[key] || 0) + 1;
+      }
     });
     return Object.entries(counts)
       .map(([key, count]) => ({ key, count }))

@@ -112,7 +112,22 @@ const PC_FILE_EXTS = new Set(['exe', 'msi', 'bat', '7z', 'rar', 'zip', 'bin', 'i
 
 const IGNORED_FILE_EXTS = new Set(['txt', 'nfo', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'html', 'pdf', 'url', 'srm', 'cfg', 'ini', 'md5', 'sha1', 'sfv', 'doc', 'docx', 'log', 'state']);
 
-const IGNORED_FOLDER_NAMES = new Set(['posters', 'save_states', 'savestates', 'game_saves', '.git', 'node_modules', 'temp', 'tmp']);
+export const IGNORED_FOLDER_NAMES = new Set([
+  'posters', 'save_states', 'savestates', 'game_saves', '.git', 'node_modules', 'temp', 'tmp',
+  'system', 'plugins', 'textures', 'game', 'ppsspp-state', 'ppsspp_state', 'ppsspp',
+  'savedata', 'cheats', 'cache', 'shaders', 'bios', 'logs', 'screenshots',
+  'retroarch', 'retroarch-save-files', 'saves', 'memcards', 'games'
+]);
+
+export function isIgnoredFolderName(name) {
+  if (!name) return true;
+  const lower = String(name).toLowerCase().trim();
+  const clean = lower.replace(/[-_.\s]+/g, '');
+  if (IGNORED_FOLDER_NAMES.has(lower) || IGNORED_FOLDER_NAMES.has(clean)) return true;
+  if (clean.startsWith('ppsspp') || clean.includes('savestate') || clean.includes('gamesave')) return true;
+  if (['savedata', 'cheats', 'textures', 'plugins', 'system', 'cache', 'shaders', 'bios', 'logs', 'screenshots', 'retroarch', 'games'].includes(clean)) return true;
+  return false;
+}
 
 // Map console names to Libretro thumbnail repository names
 const LIBRETRO_SYSTEM_NAMES = {
@@ -155,7 +170,7 @@ function formatBytes(bytes) {
 }
 
 export function resolveConsoleKey(folderName) {
-  if (!folderName) return 'other';
+  if (!folderName) return null;
   const lower = String(folderName).toLowerCase().trim();
   const norm = lower.replace(/[-_.]+/g, ' ');
 
@@ -201,12 +216,14 @@ export function resolveConsoleKey(folderName) {
   // Other retro
   if (/\b(pce|pc\s*engine|turbografx)\b/.test(norm)) return 'pce';
   if (/\b(pico8|pico-8|pico)\b/.test(norm)) return 'pico8';
+  if (/\b(arcade|mame|neogeo|neo\s*geo|neo)\b/.test(norm)) return 'arcade';
   if (/\b(atari)\b/.test(norm)) return 'atari';
   if (/\b(amiga)\b/.test(norm)) return 'amiga';
   if (/\b(c64|commodore)\b/.test(norm)) return 'c64';
   if (/\b(dos|ms-dos)\b/.test(norm)) return 'dos';
+  if (/\b(vb|virtual\s*boy)\b/.test(norm)) return 'vb';
 
-  return lower.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'other';
+  return null;
 }
 
 export function cleanGameTitle(rawName, isFolder = false) {
@@ -1109,7 +1126,7 @@ export const GoogleDrive = {
         posterFoldersByParent.set(user.gamesFolderId, f);
         continue;
       }
-      if (!IGNORED_FOLDER_NAMES.has(lower)) topLevelFolders.push(f);
+      if (!isIgnoredFolderName(lower)) topLevelFolders.push(f);
     }
 
     // Resolve console folders, expanding umbrella containers (e.g. "PlayStation", "Sony", "Nintendo", "Roms", etc.)
@@ -1122,9 +1139,20 @@ export const GoogleDrive = {
 
       const fLower = (folder.name || '').toLowerCase().trim();
       const fNorm = fLower.replace(/[-_.]+/g, ' ');
-      const isKnownUmbrella = /^(sony|playstation|sony playstation|nintendo|retro games|retro|roms|games|collection|systems|emulation)$/i.test(fNorm);
+      if (isIgnoredFolderName(fLower)) return;
 
-      // Check for subfolders if it could be an umbrella or container folder
+      const consoleKey = resolveConsoleKey(folder.name);
+
+      // If this folder ITSELF is a recognized console (e.g. "pc", "switch", "ps2", "psp", "psx", "nes", "snes", etc.)
+      if (consoleKey) {
+        consoleFolders.push({ id: folder.id, name: folder.name, consoleKey, parentId });
+        console.log(`[GoogleDrive] Console folder mapped: "${folder.name}" -> console "${consoleKey}" (ID: ${folder.id})`);
+        return;
+      }
+
+      // Otherwise, check if it's an umbrella container folder (e.g. "PlayStation", "Sony", "Nintendo", "Roms", "Systems")
+      const isKnownUmbrella = /^(sony|playstation|sony playstation|nintendo|sega|retro games|retro|roms|games|collection|systems|emulation|emulators)$/i.test(fNorm);
+
       if (depth < 2) {
         const subs = await driveQueryFiles(
           `'${folder.id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
@@ -1136,11 +1164,11 @@ export const GoogleDrive = {
             posterFoldersByParent.set(folder.id, s);
             return false;
           }
-          return !IGNORED_FOLDER_NAMES.has(sLower);
+          return !isIgnoredFolderName(sLower);
         });
 
-        // If it's a known umbrella OR if its children are recognized console folders (e.g. ps2, psp, psx, switch inside it)
-        const hasConsoleChildren = validSubs.some(s => resolveConsoleKey(s.name) !== 'other');
+        // Expand ONLY if it's a known umbrella OR if ANY of its immediate children is a recognized console
+        const hasConsoleChildren = validSubs.some(s => resolveConsoleKey(s.name) !== null);
         if ((isKnownUmbrella || hasConsoleChildren) && validSubs.length > 0) {
           console.log(`[GoogleDrive] Expanding container folder "${folder.name}" (${validSubs.length} subfolders)`);
           for (const sub of validSubs) {
@@ -1149,10 +1177,6 @@ export const GoogleDrive = {
           return;
         }
       }
-
-      const consoleKey = resolveConsoleKey(folder.name);
-      consoleFolders.push({ id: folder.id, name: folder.name, consoleKey, parentId });
-      console.log(`[GoogleDrive] Console folder mapped: "${folder.name}" -> console "${consoleKey}" (ID: ${folder.id})`);
     };
 
     for (const f of topLevelFolders) {
@@ -1228,11 +1252,11 @@ export const GoogleDrive = {
           posterFoldersByParent.set(cFolder.id, sf);
           continue;
         }
-        if (IGNORED_FOLDER_NAMES.has(sfLower)) continue;
+        if (isIgnoredFolderName(sfLower)) continue;
 
         // If this subfolder is itself a recognized console (e.g. "switch", "psp", "ps2", "psx" inside "pc" or vice-versa)
         const mappedConsole = resolveConsoleKey(sf.name);
-        if (mappedConsole !== 'other' && mappedConsole !== consoleKey) {
+        if (mappedConsole && mappedConsole !== consoleKey) {
           console.log(`[GoogleDrive] Detected nested console folder "${sf.name}" -> console "${mappedConsole}" inside "${cFolder.name}"`);
           if (!consoleFolders.some(cf => cf.id === sf.id)) {
             consoleFolders.push({ id: sf.id, name: sf.name, consoleKey: mappedConsole, parentId: cFolder.id });

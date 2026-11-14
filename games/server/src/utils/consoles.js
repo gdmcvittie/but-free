@@ -61,6 +61,13 @@ export function formatConsoleName(key) {
     .join(' ');
 }
 
+export const KNOWN_CONSOLES = new Set(Object.keys(CONSOLE_DISPLAY_NAMES));
+
+export function isValidConsoleKey(key) {
+  if (!key) return false;
+  return KNOWN_CONSOLES.has(String(key).toLowerCase().trim());
+}
+
 export function isGameDownloadOnly(game) {
   if (!game) return false;
   if (game.isWebGame || game.console === 'web' || (game.webUrl || '').startsWith('http')) {

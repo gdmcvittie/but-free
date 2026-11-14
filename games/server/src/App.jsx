@@ -11,6 +11,7 @@ import EmulatorModal from './components/EmulatorModal';
 import AuthModal from './components/AuthModal';
 import LoginGate from './components/LoginGate';
 import { fetchJson, fetchJsonConditional } from './utils/api';
+import { isValidConsoleKey } from './utils/consoles';
 import {
   cacheGameForOffline,
   isAndroidOfflineMode,
@@ -84,8 +85,10 @@ export default function App() {
   const consoles = useMemo(() => {
     const counts = {};
     games.forEach((g) => {
-      const key = (g.console || 'other').toLowerCase();
-      counts[key] = (counts[key] || 0) + 1;
+      const key = (g.console || '').toLowerCase().trim();
+      if (isValidConsoleKey(key)) {
+        counts[key] = (counts[key] || 0) + 1;
+      }
     });
     return Object.entries(counts)
       .map(([key, count]) => ({ key, count }))
