@@ -14,7 +14,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 import { GoogleAuth } from './googleAuth.js';
-import { GoogleDrive } from './googleDrive.js';
+import { GoogleDrive, searchInternetGameArt } from './googleDrive.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -232,6 +232,28 @@ export function registerLibraryRoutes(app, { Database }) {
       directUrl: driveId ? `https://drive.google.com/uc?export=download&id=${driveId}` : null,
       links
     });
+  });
+
+  // -------------------------------------------------------------
+  // Dynamic Game Cover Art Endpoint (on-demand art resolution)
+  // -------------------------------------------------------------
+  app.get('/api/games/cover', async (req, res) => {
+    const { title, console: consoleKey, raw } = req.query;
+    if (!title || typeof title !== 'string') {
+      res.setHeader('Content-Type', 'image/svg+xml');
+      return res.status(400).send('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>');
+    }
+    try {
+      const netArt = await searchInternetGameArt(title, consoleKey, raw || '');
+      if (netArt && netArt.sourceUrl) {
+        res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+        return res.redirect(`/api/proxy-image?url=${encodeURIComponent(netArt.sourceUrl)}`);
+      }
+    } catch (_) {}
+
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    return res.send('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>');
   });
 
   // -------------------------------------------------------------

@@ -30,32 +30,50 @@ function ensureDir() {
 
 export function normalizeGameRecord(game) {
   if (!game) return game;
-  const c = String(game.console || '').toLowerCase().trim();
+  let rec = { ...game };
+  const c = String(rec.console || '').toLowerCase().trim();
+
+  // Systems not supported by in-browser emulator cores are download-only
+  const downloadOnlySystems = new Set([
+    'switch', 'ps2', 'psp', 'ps3', 'ps4', 'ps5', 'vita', 'pc',
+    'gamecube', 'wii', 'wiiu', '3ds', 'xbox', 'xbox360', 'xboxone'
+  ]);
+  if (downloadOnlySystems.has(c)) {
+    rec.isDownloadOnly = true;
+  }
+
   if (c === 'psx' || c === 'ps1' || c === 'playstation') {
-    const text = `${game.title || ''} ${game.filename || ''} ${game.originalFilename || ''}`;
-    const filename = String(game.filename || game.originalFilename || '');
+    const text = `${rec.title || ''} ${rec.filename || ''} ${rec.originalFilename || ''}`;
+    const filename = String(rec.filename || rec.originalFilename || '');
 
     // 1. Check PSP tags, serials, or unique extensions (.cso, .pbp)
     if (
       /\b(psp|playstation\s*portable)\b|(ulus|ules|ucus|uces|uljs|uljm|ucjs|npeg|npug|npuh|npez|npuz)[-_\s]?\d{4,5}/i.test(text) ||
       /\.(cso|pbp)$/i.test(filename)
     ) {
-      return { ...game, console: 'psp', isDownloadOnly: true };
+      rec.console = 'psp';
+      rec.isDownloadOnly = true;
     }
-
     // 2. Check PS2 tags or serials
-    if (
+    else if (
       /\b(ps\s*2|playstation\s*2)\b|(slus|sles|scus|sces|slpm|slps|scaj|scka)[-_\s]?\d{4,5}/i.test(text)
     ) {
-      return { ...game, console: 'ps2', isDownloadOnly: true };
+      rec.console = 'ps2';
+      rec.isDownloadOnly = true;
     }
-
     // 3. PS1 CDs physically cannot exceed 850 MB; anything larger is a PS2 DVD!
-    if (game.size && Number(game.size) > 850 * 1024 * 1024) {
-      return { ...game, console: 'ps2', isDownloadOnly: true };
+    else if (rec.size && Number(rec.size) > 850 * 1024 * 1024) {
+      rec.console = 'ps2';
+      rec.isDownloadOnly = true;
     }
   }
-  return game;
+
+  // Ensure coverUrl fallback if null or missing
+  if (!rec.coverUrl && rec.title) {
+    rec.coverUrl = `/api/games/cover?title=${encodeURIComponent(rec.title)}&console=${encodeURIComponent(rec.console || '')}`;
+  }
+
+  return rec;
 }
 
 export function loadDatabase() {

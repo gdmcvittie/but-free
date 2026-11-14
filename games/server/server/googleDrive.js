@@ -404,7 +404,7 @@ async function processPosterBuffer(buffer, sourceMime) {
  * Tier 4: Wikipedia PageImages API (official infobox covers for retro & PC games).
  * Tier 5: Open-web search (DuckDuckGo images).
  */
-async function searchInternetGameArt(cleanTitle, consoleKey = '', rawFilename = '') {
+export async function searchInternetGameArt(cleanTitle, consoleKey = '', rawFilename = '') {
   const clean = cleanGameTitle(cleanTitle || rawFilename || '', false);
   if (!clean || clean.length < 2) return null;
 
@@ -900,6 +900,11 @@ export const GoogleDrive = {
         const res = await fetch(url.toString(), {
           headers: { Authorization: `Bearer ${accessToken}` }
         });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          console.error(`[GoogleDrive API ${res.status}]:`, errData.error?.message || res.statusText);
+          break;
+        }
         const data = await res.json();
         if (data.files) results.push(...data.files);
         pageToken = data.nextPageToken;
@@ -1059,154 +1064,67 @@ export const GoogleDrive = {
       console.warn('[GoogleDrive] Could not sync favorites from Drive:', favErr.message);
     }
 
-    // 1. Enumerate the folder tree (Games root -> level 1 -> level 2)
+    // 1. Enumerate Console Folders under the main games folder
+    // The main games folder contains console subfolders (e.g. switch, psp, ps2, psx, n64, snes, pc)
     const rawLevel1Folders = await driveQueryFiles(
       `'${user.gamesFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
       'id,name'
     );
-    const level1Folders = [];
+    const topLevelFolders = [];
     for (const f of rawLevel1Folders) {
       const lower = (f.name || '').toLowerCase().trim();
-      // A 'posters' folder inside a console folder is a legacy poster source.
       if (lower === 'posters') {
         posterFoldersByParent.set(user.gamesFolderId, f);
         continue;
       }
-      if (!IGNORED_FOLDER_NAMES.has(lower)) level1Folders.push(f);
+      if (!IGNORED_FOLDER_NAMES.has(lower)) topLevelFolders.push(f);
+    }
+
+    // Resolve console folders, expanding umbrella containers (e.g. "PlayStation", "Sony", "Nintendo")
+    const consoleFolders = []; // [{ id, name, consoleKey, parentId }]
+    for (const f of topLevelFolders) {
+      const lower = (f.name || '').toLowerCase().trim();
+      const norm = lower.replace(/[-_.]+/g, ' ');
+      const isUmbrella = /^(playstation|sony|sony playstation|nintendo|retro games|roms|games|collection|systems|emulation)$/i.test(norm);
+
+      if (isUmbrella) {
+        // Query subfolders of umbrella container as individual console folders
+        const subs = await driveQueryFiles(
+          `'${f.id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+          'id,name'
+        );
+        for (const sub of subs) {
+          const subLower = (sub.name || '').toLowerCase().trim();
+          if (subLower === 'posters') {
+            posterFoldersByParent.set(f.id, sub);
+            continue;
+          }
+          if (IGNORED_FOLDER_NAMES.has(subLower)) continue;
+          const consoleKey = folderHint(sub.name) ||
+            sub.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') ||
+            'other';
+          consoleFolders.push({ id: sub.id, name: sub.name, consoleKey, parentId: f.id });
+        }
+      } else {
+        const consoleKey = folderHint(f.name) ||
+          f.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') ||
+          'other';
+        consoleFolders.push({ id: f.id, name: f.name, consoleKey, parentId: user.gamesFolderId });
+      }
     }
 
     const folderInfo = new Map(); // folderId -> { name, parentId, hint }
     folderInfo.set(user.gamesFolderId, { name: user.gamesFolderName || 'Games', parentId: null, hint: null });
-
-    if (level1Folders.length > 0) {
-      const l1Ids = level1Folders.map(f => f.id);
-      const parentClause = l1Ids.map(id => `'${id}' in parents`).join(' or ');
-      const rawLevel2Folders = await driveQueryFiles(
-        `(${parentClause}) and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
-        'id,name,parents'
-      );
-
-      // Track folders that contain subfolders (definitely container folders)
-      const hasSubfolders = new Set();
-      for (const f of rawLevel2Folders) {
-        const parentId = f.parents && f.parents.length ? f.parents[0] : null;
-        if (parentId) hasSubfolders.add(parentId);
-      }
-
-      // Check level 3 folders for deeply nested collections (e.g. <console>/<game>/)
-      const validL2 = rawLevel2Folders.filter(f => !IGNORED_FOLDER_NAMES.has((f.name || '').toLowerCase().trim()));
-      let rawLevel3Folders = [];
-      if (validL2.length > 0) {
-        const l2Ids = validL2.map(f => f.id);
-        const l3Clauses = [];
-        for (let i = 0; i < l2Ids.length; i += 25) {
-          const batch = l2Ids.slice(i, i + 25);
-          l3Clauses.push(`(${batch.map(id => `'${id}' in parents`).join(' or ')})`);
-        }
-        for (const clause of l3Clauses) {
-          const l3 = await driveQueryFiles(
-            `${clause} and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
-            'id,name,parents'
-          );
-          rawLevel3Folders.push(...l3);
-        }
-        for (const f of rawLevel3Folders) {
-          const parentId = f.parents && f.parents.length ? f.parents[0] : null;
-          if (parentId) hasSubfolders.add(parentId);
-        }
-      }
-
-      for (const f of level1Folders) {
-        let hint = folderHint(f.name);
-        if (!hint && (hasSubfolders.has(f.id) || /(games|roms|collection|systems|emulation|library|pack)/i.test(f.name))) {
-          hint = f.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'other';
-        }
-        folderInfo.set(f.id, { name: f.name, parentId: user.gamesFolderId, hint });
-      }
-
-      for (const f of rawLevel2Folders) {
-        const parentId = f.parents && f.parents.length ? f.parents[0] : null;
-        const lower = (f.name || '').toLowerCase().trim();
-        if (lower === 'posters') {
-          if (parentId) posterFoldersByParent.set(parentId, f);
-          continue;
-        }
-        if (IGNORED_FOLDER_NAMES.has(lower)) continue;
-        let hint = folderHint(f.name);
-        if (!hint && hasSubfolders.has(f.id)) {
-          hint = f.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'other';
-        }
-        folderInfo.set(f.id, { name: f.name, parentId, hint });
-      }
-
-      for (const f of rawLevel3Folders) {
-        const parentId = f.parents && f.parents.length ? f.parents[0] : null;
-        const lower = (f.name || '').toLowerCase().trim();
-        if (IGNORED_FOLDER_NAMES.has(lower)) continue;
-        folderInfo.set(f.id, { name: f.name, parentId, hint: folderHint(f.name) });
-      }
-    } else {
-      for (const f of level1Folders) {
-        folderInfo.set(f.id, { name: f.name, parentId: user.gamesFolderId, hint: folderHint(f.name) });
-      }
+    for (const c of consoleFolders) {
+      folderInfo.set(c.id, { name: c.name, parentId: c.parentId, hint: c.consoleKey });
     }
 
-    // 2. Query all files under root + any folder (up to 3 levels deep)
-    const allFolderIds = Array.from(folderInfo.keys()).filter(id => id !== user.gamesFolderId);
-    const searchableParents = [user.gamesFolderId, ...allFolderIds];
-    const fileClauses = [];
-    let allFiles = [];
-    for (let i = 0; i < searchableParents.length; i += 20) {
-      const batch = searchableParents.slice(i, i + 20);
-      fileClauses.push(`(${batch.map(id => `'${id}' in parents`).join(' or ')})`);
-    }
-    for (const clause of fileClauses) {
-      const files = await driveQueryFiles(
-        `(${clause}) and mimeType != 'application/vnd.google-apps.folder' and trashed = false`
-      );
-      allFiles.push(...files);
-    }
-
-    // 2b. Index images lying loose next to ROMs (never games: image extensions
-    //     are ignored by detection) so they can be adopted as posters too.
-    for (const file of allFiles) {
-      if (!POSTER_IMAGE_EXTS.has(fileExt(file.name))) continue;
-      const parentId = file.parents && file.parents.length ? file.parents[0] : user.gamesFolderId;
-      if (!looseImagesByParent.has(parentId)) looseImagesByParent.set(parentId, new Map());
-      indexPosterFile(looseImagesByParent.get(parentId), file);
-    }
-
-    // 3. Infer console for each file by walking the folder chain upward
-    const resolveChainHint = (folderId) => {
-      let current = folderId;
-      const visited = new Set();
-      while (current && !visited.has(current)) {
-        visited.add(current);
-        const info = folderInfo.get(current);
-        if (!info) break;
-        if (info.hint) return { hint: info.hint, hintFolderId: current };
-        current = info.parentId;
-      }
-      return { hint: null, hintFolderId: null };
-    };
-
-    const isContainerFolder = (fId) => {
-      if (!fId || fId === user.gamesFolderId) return true;
-      const info = folderInfo.get(fId);
-      if (!info) return true;
-      const lower = (info.name || '').toLowerCase().trim();
-      if (/^(pc games|pc|gog|gog\.com|epic|epic games|itch|itch\.io|retro games|roms|games|collection|systems|emulation|playstation|sony|sony playstation)$/i.test(lower)) {
-        return true;
-      }
-      for (const entry of FOLDER_CONSOLE_HINTS) {
-        if (entry.names.includes(lower)) return true;
-      }
-      return false;
-    };
-
+    // Fast art discovery: checks Drive index, then public CDN / internet art, with dynamic endpoint fallback
     const findCoverForGame = async (stem, title, consoleKey, folderId = null) => {
       const keys = posterLookupKeys(stem.toLowerCase(), title.toLowerCase(), consoleKey);
       let coverUrl = null;
+
+      // 1. Check local poster index in Google Drive (posters/<console>/ or <root>/posters/)
       const canonFolder = postersFolderByConsole.get(String(consoleKey || '').toLowerCase()) || null;
       if (canonFolder) {
         const canonIdx = await getPosterIndex(canonFolder.id);
@@ -1223,345 +1141,172 @@ export const GoogleDrive = {
         const hit = findPosterIn(looseIdx, keys);
         if (hit) coverUrl = `/api/drive/file/${hit.id}`;
       }
-      // 4. Auto-discover box art, posters, or screenshots across Libretro, Steam, GOG, Wikipedia, Web
+
+      // 2. Internet art search (Libretro CDN, Steam CDN, GOG, Wikipedia, DuckDuckGo)
       if (!coverUrl) {
         try {
           const netArt = await searchInternetGameArt(title, consoleKey, stem);
-          if (netArt && netArt.buffer && netArt.buffer.length > 500) {
-            const processed = await processPosterBuffer(netArt.buffer, netArt.mime);
-            const destFolder = await ensureConsolePostersFolder(consoleKey);
-            if (destFolder) {
-              const posterName = `${sanitizeDriveName(stem)}.${processed.ext}`;
-              const uploaded = await this.uploadBufferToDrive(
-                user,
-                processed.buffer,
-                posterName,
-                processed.mime,
-                destFolder.id
-              );
-              if (uploaded && uploaded.id) {
-                const canonicalIndex = await getPosterIndex(destFolder.id);
-                indexPosterFile(canonicalIndex, { ...uploaded, parents: [destFolder.id] });
-                coverUrl = `/api/drive/file/${uploaded.id}`;
-                console.log(`[GoogleDrive] Saved ${netArt.source} for "${title}" (${consoleKey}) -> ${posterName}`);
-              }
-            }
-            if (!coverUrl && netArt.sourceUrl) {
-              coverUrl = `/api/proxy-image?url=${encodeURIComponent(netArt.sourceUrl)}`;
-            }
+          if (netArt && netArt.sourceUrl) {
+            coverUrl = `/api/proxy-image?url=${encodeURIComponent(netArt.sourceUrl)}`;
           }
         } catch (err) {
-          console.warn(`[GoogleDrive] Failed art search for "${title}" (${consoleKey}):`, err.message);
+          console.warn(`[GoogleDrive] Art lookup failed for "${title}" (${consoleKey}):`, err.message);
         }
       }
+
+      // 3. Fallback on-demand cover endpoint so browser loads it on-demand
+      if (!coverUrl) {
+        coverUrl = `/api/games/cover?title=${encodeURIComponent(title)}&console=${encodeURIComponent(consoleKey || '')}`;
+      }
+
       return coverUrl;
     };
 
     const recognizedGames = [];
-    const downloadGroups = new Map(); // gameFolderId -> { consoleKey, files: [] }
 
-    // Index files by parent folder for companion disc sheet (.cue / .bin) pairing
-    const filesByParent = new Map();
-    for (const f of allFiles) {
-      const pId = (f.parents && f.parents[0]) || user.gamesFolderId;
-      if (!filesByParent.has(pId)) filesByParent.set(pId, []);
-      filesByParent.get(pId).push(f);
-    }
+    // 2. Scan each Console Folder
+    for (const cFolder of consoleFolders) {
+      const consoleKey = cFolder.consoleKey;
+      const isPlayable = SUPPORTED_EMULATOR_CONSOLES.has(consoleKey);
 
-    for (const file of allFiles) {
-      const ext = (file.name.split('.').pop() || '').toLowerCase();
-      const parentId = file.parents && file.parents.length ? file.parents[0] : user.gamesFolderId;
-      const { hint } = resolveChainHint(parentId);
+      // Query subfolders and direct files in this console folder
+      const subfolders = await driveQueryFiles(
+        `'${cFolder.id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+        'id,name'
+      );
+      const directFiles = await driveQueryFiles(
+        `'${cFolder.id}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`
+      );
 
-      if (IGNORED_FILE_EXTS.has(ext)) continue;
+      // Index loose poster images in the console folder
+      for (const file of directFiles) {
+        if (!POSTER_IMAGE_EXTS.has(fileExt(file.name))) continue;
+        if (!looseImagesByParent.has(cFolder.id)) looseImagesByParent.set(cFolder.id, new Map());
+        indexPosterFile(looseImagesByParent.get(cFolder.id), file);
+      }
 
-      // Handle disc sheet (.cue) vs raw image (.bin):
-      // If a .cue file has companion disc images (.bin / .iso / .chd / .pbp) in the same folder,
-      // skip the 100-byte .cue entry so only the playable image represents the game.
-      if (ext === 'cue') {
-        const siblings = filesByParent.get(parentId) || [];
-        const hasDiscCompanion = siblings.some(s => s.id !== file.id && ['bin', 'iso', 'chd', 'pbp', 'img'].includes(fileExt(s.name)));
-        if (hasDiscCompanion) {
+      // 2a. Process game subfolders within this console folder (e.g. switch/Super Mario Odyssey/ or ps2/GTA/)
+      const validSubfolders = subfolders.filter(sf => {
+        const sfLower = (sf.name || '').toLowerCase().trim();
+        if (sfLower === 'posters') {
+          posterFoldersByParent.set(cFolder.id, sf);
+          return false;
+        }
+        return !IGNORED_FOLDER_NAMES.has(sfLower);
+      });
+
+      for (const sf of validSubfolders) {
+        folderInfo.set(sf.id, { name: sf.name, parentId: cFolder.id, hint: consoleKey });
+        const sfFiles = await driveQueryFiles(
+          `'${sf.id}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`
+        );
+
+        // Index loose poster images inside the game folder
+        for (const file of sfFiles) {
+          if (!POSTER_IMAGE_EXTS.has(fileExt(file.name))) continue;
+          if (!looseImagesByParent.has(sf.id)) looseImagesByParent.set(sf.id, new Map());
+          indexPosterFile(looseImagesByParent.get(sf.id), file);
+        }
+
+        const gameFiles = sfFiles.filter(f => !IGNORED_FILE_EXTS.has(fileExt(f.name)) && !POSTER_IMAGE_EXTS.has(fileExt(f.name)));
+        if (gameFiles.length === 0) continue;
+
+        const mainFile = [...gameFiles].sort((a, b) => Number(b.size || 0) - Number(a.size || 0))[0];
+        const mainExt = fileExt(mainFile.name);
+        const totalSize = gameFiles.reduce((sum, f) => sum + Number(f.size || 0), 0);
+        const title = cleanGameTitle(sf.name, true);
+        const isDownload = !isPlayable || PC_FILE_EXTS.has(mainExt);
+
+        const coverUrl = await findCoverForGame(sf.name, title, consoleKey, sf.id);
+
+        recognizedGames.push({
+          id: `gm_${consoleKey}_${sf.id}`,
+          driveId: sf.id,
+          driveFileId: mainFile ? mainFile.id : null,
+          folderId: sf.id,
+          isFolder: true,
+          source: 'drive',
+          filename: sf.name,
+          title,
+          console: consoleKey,
+          isPcGame: consoleKey === 'pc',
+          isDownloadOnly: isDownload,
+          size: totalSize,
+          sizeFormatted: formatBytes(totalSize),
+          fileCount: gameFiles.length,
+          files: gameFiles.map(f => ({ name: f.name, driveId: f.id, size: Number(f.size || 0) })),
+          coverUrl,
+          addedAt: mainFile && mainFile.modifiedTime ? new Date(mainFile.modifiedTime).getTime() : Date.now()
+        });
+      }
+
+      // 2b. Process loose game files directly in the console folder
+      const looseGameFiles = directFiles.filter(f => !IGNORED_FILE_EXTS.has(fileExt(f.name)) && !POSTER_IMAGE_EXTS.has(fileExt(f.name)));
+
+      // Handle disc sheet (.cue) vs raw image (.bin): skip small .cue if .bin is present
+      const hasBinOrIso = looseGameFiles.some(f => ['bin', 'iso', 'chd', 'pbp', 'img'].includes(fileExt(f.name)));
+
+      for (const file of looseGameFiles) {
+        const ext = fileExt(file.name);
+        if (ext === 'cue' && hasBinOrIso) continue;
+
+        // Skip non-primary split volumes (.r01, .z01, track 2 .bin)
+        if (isPlayable && (/\.r\d{2}$/i.test(file.name) || /\.z\d{2}$/i.test(file.name) || /\.\d{3}$/.test(file.name))) {
           continue;
         }
+
+        const isDownload = !isPlayable || PC_FILE_EXTS.has(ext);
+        const cleanStem = file.name.replace(/\.[^.]+$/, '');
+        const title = cleanGameTitle(file.name);
+        const coverUrl = await findCoverForGame(cleanStem, title, consoleKey, cFolder.id);
+
+        recognizedGames.push({
+          id: `gm_${file.id}`,
+          driveId: file.id,
+          folderId: cFolder.id,
+          source: 'drive',
+          filename: file.name,
+          title,
+          console: consoleKey,
+          isPcGame: consoleKey === 'pc',
+          isDownloadOnly: isDownload,
+          size: Number(file.size || 0),
+          sizeFormatted: formatBytes(file.size),
+          coverUrl,
+          addedAt: file.modifiedTime ? new Date(file.modifiedTime).getTime() : Date.now()
+        });
       }
+    }
 
-      // 1. Detect console explicitly from filename, unique extension, or disc size
-      const fileConsole = detectConsoleFromFilename(file.name, ext, Number(file.size || 0), hint);
+    // 3. Process any loose files directly in the user's root games folder (if any)
+    const rootDirectFiles = await driveQueryFiles(
+      `'${user.gamesFolderId}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`
+    );
+    for (const file of rootDirectFiles) {
+      const ext = fileExt(file.name);
+      if (IGNORED_FILE_EXTS.has(ext) || POSTER_IMAGE_EXTS.has(ext)) continue;
 
-      // 2. Combine with folder hint (specific file tags override broad folder hints)
-      let consoleKey = fileConsole || hint || null;
-
-      // 3. Handle .bin disc images for retro CD consoles
-      if (ext === 'bin') {
-        const siblings = filesByParent.get(parentId) || [];
-        const hasCue = siblings.some(s => fileExt(s.name) === 'cue');
-        const parentName = folderInfo.get(parentId)?.name || '';
-        const isPsxFolder = /\b(psx|ps1|ps\s*1|ps\s*one|psone|playstation\s*1|playstation\s*one)\b/i.test(parentName);
-        if (hasCue || hint === 'psx' || isPsxFolder) {
-          consoleKey = 'psx';
-        }
-        // If there are multiple .bin files (e.g. Track 1, Track 2), only treat the largest .bin as the game entry
-        const binSiblings = siblings.filter(s => fileExt(s.name) === 'bin');
-        if (binSiblings.length > 1) {
-          const largestBin = [...binSiblings].sort((a, b) => Number(b.size || 0) - Number(a.size || 0))[0];
-          if (file.id !== largestBin.id) {
-            continue;
-          }
-        }
-      }
-
-      if (!consoleKey) {
-        consoleKey = EXTENSION_CONSOLE_MAP[ext] || null;
-      }
-
-      if (!consoleKey) {
-        if (parentId !== user.gamesFolderId) {
-          const parentInfo = folderInfo.get(parentId);
-          if (parentInfo) {
-            consoleKey = folderHint(parentInfo.name) ||
-              parentInfo.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') ||
-              'pc';
-          }
-        }
-      }
-      if (!consoleKey) continue;
-
-      const isSupportedEmulator = SUPPORTED_EMULATOR_CONSOLES.has(consoleKey) && !PC_FILE_EXTS.has(ext);
-
-      // Legacy split-volume suffixes outside of download groups are noise
-      if (isSupportedEmulator && (/\.r\d{2}$/i.test(file.name) || /\.z\d{2}$/i.test(file.name) || /\.\d{3}$/.test(file.name))) {
-        continue;
-      }
-
-      if (!isSupportedEmulator) {
-        // Any folder/system not supported by browser emulator (PC, Switch, PS2, PS3, GameCube, Wii, Xbox, or custom folder)
-        const parentIsContainer = isContainerFolder(parentId);
-        const gameFolderId = (!parentIsContainer && folderInfo.has(parentId)) ? parentId : null;
-
-        if (gameFolderId) {
-          if (!downloadGroups.has(gameFolderId)) {
-            downloadGroups.set(gameFolderId, { consoleKey, files: [] });
-          }
-          downloadGroups.get(gameFolderId).files.push(file);
-        } else {
-          // Loose file directly in container or root
-          const cleanTitle = cleanGameTitle(file.name);
-          const coverUrl = await findCoverForGame(
-            file.name.replace(/\.[^.]+$/, ''),
-            cleanTitle,
-            consoleKey,
-            parentId !== user.gamesFolderId ? parentId : null
-          );
-
-          recognizedGames.push({
-            id: `gm_${file.id}`,
-            driveId: file.id,
-            folderId: parentId !== user.gamesFolderId ? parentId : null,
-            source: 'drive',
-            filename: file.name,
-            title: cleanTitle,
-            console: consoleKey,
-            isPcGame: consoleKey === 'pc',
-            isDownloadOnly: true,
-            size: Number(file.size || 0),
-            sizeFormatted: formatBytes(file.size),
-            coverUrl,
-            addedAt: file.modifiedTime ? new Date(file.modifiedTime).getTime() : Date.now()
-          });
-        }
-        continue;
-      }
-
-      // Supported browser emulator games (NES, SNES, GBA, etc.)
-      const cleanTitle = cleanGameTitle(file.name);
-      const baseNoExt = file.name.replace(/\.[^.]+$/, '').trim().toLowerCase();
-      const cleanLower = cleanTitle.toLowerCase();
-
-      const romKeys = posterLookupKeys(baseNoExt, cleanLower, consoleKey);
-      let matchedPoster = null;
-      let matchedMap = null;
-      let foundCanonical = false;
-
-      // 1. Canonical location: <root>/posters/<console>/<rom filename>
-      const canonicalFolder = postersFolderByConsole.get(String(consoleKey).toLowerCase()) || null;
-      if (canonicalFolder) {
-        const canonicalIndex = await getPosterIndex(canonicalFolder.id);
-        matchedPoster = findPosterIn(canonicalIndex, romKeys);
-        if (matchedPoster) {
-          matchedMap = canonicalIndex;
-          foundCanonical = true;
-        }
-      }
-
-      // 2. Legacy flat files directly in <root>/posters
-      if (!matchedPoster && postersFolder) {
-        const rootIndex = posterIndexByFolder.get(postersFolder.id);
-        matchedPoster = findPosterIn(rootIndex, romKeys);
-        if (matchedPoster) matchedMap = rootIndex;
-      }
-
-      // 3. Legacy 'posters' folder inside the ROM's own folder
-      if (!matchedPoster) {
-        const legacyFolder = await findLegacyPostersFolder(parentId);
-        if (legacyFolder) {
-          const legacyIndex = await getPosterIndex(legacyFolder.id);
-          matchedPoster = findPosterIn(legacyIndex, romKeys);
-          if (matchedPoster) matchedMap = legacyIndex;
-        }
-      }
-
-      // 4. Image file lying loose next to the ROM
-      if (!matchedPoster) {
-        const looseIndex = looseImagesByParent.get(parentId) || null;
-        matchedPoster = findPosterIn(looseIndex, romKeys);
-        if (matchedPoster) matchedMap = looseIndex;
-      }
-
-      // Migrate any non-canonical hit into <root>/posters/<console>/, renamed
-      // to the ROM's filename. The file id is unchanged, so covers keep working.
-      if (matchedPoster && !foundCanonical) {
-        const destFolder = await ensureConsolePostersFolder(consoleKey);
-        if (destFolder) {
-          const oldParentId = matchedPoster.parents && matchedPoster.parents[0];
-          const newName = `${sanitizeDriveName(baseNoExt)}.${fileExt(matchedPoster.name) || 'png'}`;
-          const moved = await this.moveFile(user, matchedPoster.id, {
-            newParentId: destFolder.id,
-            oldParentId,
-            newName: oldParentId === destFolder.id && matchedPoster.name === newName ? undefined : newName
-          });
-          if (moved) {
-            removeFromPosterIndex(matchedMap, matchedPoster);
-            const canonicalIndex = await getPosterIndex(destFolder.id);
-            const relocated = { ...matchedPoster, name: moved.name || newName, parents: [destFolder.id] };
-            indexPosterFile(canonicalIndex, relocated);
-            matchedPoster = relocated;
-          } else {
-            console.warn(`[GoogleDrive] Could not move poster "${matchedPoster.name}" into posters/${consoleKey}`);
-          }
-        }
-      }
-
-      let coverUrl = matchedPoster ? `/api/drive/file/${matchedPoster.id}` : null;
-
-      // 5. No poster on Drive: search box art / poster / screenshot across Libretro, Steam, GOG, Wikipedia, Web
-      if (!coverUrl) {
-        try {
-          const netArt = await searchInternetGameArt(cleanTitle, consoleKey, baseNoExt);
-          if (netArt && netArt.buffer && netArt.buffer.length > 500) {
-            const processed = await processPosterBuffer(netArt.buffer, netArt.mime);
-            const destFolder = await ensureConsolePostersFolder(consoleKey);
-            if (destFolder) {
-              const posterName = `${sanitizeDriveName(baseNoExt)}.${processed.ext}`;
-              const uploaded = await this.uploadBufferToDrive(
-                user,
-                processed.buffer,
-                posterName,
-                processed.mime,
-                destFolder.id
-              );
-              if (uploaded && uploaded.id) {
-                const canonicalIndex = await getPosterIndex(destFolder.id);
-                indexPosterFile(canonicalIndex, { ...uploaded, parents: [destFolder.id] });
-                coverUrl = `/api/drive/file/${uploaded.id}`;
-                console.log(`[GoogleDrive] Saved ${netArt.source} for "${cleanTitle}" (${consoleKey}) -> ${posterName}`);
-              }
-            }
-            if (!coverUrl && netArt.sourceUrl) {
-              coverUrl = `/api/proxy-image?url=${encodeURIComponent(netArt.sourceUrl)}`;
-            }
-          }
-        } catch (err) {
-          console.warn(`[GoogleDrive] Error acquiring art for "${cleanTitle}" (${consoleKey}):`, err.message);
-        }
-      }
+      const fileConsole = detectConsoleFromFilename(file.name, ext, Number(file.size || 0)) || EXTENSION_CONSOLE_MAP[ext] || 'pc';
+      const isPlayable = SUPPORTED_EMULATOR_CONSOLES.has(fileConsole);
+      const isDownload = !isPlayable || PC_FILE_EXTS.has(ext);
+      const cleanStem = file.name.replace(/\.[^.]+$/, '');
+      const title = cleanGameTitle(file.name);
+      const coverUrl = await findCoverForGame(cleanStem, title, fileConsole, user.gamesFolderId);
 
       recognizedGames.push({
         id: `gm_${file.id}`,
         driveId: file.id,
-        folderId: parentId !== user.gamesFolderId ? parentId : null,
+        folderId: null,
         source: 'drive',
         filename: file.name,
-        title: cleanTitle,
-        console: consoleKey,
-        isPcGame: false,
-        isDownloadOnly: false,
+        title,
+        console: fileConsole,
+        isPcGame: fileConsole === 'pc',
+        isDownloadOnly: isDownload,
         size: Number(file.size || 0),
         sizeFormatted: formatBytes(file.size),
         coverUrl,
         addedAt: file.modifiedTime ? new Date(file.modifiedTime).getTime() : Date.now()
-      });
-    }
-
-    // 4. Collapse download-only game folders into single library entries
-    for (const [gameFolderId, group] of downloadGroups.entries()) {
-      const info = folderInfo.get(gameFolderId);
-      const folderName = (info && info.name) || 'Game';
-      let consoleKey = group.consoleKey || 'pc';
-
-      // A folder that literally is a generic container keeps its files as individual game entries
-      const isContainerName = /^(pc games|pc|gog|gog\.com|epic|epic games|itch|itch\.io|retro games|roms|games|playstation|sony|sony playstation)$/i.test(folderName.trim());
-
-      const mainFile = [...group.files].sort((a, b) => Number(b.size || 0) - Number(a.size || 0))[0];
-
-      if (isContainerName) {
-        for (const file of group.files) {
-          const cleanTitle = cleanGameTitle(file.name);
-          const coverUrl = await findCoverForGame(
-            file.name.replace(/\.[^.]+$/, ''),
-            cleanTitle,
-            consoleKey,
-            gameFolderId
-          );
-
-          recognizedGames.push({
-            id: `gm_${file.id}`,
-            driveId: file.id,
-            folderId: gameFolderId,
-            source: 'drive',
-            filename: file.name,
-            title: cleanTitle,
-            console: consoleKey,
-            isPcGame: consoleKey === 'pc',
-            isDownloadOnly: true,
-            size: Number(file.size || 0),
-            sizeFormatted: formatBytes(file.size),
-            coverUrl,
-            addedAt: file.modifiedTime ? new Date(file.modifiedTime).getTime() : Date.now()
-          });
-        }
-        continue;
-      }
-
-      const totalSize = group.files.reduce((sum, f) => sum + Number(f.size || 0), 0);
-      const cleanStem = folderName.replace(/\.(rar|zip|7z|tar|gz|iso|bin|cue|chd|pbp|exe|msi|pkg)$/i, '').trim();
-      const folderConsole = detectConsoleFromFilename(folderName, '', totalSize);
-      consoleKey = folderConsole || consoleKey;
-      const title = cleanGameTitle(folderName, true);
-      const coverUrl = await findCoverForGame(
-        cleanStem,
-        title,
-        consoleKey,
-        gameFolderId
-      );
-
-      recognizedGames.push({
-        id: consoleKey === 'pc' ? `gmpc_${gameFolderId}` : `gm_${consoleKey}_${gameFolderId}`,
-        driveId: gameFolderId,
-        driveFileId: mainFile ? mainFile.id : null,
-        isFolder: true,
-        source: 'drive',
-        filename: folderName,
-        title,
-        console: consoleKey,
-        isPcGame: consoleKey === 'pc',
-        isDownloadOnly: true,
-        size: totalSize,
-        sizeFormatted: formatBytes(totalSize),
-        fileCount: group.files.length,
-        files: group.files.map(f => ({ name: f.name, driveId: f.id, size: Number(f.size || 0) })),
-        coverUrl,
-        addedAt: mainFile && mainFile.modifiedTime ? new Date(mainFile.modifiedTime).getTime() : Date.now()
       });
     }
 

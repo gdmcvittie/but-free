@@ -48,7 +48,6 @@ export default function LibraryView({
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className={`font-bold ${isMobileLandscape1080 ? 'text-base sm:text-lg' : 'text-xl'} text-white tracking-tight flex items-center gap-2`}>
-              <span className="text-xs uppercase tracking-wider text-slate-400 font-bold">ASSET BIN:</span>
               <span className="text-white font-extrabold">{selectedConsole ? selectedConsole.toUpperCase() : 'ALL FORMATS'}</span>
             </h1>
             <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-sm bg-[#222222] text-[#31a8ff] border border-[#383838]">
@@ -60,7 +59,7 @@ export default function LibraryView({
               {user?.gamesFolderName ? (
                 <span className="flex items-center gap-1.5 font-mono text-[11px]">
                   <HardDrive className="w-3.5 h-3.5 text-[#31a8ff]" />
-                  <span>MOUNT: <strong>/{user.gamesFolderName}</strong></span>
+                  <span><strong>/{user.gamesFolderName}</strong></span>
                 </span>
               ) : (
                 <span>No Google Drive folder linked. Connect your collection in Settings.</span>
@@ -75,14 +74,11 @@ export default function LibraryView({
             <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
-              placeholder="Filter assets (Ctrl+K)..."
+              placeholder=""
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="workstation-search-input w-full pl-8 pr-10 py-1.5 rounded-sm text-xs text-white placeholder-zinc-500 focus:outline-none transition-colors"
             />
-            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] font-mono text-zinc-500 border border-[#2a2a2a] px-1 rounded bg-[#141414] pointer-events-none">
-              ⌘K
-            </span>
           </div>
 
           <button
