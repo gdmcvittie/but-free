@@ -28,6 +28,36 @@ function ensureDir() {
   }
 }
 
+export function normalizeGameRecord(game) {
+  if (!game) return game;
+  const c = String(game.console || '').toLowerCase().trim();
+  if (c === 'psx' || c === 'ps1' || c === 'playstation') {
+    const text = `${game.title || ''} ${game.filename || ''} ${game.originalFilename || ''}`;
+    const filename = String(game.filename || game.originalFilename || '');
+
+    // 1. Check PSP tags, serials, or unique extensions (.cso, .pbp)
+    if (
+      /\b(psp|playstation\s*portable)\b|(ulus|ules|ucus|uces|uljs|uljm|ucjs|npeg|npug|npuh|npez|npuz)[-_\s]?\d{4,5}/i.test(text) ||
+      /\.(cso|pbp)$/i.test(filename)
+    ) {
+      return { ...game, console: 'psp', isDownloadOnly: true };
+    }
+
+    // 2. Check PS2 tags or serials
+    if (
+      /\b(ps\s*2|playstation\s*2)\b|(slus|sles|scus|sces|slpm|slps|scaj|scka)[-_\s]?\d{4,5}/i.test(text)
+    ) {
+      return { ...game, console: 'ps2', isDownloadOnly: true };
+    }
+
+    // 3. PS1 CDs physically cannot exceed 850 MB; anything larger is a PS2 DVD!
+    if (game.size && Number(game.size) > 850 * 1024 * 1024) {
+      return { ...game, console: 'ps2', isDownloadOnly: true };
+    }
+  }
+  return game;
+}
+
 export function loadDatabase() {
   ensureDir();
   if (fs.existsSync(DB_FILE)) {
@@ -40,6 +70,18 @@ export function loadDatabase() {
         favorites: data.favorites || {},
         recentlyPlayed: data.recentlyPlayed || {}
       };
+
+      let modified = false;
+      for (const [id, game] of Object.entries(db.games || {})) {
+        const norm = normalizeGameRecord(game);
+        if (norm.console !== game.console || norm.isDownloadOnly !== game.isDownloadOnly) {
+          db.games[id] = norm;
+          modified = true;
+        }
+      }
+      if (modified) {
+        saveDatabase();
+      }
     } catch (err) {
       console.warn('[Database] Error parsing games-db.json, starting fresh:', err.message);
     }
@@ -173,10 +215,13 @@ export function removeGame(userId, gameId) {
 export function getGames(userId) {
   const userGames = Object.values(db.games).filter((g) => g.userId === userId);
   const userFavs = new Set(db.favorites[userId] || []);
-  return userGames.map((g) => ({
-    ...g,
-    isFavorite: userFavs.has(g.id)
-  }));
+  return userGames.map((g) => {
+    const norm = normalizeGameRecord(g);
+    return {
+      ...norm,
+      isFavorite: userFavs.has(norm.id)
+    };
+  });
 }
 
 export function getGame(gameId) {

@@ -48,11 +48,11 @@ const EXTENSION_CONSOLE_MAP = {
   cdi: 'dreamcast',
   gdi: 'dreamcast',
   // Sony
-  iso: 'psx',
+  iso: 'ps2', // .iso in Sony family is overwhelmingly PS2 (DVD-sized) or PSP; PSX CD games use .bin/.cue
   cue: 'psx',
   chd: 'psx',
-  pbp: 'psx',
-  cso: 'psp',
+  pbp: 'psp', // EBOOT.PBP native PSP package format
+  cso: 'psp', // Compressed ISO is 100% PSP
   vpk: 'vita',
   pkg: 'ps3',
   rap: 'ps3',
@@ -78,13 +78,13 @@ const FOLDER_CONSOLE_HINTS = [
   { names: ['gbc', 'game boy color', 'gameboy color'], console: 'gbc' },
   { names: ['gb', 'game boy', 'gameboy', 'game gear boy'], console: 'gb' },
   { names: ['genesis', 'sega', 'mega drive', 'megadrive'], console: 'sega' },
-  { names: ['psx', 'ps1', 'playstation', 'playstation 1', 'ps one'], console: 'psx' },
-  { names: ['ps2', 'playstation 2', 'playstation2'], console: 'ps2' },
-  { names: ['ps3', 'playstation 3', 'playstation3'], console: 'ps3' },
-  { names: ['ps4', 'playstation 4', 'playstation4'], console: 'ps4' },
-  { names: ['ps5', 'playstation 5', 'playstation5'], console: 'ps5' },
-  { names: ['psp', 'playstation portable'], console: 'psp' },
-  { names: ['vita', 'ps vita', 'psvita', 'playstation vita'], console: 'vita' },
+  { names: ['psx', 'ps1', 'ps 1', 'ps-1', 'ps_1', 'playstation 1', 'playstation1', 'ps one', 'psone', 'playstation one'], console: 'psx' },
+  { names: ['ps2', 'ps 2', 'ps-2', 'ps_2', 'playstation 2', 'playstation2', 'playstation-2', 'playstation_2', 'sony ps2', 'sony playstation 2'], console: 'ps2' },
+  { names: ['ps3', 'ps 3', 'ps-3', 'ps_3', 'playstation 3', 'playstation3', 'playstation-3', 'playstation_3', 'sony ps3', 'sony playstation 3'], console: 'ps3' },
+  { names: ['ps4', 'ps 4', 'ps-4', 'ps_4', 'playstation 4', 'playstation4', 'playstation-4', 'playstation_4'], console: 'ps4' },
+  { names: ['ps5', 'ps 5', 'ps-5', 'ps_5', 'playstation 5', 'playstation5', 'ps-5', 'ps_5'], console: 'ps5' },
+  { names: ['psp', 'playstation portable', 'playstationportable', 'playstation-portable', 'playstation_portable', 'sony psp', 'sony playstation portable'], console: 'psp' },
+  { names: ['vita', 'ps vita', 'psvita', 'playstation vita', 'ps-vita', 'ps_vita'], console: 'vita' },
   { names: ['n64', 'nintendo 64'], console: 'n64' },
   { names: ['gamecube', 'game cube', 'ngc', 'gc'], console: 'gamecube' },
   { names: ['wii'], console: 'wii' },
@@ -168,12 +168,12 @@ export function cleanGameTitle(rawName, isFolder = false) {
   }
   // Strip scene release groups (-RUNE, -TENOKE, -CODEX, -FLT, -DODI, -FitGirl, etc.)
   clean = clean.replace(/-[A-Za-z0-9_]{3,15}$/g, '');
-  // Strip bracketed scene tags: [FitGirl Repack], [GOG], [!], [b1], etc.
+  // Strip bracketed scene tags: [FitGirl Repack], [GOG], [PS2], [PSP], [!], etc.
   clean = clean.replace(/\s*\[[^\]]*\]/gi, '');
-  // Strip typical scene / region / disc / version tags:
+  // Strip typical scene / region / disc / version / platform tags:
   clean = clean
-    .replace(/\s*\((USA|Europe|Japan|En,Ja|World|Beta|Rev\s*\d+|v\d+\.\d+|Proto|Demo|Unl|Sample|Disc\s*\d+|Disk\s*\d+|Track\s*\d+)[^)]*\)/gi, '')
-    .replace(/\s+-\s+(USA|Europe|Japan)$/i, '')
+    .replace(/\s*\((USA|Europe|Japan|En,Ja|World|Beta|Rev\s*\d+|v\d+\.\d+|Proto|Demo|Unl|Sample|Disc\s*\d+|Disk\s*\d+|Track\s*\d+|PS2|PSP|PSX|PS1|PS3|PS4|PS5)[^)]*\)/gi, '')
+    .replace(/\s+-\s+(USA|Europe|Japan|PS2|PSP|PSX|PS1)$/i, '')
     .replace(/[._ -]v\d+(\.\d+)*/gi, '')
     .replace(/[._ -]build[._ -]?\d+/gi, '')
     .replace(/[._ -](repack|deluxe|complete|gold|goty|edition|definitive|remastered)/gi, ' ');
@@ -183,6 +183,39 @@ export function cleanGameTitle(rawName, isFolder = false) {
   }
   clean = clean.replace(/\s+/g, ' ').trim();
   return clean || rawName;
+}
+
+export function detectConsoleFromFilename(filename, ext = '', fileSize = 0, folderHint = null) {
+  const name = String(filename || '');
+  const lower = name.toLowerCase();
+  const norm = lower.replace(/[-_.]+/g, ' ');
+
+  // 1. Explicit console bracketed/parenthetical tags or serial codes
+  if (/\b(ps\s*5|playstation\s*5)\b/.test(norm)) return 'ps5';
+  if (/\b(ps\s*4|playstation\s*4)\b/.test(norm)) return 'ps4';
+  if (/\b(ps\s*3|playstation\s*3)\b|(blus|bles|bcus|bces|mrtc|npeb|npub)[-_\s]?\d{4,5}/i.test(name)) return 'ps3';
+  if (/\b(ps\s*2|playstation\s*2)\b|(slus|sles|scus|sces|slpm|slps|scaj|scka)[-_\s]?\d{4,5}/i.test(name)) return 'ps2';
+  if (/\b(psp|playstation\s*portable)\b|(ulus|ules|ucus|uces|uljs|uljm|ucjs|npeg|npug|npuh|npez|npuz)[-_\s]?\d{4,5}/i.test(name)) return 'psp';
+  if (/\b(ps\s*vita|playstation\s*vita|vita)\b/.test(norm)) return 'vita';
+  if (/\b(ps\s*1|psx|ps\s*one|psone|playstation\s*1|playstation\s*one)\b/.test(norm)) return 'psx';
+
+  // 2. Specific unique file extensions
+  if (ext === 'cso') return 'psp';
+  if (ext === 'vpk') return 'vita';
+  if (ext === 'pkg' || ext === 'rap') return 'ps3';
+  if (ext === 'cue') return 'psx';
+
+  // 3. For .iso and .chd: PS1 physical discs were CD-ROMs maxing out at 700 MB.
+  // Any disc image above 850 MB is a DVD, which is PlayStation 2!
+  // (Only apply this size heuristic if not in a known non-Sony console folder like Dreamcast or Gamecube)
+  const isNonSonyFolder = folderHint && !['psx', 'ps1', 'ps2', 'psp', 'ps3', 'ps4', 'ps5', 'vita', 'pc'].includes(folderHint);
+  if (!isNonSonyFolder && ['iso', 'chd'].includes(ext)) {
+    if (fileSize > 850 * 1024 * 1024) {
+      return 'ps2';
+    }
+  }
+
+  return null;
 }
 
 export function getBoxArtCandidateUrls(cleanTitle, consoleKey, rawFilename = '') {
@@ -876,38 +909,52 @@ export const GoogleDrive = {
 
     const folderHint = (name) => {
       const lower = (name || '').toLowerCase().trim();
+      const norm = lower.replace(/[-_.]+/g, ' ');
+
       for (const entry of FOLDER_CONSOLE_HINTS) {
-        if (entry.names.includes(lower)) return entry.console;
+        if (entry.names.includes(lower) || entry.names.includes(norm)) return entry.console;
       }
-      if (lower.includes('switch') || lower.includes('nintendo switch')) return 'switch';
-      if (lower.includes('ps2') || lower.includes('playstation 2')) return 'ps2';
-      if (lower.includes('ps3') || lower.includes('playstation 3')) return 'ps3';
-      if (lower.includes('ps4') || lower.includes('playstation 4')) return 'ps4';
-      if (lower.includes('ps5') || lower.includes('playstation 5')) return 'ps5';
-      if (lower.includes('psp') || lower.includes('playstation portable')) return 'psp';
-      if (lower.includes('vita')) return 'vita';
-      if (lower.includes('gamecube') || lower.includes('game cube')) return 'gamecube';
-      if (lower === 'wii' || lower.startsWith('wii ') || lower.endsWith(' wii')) return 'wii';
-      if (lower.includes('wii u') || lower.includes('wiiu')) return 'wiiu';
-      if (lower.includes('3ds')) return '3ds';
-      if (lower.includes('snes') || lower.includes('super nintendo')) return 'snes';
-      if (lower.includes('gba') || lower.includes('game boy advance')) return 'gba';
-      if (lower.includes('gbc') || lower.includes('game boy color')) return 'gbc';
-      if (lower.includes('game boy') || lower === 'gb') return 'gb';
-      if (lower.includes('genesis') || lower.includes('sega') || lower.includes('mega drive')) return 'sega';
-      if (lower.includes('psx') || lower.includes('ps1') || lower.includes('playstation')) return 'psx';
-      if (lower.includes('n64') || lower.includes('nintendo 64')) return 'n64';
-      if (lower.includes('nes') || lower.includes('famicom')) return 'nes';
-      if (lower.includes('nds') || lower.includes('nintendo ds')) return 'nds';
-      if (lower.includes('pico')) return 'pico8';
-      if (lower.includes('dreamcast')) return 'dreamcast';
-      if (lower.includes('saturn')) return 'saturn';
-      if (lower.includes('xbox 360') || lower.includes('xbox360') || lower.includes('x360')) return 'xbox360';
-      if (lower.includes('xbox')) return 'xbox';
-      if (lower.includes('atari')) return 'atari';
-      if (lower.includes('amiga')) return 'amiga';
-      if (lower.includes('c64') || lower.includes('commodore')) return 'c64';
-      if (lower === 'pc games' || lower === 'pc' || lower.includes('gog') || lower.includes('itch') || lower.includes('windows')) return 'pc';
+
+      // Check PS5, PS4, PS3, PS2, PSP, Vita BEFORE checking generic PlayStation
+      if (/\b(ps\s*5|playstation\s*5)\b/.test(norm)) return 'ps5';
+      if (/\b(ps\s*4|playstation\s*4)\b/.test(norm)) return 'ps4';
+      if (/\b(ps\s*3|playstation\s*3)\b|(blus|bles|bcus|bces|mrtc|npeb|npub)[-_\s]?\d{4,5}/i.test(name)) return 'ps3';
+      if (/\b(ps\s*2|playstation\s*2)\b|(slus|sles|scus|sces|slpm|slps|scaj|scka)[-_\s]?\d{4,5}/i.test(name)) return 'ps2';
+      if (/\b(psp|playstation\s*portable)\b|(ulus|ules|ucus|uces|uljs|uljm|ucjs|npeg|npug|npuh|npez|npuz)[-_\s]?\d{4,5}/i.test(name)) return 'psp';
+      if (/\b(ps\s*vita|playstation\s*vita|vita)\b/.test(norm)) return 'vita';
+
+      // Explicit PS1 / PSX / PS One / PlayStation 1
+      if (/\b(ps\s*1|psx|ps\s*one|psone|playstation\s*1|playstation\s*one)\b/.test(norm)) return 'psx';
+
+      if (norm.includes('switch') || norm.includes('nintendo switch')) return 'switch';
+      if (norm.includes('gamecube') || norm.includes('game cube')) return 'gamecube';
+      if (norm === 'wii' || norm.startsWith('wii ') || norm.endsWith(' wii')) return 'wii';
+      if (norm.includes('wii u') || norm.includes('wiiu')) return 'wiiu';
+      if (norm.includes('3ds')) return '3ds';
+      if (norm.includes('snes') || norm.includes('super nintendo')) return 'snes';
+      if (norm.includes('gba') || norm.includes('game boy advance')) return 'gba';
+      if (norm.includes('gbc') || norm.includes('game boy color')) return 'gbc';
+      if (norm.includes('game boy') || norm === 'gb') return 'gb';
+      if (norm.includes('genesis') || norm.includes('sega') || norm.includes('mega drive')) return 'sega';
+      if (norm.includes('n64') || norm.includes('nintendo 64')) return 'n64';
+      if (norm.includes('nes') || norm.includes('famicom')) return 'nes';
+      if (norm.includes('nds') || norm.includes('nintendo ds')) return 'nds';
+      if (norm.includes('pico')) return 'pico8';
+      if (norm.includes('dreamcast')) return 'dreamcast';
+      if (norm.includes('saturn')) return 'saturn';
+      if (norm.includes('xbox 360') || norm.includes('xbox360') || norm.includes('x360')) return 'xbox360';
+      if (norm.includes('xbox')) return 'xbox';
+      if (norm.includes('atari')) return 'atari';
+      if (norm.includes('amiga')) return 'amiga';
+      if (norm.includes('c64') || norm.includes('commodore')) return 'c64';
+      if (norm === 'pc games' || norm === 'pc' || norm.includes('gog') || norm.includes('itch') || norm.includes('windows')) return 'pc';
+
+      // If standalone "playstation" or "sony playstation" with no sub-indicator, return null
+      // so it acts as an umbrella container for PS1/PS2/PSP without forcing everything to PS1!
+      if (/^(playstation|sony playstation)$/.test(norm)) {
+        return null;
+      }
+
       return null;
     };
 
@@ -1148,7 +1195,7 @@ export const GoogleDrive = {
       const info = folderInfo.get(fId);
       if (!info) return true;
       const lower = (info.name || '').toLowerCase().trim();
-      if (/^(pc games|pc|gog|gog\.com|epic|epic games|itch|itch\.io|retro games|roms|games|collection|systems|emulation)$/i.test(lower)) {
+      if (/^(pc games|pc|gog|gog\.com|epic|epic games|itch|itch\.io|retro games|roms|games|collection|systems|emulation|playstation|sony|sony playstation)$/i.test(lower)) {
         return true;
       }
       for (const entry of FOLDER_CONSOLE_HINTS) {
@@ -1239,13 +1286,19 @@ export const GoogleDrive = {
         }
       }
 
-      let consoleKey = hint || EXTENSION_CONSOLE_MAP[ext] || null;
+      // 1. Detect console explicitly from filename, unique extension, or disc size
+      const fileConsole = detectConsoleFromFilename(file.name, ext, Number(file.size || 0), hint);
 
-      // If this is a .bin file in a folder that has a .cue companion or PSX hints, map it to PSX
+      // 2. Combine with folder hint (specific file tags override broad folder hints)
+      let consoleKey = fileConsole || hint || null;
+
+      // 3. Handle .bin disc images for retro CD consoles
       if (ext === 'bin') {
         const siblings = filesByParent.get(parentId) || [];
         const hasCue = siblings.some(s => fileExt(s.name) === 'cue');
-        if (hasCue || hint === 'psx' || /psx|ps1|playstation/i.test(folderInfo.get(parentId)?.name || '')) {
+        const parentName = folderInfo.get(parentId)?.name || '';
+        const isPsxFolder = /\b(psx|ps1|ps\s*1|ps\s*one|psone|playstation\s*1|playstation\s*one)\b/i.test(parentName);
+        if (hasCue || hint === 'psx' || isPsxFolder) {
           consoleKey = 'psx';
         }
         // If there are multiple .bin files (e.g. Track 1, Track 2), only treat the largest .bin as the game entry
@@ -1256,6 +1309,10 @@ export const GoogleDrive = {
             continue;
           }
         }
+      }
+
+      if (!consoleKey) {
+        consoleKey = EXTENSION_CONSOLE_MAP[ext] || null;
       }
 
       if (!consoleKey) {
@@ -1440,10 +1497,10 @@ export const GoogleDrive = {
     for (const [gameFolderId, group] of downloadGroups.entries()) {
       const info = folderInfo.get(gameFolderId);
       const folderName = (info && info.name) || 'Game';
-      const consoleKey = group.consoleKey || 'pc';
+      let consoleKey = group.consoleKey || 'pc';
 
       // A folder that literally is a generic container keeps its files as individual game entries
-      const isContainerName = /^(pc games|pc|gog|gog\.com|epic|epic games|itch|itch\.io|retro games|roms|games)$/i.test(folderName.trim());
+      const isContainerName = /^(pc games|pc|gog|gog\.com|epic|epic games|itch|itch\.io|retro games|roms|games|playstation|sony|sony playstation)$/i.test(folderName.trim());
 
       const mainFile = [...group.files].sort((a, b) => Number(b.size || 0) - Number(a.size || 0))[0];
 
@@ -1477,7 +1534,9 @@ export const GoogleDrive = {
       }
 
       const totalSize = group.files.reduce((sum, f) => sum + Number(f.size || 0), 0);
-      const cleanStem = folderName.replace(/\.(rar|zip|7z|tar|gz|iso)$/i, '').trim();
+      const cleanStem = folderName.replace(/\.(rar|zip|7z|tar|gz|iso|bin|cue|chd|pbp|exe|msi|pkg)$/i, '').trim();
+      const folderConsole = detectConsoleFromFilename(folderName, '', totalSize);
+      consoleKey = folderConsole || consoleKey;
       const title = cleanGameTitle(folderName, true);
       const coverUrl = await findCoverForGame(
         cleanStem,
