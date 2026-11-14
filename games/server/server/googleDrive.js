@@ -613,51 +613,6 @@ export async function searchInternetGameArt(cleanTitle, consoleKey = '', rawFile
 
   return null;
 }
-    try {
-      const vqdRes = await fetch(`https://duckduckgo.com/?q=${encodeURIComponent(query)}`, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-        signal: AbortSignal.timeout(3500)
-      });
-      if (!vqdRes.ok) continue;
-      const html = await vqdRes.text();
-      const match = html.match(/vqd=["']?([0-9-]+)/);
-      const vqd = match ? match[1] : null;
-      if (!vqd) continue;
-
-      const imgApi = `https://duckduckgo.com/i.js?l=us-en&o=json&q=${encodeURIComponent(query)}&vqd=${vqd}&f=,,,`;
-      const ddgRes = await fetch(imgApi, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Referer': 'https://duckduckgo.com/'
-        },
-        signal: AbortSignal.timeout(3500)
-      });
-      if (!ddgRes.ok) continue;
-
-      const ddgData = await ddgRes.json();
-      const results = ddgData.results || [];
-      for (let i = 0; i < Math.min(3, results.length); i++) {
-        const candidateUrl = results[i].image;
-        if (!candidateUrl || !candidateUrl.startsWith('http')) continue;
-        try {
-          const imgDl = await fetch(candidateUrl, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-            signal: AbortSignal.timeout(4000)
-          });
-          if (imgDl.ok) {
-            const buf = Buffer.from(await imgDl.arrayBuffer());
-            const mime = imgDl.headers.get('content-type') || '';
-            if (buf.length > 1000 && (mime.startsWith('image/') || candidateUrl.match(/\.(jpe?g|png|webp)/i))) {
-              return { buffer: buf, mime: mime || 'image/jpeg', source: 'Web image search', sourceUrl: candidateUrl };
-            }
-          }
-        } catch (_) {}
-      }
-    } catch (_) {}
-  }
-
-  return null;
-}
 
 export const GoogleDrive = {
   async listFolders(user, parentId = 'root') {
