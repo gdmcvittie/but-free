@@ -160,7 +160,7 @@ export default function App() {
   }, []);
 
   // Fetch games library
-  const fetchGames = useCallback(async () => {
+  const fetchGames = useCallback(async (force = false) => {
     const cached = loadOfflineLibrary();
 
     if (isAndroidOfflineMode()) {
@@ -172,7 +172,7 @@ export default function App() {
 
     // Paint the previous session's shelf immediately. It is a big list and the
     // revalidation below should never gate the first screen.
-    if (!hasGamesRef.current && cached.games.length > 0) {
+    if (!hasGamesRef.current && cached.games.length > 0 && !force) {
       hasGamesRef.current = true;
       setGames(cached.games);
       setLoadingGames(false);
@@ -183,8 +183,8 @@ export default function App() {
     try {
       // Revalidate against the stored ETag, so an unchanged shelf costs a
       // bodiless 304 and the list is neither re-parsed nor re-rendered.
-      const { data, etag, notModified } = await fetchJsonConditional('/api/games', cached.etag);
-      if (notModified) return;
+      const { data, etag, notModified } = await fetchJsonConditional('/api/games', force ? null : cached.etag);
+      if (notModified && !force) return;
       const nextGames = data.games || [];
       hasGamesRef.current = true;
       setGames(nextGames);
@@ -221,10 +221,12 @@ export default function App() {
     }
     setIsScanning(true);
     try {
-      await fetchJson('/api/games/scan', { method: 'POST' });
-      await fetchGames();
+      const res = await fetchJson('/api/games/scan', { method: 'POST' });
+      await fetchGames(true);
+      setToastMessage({ type: 'success', text: `Scan complete: ${res.count || 0} games loaded!` });
     } catch (err) {
       console.error('[App] Scan error:', err);
+      setToastMessage({ type: 'error', text: `Scan failed: ${err.message}` });
     } finally {
       setIsScanning(false);
     }
@@ -346,7 +348,7 @@ export default function App() {
               user={user}
               onOpenSettings={() => setCurrentView('settings')}
               onDownloadDispatched={() => setCurrentView('downloads')}
-              onLibraryUpdated={fetchGames}
+              onLibraryUpdated={() => fetchGames(true)}
             />
           )}
 
@@ -371,7 +373,7 @@ export default function App() {
               user={user}
               onOpenAuthModal={() => setAuthModalOpen(true)}
               onOpenDrivePicker={() => setDrivePickerOpen(true)}
-              onLibraryUpdated={fetchGames}
+              onLibraryUpdated={() => fetchGames(true)}
             />
           )}
         </div>

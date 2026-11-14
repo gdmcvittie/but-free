@@ -414,100 +414,19 @@ export async function searchInternetGameArt(cleanTitle, consoleKey = '', rawFile
   if (LIBRETRO_SYSTEM_NAMES[canonKey]) {
     try {
       const candidates = getBoxArtCandidateUrls(clean, canonKey, rawFilename);
-      const hit = await fetchFirstWorkingBoxArt(candidates, 3000);
+      const hit = await fetchFirstWorkingBoxArt(candidates, 2500);
       if (hit) {
         return { buffer: hit.buffer, mime: hit.mime, source: 'Libretro Box Art', sourceUrl: hit.sourceUrl };
       }
     } catch (_) {}
   }
 
-  // Tier 2: Steam Store Search API & CDN (vertical box art 600x900, header, or screenshots)
-  try {
-    const steamUrl = `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(clean)}&l=english&cc=US`;
-    const sRes = await fetch(steamUrl, { signal: AbortSignal.timeout(3500) });
-    if (sRes.ok) {
-      const sData = await sRes.json();
-      if (sData.items && sData.items.length > 0) {
-        const topApp = sData.items[0];
-        const appId = topApp.id;
-
-        // Try Steam Library vertical 600x900 box art
-        try {
-          const libUrl = `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/library_600x900.jpg`;
-          const libRes = await fetch(libUrl, { signal: AbortSignal.timeout(3000) });
-          if (libRes.ok) {
-            const buf = Buffer.from(await libRes.arrayBuffer());
-            if (buf.length > 1000) {
-              return { buffer: buf, mime: libRes.headers.get('content-type') || 'image/jpeg', source: 'Steam vertical box art', sourceUrl: libUrl };
-            }
-          }
-        } catch (_) {}
-
-        // Try Steam header capsule
-        try {
-          const headUrl = `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`;
-          const headRes = await fetch(headUrl, { signal: AbortSignal.timeout(3000) });
-          if (headRes.ok) {
-            const buf = Buffer.from(await headRes.arrayBuffer());
-            if (buf.length > 1000) {
-              return { buffer: buf, mime: headRes.headers.get('content-type') || 'image/jpeg', source: 'Steam header poster', sourceUrl: headUrl };
-            }
-          }
-        } catch (_) {}
-
-        // Try Steam full-resolution screenshot from app details
-        try {
-          const detRes = await fetch(`https://store.steampowered.com/api/appdetails?appids=${appId}`, { signal: AbortSignal.timeout(3000) });
-          if (detRes.ok) {
-            const detData = await detRes.json();
-            const screenshots = detData[appId]?.data?.screenshots;
-            if (screenshots && screenshots.length > 0) {
-              const ssUrl = screenshots[0].path_full || screenshots[0].path_thumbnail;
-              const ssRes = await fetch(ssUrl, { signal: AbortSignal.timeout(3500) });
-              if (ssRes.ok) {
-                const buf = Buffer.from(await ssRes.arrayBuffer());
-                if (buf.length > 1000) {
-                  return { buffer: buf, mime: ssRes.headers.get('content-type') || 'image/jpeg', source: 'Steam screenshot', sourceUrl: ssUrl };
-                }
-              }
-            }
-          }
-        } catch (_) {}
-      }
-    }
-  } catch (_) {}
-
-  // Tier 3: GOG Catalog API (DRM-free PC games & classic releases)
-  try {
-    const gogUrl = `https://catalog.gog.com/v1/catalog?limit=1&locale=en-US&query=${encodeURIComponent(clean)}`;
-    const gRes = await fetch(gogUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-      signal: AbortSignal.timeout(3500)
-    });
-    if (gRes.ok) {
-      const gData = await gRes.json();
-      if (gData.products && gData.products.length > 0) {
-        const prod = gData.products[0];
-        const gogCover = prod.coverVertical || prod.coverHorizontal;
-        if (gogCover) {
-          const dlRes = await fetch(gogCover, { signal: AbortSignal.timeout(4000) });
-          if (dlRes.ok) {
-            const buf = Buffer.from(await dlRes.arrayBuffer());
-            if (buf.length > 1000) {
-              return { buffer: buf, mime: dlRes.headers.get('content-type') || 'image/png', source: 'GOG cover art', sourceUrl: gogCover };
-            }
-          }
-        }
-      }
-    }
-  } catch (_) {}
-
-  // Tier 4: Wikipedia PageImages API (official infobox box art for retro consoles and PC games)
+  // Tier 2: Wikipedia PageImages API (official infobox box art for Switch, PS2, PSP, PSX, and retro consoles)
   try {
     const q = `${clean} ${canonKey && canonKey !== 'pc' ? canonKey + ' ' : ''}video game`.trim();
     const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&format=json&prop=pageimages&piprop=thumbnail&pithumbsize=600&pilicense=any&generator=search&gsrsearch=${encodeURIComponent(q)}&gsrlimit=1`;
     const wRes = await fetch(wikiUrl, {
-      headers: { 'User-Agent': 'FREEPLAY/1.0 (freeplay-retro-arcade)' },
+      headers: { 'User-Agent': 'FREEPLAY/1.0 (contact@butfree.online)' },
       signal: AbortSignal.timeout(3500)
     });
     if (wRes.ok) {
@@ -515,15 +434,42 @@ export async function searchInternetGameArt(cleanTitle, consoleKey = '', rawFile
       const pages = wData.query ? Object.values(wData.query.pages) : [];
       if (pages.length > 0 && pages[0].thumbnail?.source) {
         const thumbUrl = pages[0].thumbnail.source;
-        const dlRes = await fetch(thumbUrl, {
-          headers: { 'User-Agent': 'FREEPLAY/1.0 (freeplay-retro-arcade)' },
-          signal: AbortSignal.timeout(4000)
-        });
-        if (dlRes.ok) {
-          const buf = Buffer.from(await dlRes.arrayBuffer());
-          if (buf.length > 1000) {
-            return { buffer: buf, mime: dlRes.headers.get('content-type') || 'image/jpeg', source: 'Wikipedia box art', sourceUrl: thumbUrl };
-          }
+        return { buffer: null, mime: 'image/jpeg', source: 'Wikipedia box art', sourceUrl: thumbUrl };
+      }
+    }
+  } catch (_) {}
+
+  // Tier 3: Steam Store Search API & CDN (vertical box art 600x900, header, or screenshots)
+  try {
+    const steamUrl = `https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(clean)}&l=english&cc=US`;
+    const sRes = await fetch(steamUrl, { signal: AbortSignal.timeout(3000) });
+    if (sRes.ok) {
+      const sData = await sRes.json();
+      if (sData.items && sData.items.length > 0) {
+        const topApp = sData.items[0];
+        const appId = topApp.id;
+
+        // Try Steam Library vertical 600x900 box art
+        const libUrl = `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/library_600x900.jpg`;
+        return { buffer: null, mime: 'image/jpeg', source: 'Steam vertical box art', sourceUrl: libUrl };
+      }
+    }
+  } catch (_) {}
+
+  // Tier 4: GOG Catalog API (DRM-free PC games & classic releases)
+  try {
+    const gogUrl = `https://catalog.gog.com/v1/catalog?limit=1&locale=en-US&query=${encodeURIComponent(clean)}`;
+    const gRes = await fetch(gogUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+      signal: AbortSignal.timeout(3000)
+    });
+    if (gRes.ok) {
+      const gData = await gRes.json();
+      if (gData.products && gData.products.length > 0) {
+        const prod = gData.products[0];
+        const gogCover = prod.coverVertical || prod.coverHorizontal;
+        if (gogCover) {
+          return { buffer: null, mime: 'image/png', source: 'GOG cover art', sourceUrl: gogCover };
         }
       }
     }
@@ -1080,37 +1026,54 @@ export const GoogleDrive = {
       if (!IGNORED_FOLDER_NAMES.has(lower)) topLevelFolders.push(f);
     }
 
-    // Resolve console folders, expanding umbrella containers (e.g. "PlayStation", "Sony", "Nintendo")
+    // Resolve console folders, expanding umbrella containers (e.g. "PlayStation", "Sony", "Nintendo", "Roms")
     const consoleFolders = []; // [{ id, name, consoleKey, parentId }]
-    for (const f of topLevelFolders) {
-      const lower = (f.name || '').toLowerCase().trim();
-      const norm = lower.replace(/[-_.]+/g, ' ');
-      const isUmbrella = /^(playstation|sony|sony playstation|nintendo|retro games|roms|games|collection|systems|emulation)$/i.test(norm);
+    const visitedFolders = new Set();
 
-      if (isUmbrella) {
-        // Query subfolders of umbrella container as individual console folders
+    const resolveConsoleFolder = async (folder, parentId, depth = 0) => {
+      if (visitedFolders.has(folder.id) || depth > 2) return;
+      visitedFolders.add(folder.id);
+
+      const fLower = (folder.name || '').toLowerCase().trim();
+      const fNorm = fLower.replace(/[-_.]+/g, ' ');
+      const isKnownUmbrella = /^(sony|sony playstation|nintendo|retro games|roms|games|collection|systems|emulation)$/i.test(fNorm);
+      const hint = folderHint(folder.name);
+
+      // Check for subfolders if it's a known umbrella container OR if it has no direct console hint
+      if (isKnownUmbrella || (!hint && depth < 2)) {
         const subs = await driveQueryFiles(
-          `'${f.id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+          `'${folder.id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
           'id,name'
         );
-        for (const sub of subs) {
-          const subLower = (sub.name || '').toLowerCase().trim();
-          if (subLower === 'posters') {
-            posterFoldersByParent.set(f.id, sub);
-            continue;
+        const validSubs = subs.filter(s => {
+          const sLower = (s.name || '').toLowerCase().trim();
+          if (sLower === 'posters') {
+            posterFoldersByParent.set(folder.id, s);
+            return false;
           }
-          if (IGNORED_FOLDER_NAMES.has(subLower)) continue;
-          const consoleKey = folderHint(sub.name) ||
-            sub.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') ||
-            'other';
-          consoleFolders.push({ id: sub.id, name: sub.name, consoleKey, parentId: f.id });
+          return !IGNORED_FOLDER_NAMES.has(sLower);
+        });
+
+        const hasConsoleSubs = validSubs.some(s => folderHint(s.name) !== null);
+        if (hasConsoleSubs || (isKnownUmbrella && validSubs.length > 0)) {
+          for (const sub of validSubs) {
+            await resolveConsoleFolder(sub, folder.id, depth + 1);
+          }
+          return;
         }
-      } else {
-        const consoleKey = folderHint(f.name) ||
-          f.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') ||
-          'other';
-        consoleFolders.push({ id: f.id, name: f.name, consoleKey, parentId: user.gamesFolderId });
       }
+
+      // If it's "PlayStation" with no subfolders, it's PS1/PSX
+      const consoleKey = hint || (/^(playstation|sony playstation)$/i.test(fNorm) ? 'psx' : (
+        fLower.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'other'
+      ));
+
+      consoleFolders.push({ id: folder.id, name: folder.name, consoleKey, parentId });
+      console.log(`[GoogleDrive] Console folder mapped: "${folder.name}" -> console "${consoleKey}" (ID: ${folder.id})`);
+    };
+
+    for (const f of topLevelFolders) {
+      await resolveConsoleFolder(f, user.gamesFolderId, 0);
     }
 
     const folderInfo = new Map(); // folderId -> { name, parentId, hint }
@@ -1119,7 +1082,7 @@ export const GoogleDrive = {
       folderInfo.set(c.id, { name: c.name, parentId: c.parentId, hint: c.consoleKey });
     }
 
-    // Fast art discovery: checks Drive index, then public CDN / internet art, with dynamic endpoint fallback
+    // Fast non-blocking art discovery: checks Drive index, then falls back to on-demand endpoint
     const findCoverForGame = async (stem, title, consoleKey, folderId = null) => {
       const keys = posterLookupKeys(stem.toLowerCase(), title.toLowerCase(), consoleKey);
       let coverUrl = null;
@@ -1142,19 +1105,7 @@ export const GoogleDrive = {
         if (hit) coverUrl = `/api/drive/file/${hit.id}`;
       }
 
-      // 2. Internet art search (Libretro CDN, Steam CDN, GOG, Wikipedia, DuckDuckGo)
-      if (!coverUrl) {
-        try {
-          const netArt = await searchInternetGameArt(title, consoleKey, stem);
-          if (netArt && netArt.sourceUrl) {
-            coverUrl = `/api/proxy-image?url=${encodeURIComponent(netArt.sourceUrl)}`;
-          }
-        } catch (err) {
-          console.warn(`[GoogleDrive] Art lookup failed for "${title}" (${consoleKey}):`, err.message);
-        }
-      }
-
-      // 3. Fallback on-demand cover endpoint so browser loads it on-demand
+      // 2. Fallback on-demand cover endpoint (browser loads asynchronously via <img src="..." />)
       if (!coverUrl) {
         coverUrl = `/api/games/cover?title=${encodeURIComponent(title)}&console=${encodeURIComponent(consoleKey || '')}`;
       }
@@ -1208,7 +1159,25 @@ export const GoogleDrive = {
           indexPosterFile(looseImagesByParent.get(sf.id), file);
         }
 
-        const gameFiles = sfFiles.filter(f => !IGNORED_FILE_EXTS.has(fileExt(f.name)) && !POSTER_IMAGE_EXTS.has(fileExt(f.name)));
+        let gameFiles = sfFiles.filter(f => !IGNORED_FILE_EXTS.has(fileExt(f.name)) && !POSTER_IMAGE_EXTS.has(fileExt(f.name)));
+        
+        // If no game files found at top level of folder, check one level deeper
+        if (gameFiles.length === 0) {
+          const nestedSubs = await driveQueryFiles(
+            `'${sf.id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+            'id,name'
+          );
+          for (const nsf of nestedSubs) {
+            const nFiles = await driveQueryFiles(
+              `'${nsf.id}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`
+            );
+            const validNFiles = nFiles.filter(f => !IGNORED_FILE_EXTS.has(fileExt(f.name)) && !POSTER_IMAGE_EXTS.has(fileExt(f.name)));
+            if (validNFiles.length > 0) {
+              gameFiles.push(...validNFiles);
+            }
+          }
+        }
+
         if (gameFiles.length === 0) continue;
 
         const mainFile = [...gameFiles].sort((a, b) => Number(b.size || 0) - Number(a.size || 0))[0];
@@ -1309,6 +1278,13 @@ export const GoogleDrive = {
         addedAt: file.modifiedTime ? new Date(file.modifiedTime).getTime() : Date.now()
       });
     }
+
+    const breakdown = {};
+    for (const g of recognizedGames) {
+      breakdown[g.console] = (breakdown[g.console] || 0) + 1;
+    }
+    console.log(`[GoogleDrive] Scan complete! Found ${recognizedGames.length} games across ${consoleFolders.length} console folders.`);
+    console.log(`[GoogleDrive] Breakdown by console:`, JSON.stringify(breakdown));
 
     // Save into database (drive-sourced records only; bookmarks survive)
     Database.saveGames(user.id, recognizedGames, 'drive');

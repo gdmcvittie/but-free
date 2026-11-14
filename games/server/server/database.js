@@ -31,7 +31,47 @@ function ensureDir() {
 export function normalizeGameRecord(game) {
   if (!game) return game;
   let rec = { ...game };
-  const c = String(rec.console || '').toLowerCase().trim();
+  let c = String(rec.console || '').toLowerCase().trim();
+
+  // 1. Check ID for console tag (e.g. gm_switch_..., gm_ps2_..., gm_psp_...)
+  const idStr = String(rec.id || '');
+  if (idStr.startsWith('gm_switch_') || idStr.includes('_switch_')) c = 'switch';
+  else if (idStr.startsWith('gm_ps2_') || idStr.includes('_ps2_')) c = 'ps2';
+  else if (idStr.startsWith('gm_psp_') || idStr.includes('_psp_')) c = 'psp';
+
+  // 2. Check title, filename, originalFilename, and files array
+  const filename = String(rec.filename || rec.originalFilename || '');
+  const filesList = Array.isArray(rec.files) ? rec.files.map(f => f.name || '').join(' ') : '';
+  const allText = `${rec.title || ''} ${filename} ${filesList}`.toLowerCase();
+
+  // Switch check
+  if (
+    c === 'switch' ||
+    /\.(nsp|nsz|xci|xcz)\b/i.test(allText) ||
+    /\b(switch|nintendo\s*switch|nsw)\b/i.test(allText)
+  ) {
+    c = 'switch';
+  }
+  // PSP check
+  else if (
+    c === 'psp' ||
+    /\.(cso|pbp)\b/i.test(allText) ||
+    /\b(psp|playstation\s*portable)\b/i.test(allText) ||
+    /(ulus|ules|ucus|uces|uljs|uljm|ucjs|npeg|npug|npuh|npez|npuz)[-_\s]?\d{4,5}/i.test(allText)
+  ) {
+    c = 'psp';
+  }
+  // PS2 check
+  else if (
+    c === 'ps2' ||
+    /\b(ps\s*2|playstation\s*2)\b/i.test(allText) ||
+    /(slus|sles|scus|sces|slpm|slps|scaj|scka)[-_\s]?\d{4,5}/i.test(allText) ||
+    ((c === 'psx' || c === 'ps1' || c === 'playstation') && rec.size && Number(rec.size) > 850 * 1024 * 1024)
+  ) {
+    c = 'ps2';
+  }
+
+  rec.console = c;
 
   // Systems not supported by in-browser emulator cores are download-only
   const downloadOnlySystems = new Set([
@@ -42,35 +82,9 @@ export function normalizeGameRecord(game) {
     rec.isDownloadOnly = true;
   }
 
-  if (c === 'psx' || c === 'ps1' || c === 'playstation') {
-    const text = `${rec.title || ''} ${rec.filename || ''} ${rec.originalFilename || ''}`;
-    const filename = String(rec.filename || rec.originalFilename || '');
-
-    // 1. Check PSP tags, serials, or unique extensions (.cso, .pbp)
-    if (
-      /\b(psp|playstation\s*portable)\b|(ulus|ules|ucus|uces|uljs|uljm|ucjs|npeg|npug|npuh|npez|npuz)[-_\s]?\d{4,5}/i.test(text) ||
-      /\.(cso|pbp)$/i.test(filename)
-    ) {
-      rec.console = 'psp';
-      rec.isDownloadOnly = true;
-    }
-    // 2. Check PS2 tags or serials
-    else if (
-      /\b(ps\s*2|playstation\s*2)\b|(slus|sles|scus|sces|slpm|slps|scaj|scka)[-_\s]?\d{4,5}/i.test(text)
-    ) {
-      rec.console = 'ps2';
-      rec.isDownloadOnly = true;
-    }
-    // 3. PS1 CDs physically cannot exceed 850 MB; anything larger is a PS2 DVD!
-    else if (rec.size && Number(rec.size) > 850 * 1024 * 1024) {
-      rec.console = 'ps2';
-      rec.isDownloadOnly = true;
-    }
-  }
-
-  // Ensure coverUrl fallback if null or missing
-  if (!rec.coverUrl && rec.title) {
-    rec.coverUrl = `/api/games/cover?title=${encodeURIComponent(rec.title)}&console=${encodeURIComponent(rec.console || '')}`;
+  // Ensure coverUrl fallback if null or missing or broken string
+  if (!rec.coverUrl || rec.coverUrl === 'null' || rec.coverUrl === 'undefined') {
+    rec.coverUrl = `/api/games/cover?title=${encodeURIComponent(rec.title || 'Game')}&console=${encodeURIComponent(rec.console || '')}`;
   }
 
   return rec;

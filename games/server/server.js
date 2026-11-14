@@ -9,7 +9,7 @@ import dotenv from 'dotenv';
 
 import * as Database from './server/database.js';
 import { GoogleAuth } from './server/googleAuth.js';
-import { GoogleDrive, cleanGameTitle } from './server/googleDrive.js';
+import { GoogleDrive, cleanGameTitle, searchInternetGameArt } from './server/googleDrive.js';
 import { sanitizeFolderName, MAX_PC_REMOTE_TORRENT_BYTES, PC_REMOTE_TORRENT_LIMIT_MSG, parseSizeStringToBytes } from './server/rssDiscovery.js';
 import { DownloaderClient, GameDownloaderClient } from './server/downloaderClient.js';
 import { registerDiscoverRoutes } from './server/discoverRoutes.js';
@@ -360,23 +360,95 @@ app.get('/api/drive/file/:driveId', async (req, res) => {
   }
 });
 
+// Dynamic Game Cover Art Endpoint (on-demand art resolution with in-memory caching)
+const coverArtCache = new Map();
+
+function generatePlaceholderSvg(title, consoleKey) {
+  const cleanTitle = (title || 'Game')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+  const cBadge = String(consoleKey || 'ROM')
+    .toUpperCase()
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400" fill="none">
+    <rect width="300" height="400" rx="8" fill="#18181b"/>
+    <rect x="2" y="2" width="296" height="396" rx="6" stroke="#27272a" stroke-width="2"/>
+    <circle cx="150" cy="160" r="48" fill="#27272a"/>
+    <path d="M135 160h30M150 145v30" stroke="#71717a" stroke-width="4" stroke-linecap="round"/>
+    <text x="150" y="250" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="700" fill="#a1a1aa" text-anchor="middle">${cleanTitle.slice(0, 24)}</text>
+    <rect x="110" y="270" width="80" height="22" rx="4" fill="#3f3f46"/>
+    <text x="150" y="285" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="11" font-weight="600" fill="#f4f4f5" text-anchor="middle">${cBadge}</text>
+  </svg>`;
+}
+
+app.get('/api/games/cover', async (req, res) => {
+  const { title, console: consoleKey, raw } = req.query;
+  if (!title || typeof title !== 'string') {
+    res.setHeader('Content-Type', 'image/svg+xml');
+    return res.status(400).send('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>');
+  }
+
+  const clean = cleanGameTitle(title, false);
+  const cacheKey = `${String(consoleKey || '').toLowerCase()}:${clean.toLowerCase()}`;
+  if (coverArtCache.has(cacheKey)) {
+    const cachedUrl = coverArtCache.get(cacheKey);
+    res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+    return res.redirect(cachedUrl);
+  }
+
+  try {
+    const netArt = await searchInternetGameArt(clean, consoleKey, raw || '');
+    if (netArt && netArt.sourceUrl) {
+      const redirectUrl = `/api/proxy-image?url=${encodeURIComponent(netArt.sourceUrl)}`;
+      coverArtCache.set(cacheKey, redirectUrl);
+      res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+      return res.redirect(redirectUrl);
+    }
+  } catch (err) {
+    console.warn(`[Cover Art] Lookup error for "${title}":`, err.message);
+  }
+
+  res.setHeader('Content-Type', 'image/svg+xml');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  return res.send(generatePlaceholderSvg(clean, consoleKey));
+});
+
+app.head('/api/games/cover', (req, res) => {
+  res.setHeader('Content-Type', 'image/jpeg');
+  res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+  return res.status(200).end();
+});
+
 // Proxy cached / remote game poster image securely
-app.get('/api/proxy-image', async (req, res) => {
+app.get(['/api/proxy-image', '/api/proxy-media'], async (req, res) => {
   const targetUrl = req.query.url;
   if (!targetUrl || typeof targetUrl !== 'string' || !targetUrl.startsWith('http')) {
     return res.status(400).send('Invalid image URL');
   }
   try {
+    let parsedOrigin = '';
+    try {
+      parsedOrigin = new URL(targetUrl).origin;
+    } catch (_) {}
+
     const upstream = await fetch(targetUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Referer': parsedOrigin ? `${parsedOrigin}/` : 'https://google.com/',
+        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
       },
-      signal: AbortSignal.timeout(6000)
+      signal: AbortSignal.timeout(8000)
     });
     if (!upstream.ok) return res.status(upstream.status).send('Upstream image error');
     const contentType = upstream.headers.get('content-type') || 'image/jpeg';
     res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
     const buf = Buffer.from(await upstream.arrayBuffer());
     return res.send(buf);
   } catch (err) {
