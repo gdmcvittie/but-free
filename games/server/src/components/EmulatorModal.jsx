@@ -121,7 +121,8 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
   const isDownloadOnly = isGameDownloadOnly(game);
   const isPcGame = !isWebGame && (game?.console === 'pc' || game?.isPcGame);
   const consoleNormalized = (game?.console || '').toLowerCase().trim();
-  const isNeoGame = !isWebGame && !isDownloadOnly && (
+  const isEjsConsole = !isWebGame && !isDownloadOnly && ['psx', 'ps1', 'playstation', 'n64', 'nds', 'ds', 'saturn', 'vb'].includes(consoleNormalized);
+  const isNeoGame = !isWebGame && !isDownloadOnly && !isEjsConsole && (
     ['neo', 'neogeo', 'neo geo', 'neo-geo', 'arcade', 'fba', 'fbneo', 'mame'].includes(consoleNormalized) ||
     (game?.core || '').includes('neo') ||
     (game?.core || '').includes('fb') ||
@@ -343,7 +344,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
   // Physical gamepad shortcuts: L1+R1+X save / L1+R1+Y load / Esc quit
   // -------------------------------------------------------------
   useEffect(() => {
-    if (isWebGame || isDownloadOnly) return;
+    if (isWebGame || isDownloadOnly || isEjsConsole) return;
     let animFrame = null;
     let lastComboTime = 0;
 
@@ -374,7 +375,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
 
     animFrame = requestAnimationFrame(poll);
     return () => { if (animFrame) cancelAnimationFrame(animFrame); };
-  }, [isWebGame, isDownloadOnly, hasPhysicalGamepad, handleSaveState, handleLoadState, onClose]);
+  }, [isWebGame, isDownloadOnly, isEjsConsole, hasPhysicalGamepad, handleSaveState, handleLoadState, onClose]);
 
   // -------------------------------------------------------------
   // Download-only games (PC, Switch, PS2, etc.): offer Drive download links
@@ -393,7 +394,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
   // Launch emulator (retro consoles only)
   // -------------------------------------------------------------
   useEffect(() => {
-    if (!game || isWebGame || isDownloadOnly) return;
+    if (!game || isWebGame || isDownloadOnly || isEjsConsole) return;
     let isMounted = true;
 
     async function startEmulator() {
@@ -849,7 +850,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
         nostalgistRef.current = null;
       }
     };
-  }, [game, isWebGame, isDownloadOnly, loadStateBlob, showToast]);
+  }, [game, isWebGame, isDownloadOnly, isEjsConsole, loadStateBlob, showToast]);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -867,7 +868,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
         onClose();
         return;
       }
-      if (!isWebGame && !isDownloadOnly) {
+      if (!isWebGame && !isDownloadOnly && !isEjsConsole) {
         if (e.code === 'Digit5' || e.key === '5' || e.code === 'KeyC' || e.key === 'c' || e.key === 'C') {
           if (!e.repeat) insertCoin();
         }
@@ -875,7 +876,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, isWebGame, isDownloadOnly, insertCoin]);
+  }, [onClose, isWebGame, isDownloadOnly, isEjsConsole, insertCoin]);
 
   if (!game) return null;
 
@@ -930,6 +931,74 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
           allow="autoplay; fullscreen *; gamepad; accelerometer; gyroscope; cross-origin-isolated"
           allowFullScreen
         />
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------
+  // EMULATORJS RUNNER (PSX, N64, NDS, Saturn)
+  // -------------------------------------------------------------
+  if (isEjsConsole) {
+    const extFallback = consoleNormalized === 'nds' || consoleNormalized === 'ds'
+      ? 'nds'
+      : (consoleNormalized === 'n64' ? 'z64' : 'chd');
+    const safeFilename = game.filename || `${game.title || 'game'}.${extFallback}`;
+    const driveId = game.driveFileId || game.driveId;
+    const streamUrl = `/api/games/stream/${encodeURIComponent(driveId)}/${encodeURIComponent(safeFilename)}`;
+    const ejsUrl = `/emulatorjs/index.html?core=${encodeURIComponent(consoleNormalized)}&url=${encodeURIComponent(streamUrl)}&title=${encodeURIComponent(game.title || 'Game')}`;
+
+    return (
+      <div
+        ref={containerRef}
+        className="rom-emulator-overlay fixed inset-0 bg-black flex flex-col"
+        style={{ zIndex: 99999 }}
+      >
+        {/* Top Control Bar */}
+        <div className="flex items-center justify-between px-3.5 py-2 bg-slate-950 border-b border-white/10 z-10 select-none">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className={`badge-console badge-${consoleNormalized} text-xs uppercase shrink-0`}>
+              {formatConsoleName(consoleNormalized)}
+            </span>
+            <h2 className="font-heading font-bold text-sm text-white truncate max-w-xs sm:max-w-md">
+              {game.title}
+            </h2>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {onToggleFavorite && (
+              <button
+                onClick={() => onToggleFavorite(game.id)}
+                className={`icon-btn icon-btn-sm ${isFav ? 'active' : ''}`}
+                title="Favorite"
+              >
+                <Heart className={`w-4 h-4 ${isFav ? 'fill-amber-400' : ''}`} />
+              </button>
+            )}
+            <button
+              onClick={toggleFullscreen}
+              className="icon-btn icon-btn-sm"
+              title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+            >
+              {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            </button>
+            <button
+              onClick={onClose}
+              className="icon-btn icon-btn-sm danger"
+              title="Close (Esc)"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* EmulatorJS Web Frame */}
+        <div className="flex-1 w-full h-full relative bg-black">
+          <iframe
+            src={ejsUrl}
+            title={game.title}
+            className="w-full h-full border-0 absolute inset-0"
+            allow="autoplay; gamepad; fullscreen; screen-wake-lock"
+          />
+        </div>
       </div>
     );
   }

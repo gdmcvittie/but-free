@@ -360,7 +360,7 @@ app.get('/api/drive/file/:driveId', async (req, res) => {
 });
 
 // Stream game ROM to in-browser emulator with HTTP range requests
-app.get('/api/games/stream/:driveId', async (req, res) => {
+app.get(['/api/games/stream/:driveId', '/api/games/stream/:driveId/:filename'], async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
   const { driveId } = req.params;
@@ -372,7 +372,7 @@ app.get('/api/games/stream/:driveId', async (req, res) => {
   }
 });
 
-app.head('/api/games/stream/:driveId', async (req, res) => {
+app.head(['/api/games/stream/:driveId', '/api/games/stream/:driveId/:filename'], async (req, res) => {
   if (!req.user) return res.status(401).end();
 
   const { driveId } = req.params;

@@ -5,7 +5,8 @@ import * as Database from './database.js';
 export const SUPPORTED_EMULATOR_CONSOLES = new Set([
   'snes', 'nes', 'gba', 'gb', 'gbc', 'sega', 'genesis', 'megadrive',
   'gg', 'gamegear', 'sms', 'mastersystem', 'pce', 'tg16',
-  'neo', 'neogeo', 'arcade', 'pico8'
+  'neo', 'neogeo', 'arcade', 'pico8',
+  'psx', 'ps1', 'playstation', 'n64', 'nds', 'ds', 'saturn', 'vb'
 ]);
 
 // Console detection rules by file extension

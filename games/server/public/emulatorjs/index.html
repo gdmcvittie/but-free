@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Freeplay Emulator</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #000;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #game {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="game"></div>
+
+  <script>
+    (function() {
+      const params = new URLSearchParams(window.location.search);
+      const rawCore = (params.get('core') || 'n64').toLowerCase().trim();
+      const gameUrl = params.get('url');
+      const title = params.get('title') || 'Game';
+
+      // Map console keys to EmulatorJS cores
+      const CORE_MAP = {
+        'n64': 'n64',
+        'nds': 'nds',
+        'ds': 'nds',
+        'psx': 'psx',
+        'ps1': 'psx',
+        'playstation': 'psx',
+        'saturn': 'saturn',
+        'vb': 'vb'
+      };
+      const ejsCore = CORE_MAP[rawCore] || rawCore;
+
+      window.EJS_player = '#game';
+      window.EJS_core = ejsCore;
+      window.EJS_gameName = title;
+      window.EJS_gameUrl = gameUrl;
+      window.EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
+      window.EJS_startOnLoaded = true;
+      window.EJS_color = '#9333ea';
+      window.EJS_backgroundColor = '#000000';
+      window.EJS_alignStartButton = 'middle';
+      window.EJS_startButtonName = 'Start ' + title;
+
+      window.EJS_onGameStart = function() {
+        try {
+          window.parent.postMessage({ type: 'FREEPLAY_EJS_EVENT', event: 'start', title: title }, '*');
+        } catch (_) {}
+      };
+
+      // Notify parent on exit
+      window.addEventListener('message', function(event) {
+        if (!event.data) return;
+        if (event.data.type === 'FREEPLAY_EJS_COMMAND') {
+          if (event.data.action === 'saveState' && window.EJS_emulator) {
+            try { window.EJS_emulator.saveState(); } catch (_) {}
+          } else if (event.data.action === 'loadState' && window.EJS_emulator) {
+            try { window.EJS_emulator.loadState(); } catch (_) {}
+          }
+        }
+      });
+    })();
+  </script>
+  <script src="https://cdn.emulatorjs.org/stable/data/loader.js"></script>
+</body>
+</html>
