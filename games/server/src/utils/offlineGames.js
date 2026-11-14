@@ -93,7 +93,7 @@ export async function storeCachedRom(userId, gameId, blob) {
 }
 
 export function cacheGameForOffline(game, userId) {
-  if (!game?.id || !game?.driveId || game.console === 'pc' || game.isPcGame || game.console === 'web' || game.isWebGame) {
+  if (!game?.id || !game?.driveId || game.console === 'pc' || game.isPcGame || game.isDownloadOnly || game.isFolder || game.console === 'web' || game.isWebGame) {
     return Promise.resolve(false);
   }
 

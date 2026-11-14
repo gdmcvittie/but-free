@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { fetchJson } from '../utils/api';
 import { cacheGameForOffline, getCachedRom, isAndroidOfflineMode } from '../utils/offlineGames';
+import { formatConsoleName, isGameDownloadOnly, SUPPORTED_EMULATOR_CONSOLES } from '../utils/consoles';
 
 // ---------------------------------------------------------------------------------------------
 // In-browser emulator player using Nostalgist + locally bundled libretro WASM cores
@@ -117,9 +118,10 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
   const [hasPhysicalGamepad, setHasPhysicalGamepad] = useState(hasConnectedGamepad);
 
   const isWebGame = !!(game?.isWebGame || game?.console === 'web' || (game?.webUrl || '').startsWith('http'));
+  const isDownloadOnly = isGameDownloadOnly(game);
   const isPcGame = !isWebGame && (game?.console === 'pc' || game?.isPcGame);
   const consoleNormalized = (game?.console || '').toLowerCase().trim();
-  const isNeoGame = !isWebGame && !isPcGame && (
+  const isNeoGame = !isWebGame && !isDownloadOnly && (
     ['neo', 'neogeo', 'neo geo', 'neo-geo', 'arcade', 'fba', 'fbneo', 'mame'].includes(consoleNormalized) ||
     (game?.core || '').includes('neo') ||
     (game?.core || '').includes('fb') ||
@@ -165,9 +167,9 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
   useEffect(() => {
     const bridge = window.FreeplayAndroid;
     if (!bridge?.setImmersiveMode) return undefined;
-    bridge.setImmersiveMode(!isWebGame && !isPcGame && hasPhysicalGamepad);
+    bridge.setImmersiveMode(!isWebGame && !isDownloadOnly && hasPhysicalGamepad);
     return () => bridge.setImmersiveMode(false);
-  }, [hasPhysicalGamepad, isWebGame, isPcGame]);
+  }, [hasPhysicalGamepad, isWebGame, isDownloadOnly]);
 
   // -------------------------------------------------------------
   // Keyboard event dispatcher (virtual on-screen buttons route here)
@@ -341,7 +343,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
   // Physical gamepad shortcuts: L1+R1+X save / L1+R1+Y load / Esc quit
   // -------------------------------------------------------------
   useEffect(() => {
-    if (isWebGame || isPcGame) return;
+    if (isWebGame || isDownloadOnly) return;
     let animFrame = null;
     let lastComboTime = 0;
 
@@ -372,26 +374,26 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
 
     animFrame = requestAnimationFrame(poll);
     return () => { if (animFrame) cancelAnimationFrame(animFrame); };
-  }, [isWebGame, isPcGame, hasPhysicalGamepad, handleSaveState, handleLoadState, onClose]);
+  }, [isWebGame, isDownloadOnly, hasPhysicalGamepad, handleSaveState, handleLoadState, onClose]);
 
   // -------------------------------------------------------------
-  // PC game: no emulation, offer Drive download instead
+  // Download-only games (PC, Switch, PS2, etc.): offer Drive download links
   // -------------------------------------------------------------
   const [pcDriveInfo, setPcDriveInfo] = useState(null);
   useEffect(() => {
-    if (!isPcGame || !game?.id) return;
+    if (!isDownloadOnly || !game?.id) return;
     fetchJson(`/api/games/${game.id}/drive-link`)
       .then((data) => setPcDriveInfo(data))
       .catch(() => setPcDriveInfo(null));
     setIsLoading(false);
     setLoadStage('');
-  }, [isPcGame, game]);
+  }, [isDownloadOnly, game]);
 
   // -------------------------------------------------------------
   // Launch emulator (retro consoles only)
   // -------------------------------------------------------------
   useEffect(() => {
-    if (!game || isWebGame || isPcGame) return;
+    if (!game || isWebGame || isDownloadOnly) return;
     let isMounted = true;
 
     async function startEmulator() {
@@ -847,7 +849,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
         nostalgistRef.current = null;
       }
     };
-  }, [game, isWebGame, isPcGame, loadStateBlob, showToast]);
+  }, [game, isWebGame, isDownloadOnly, loadStateBlob, showToast]);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -865,7 +867,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
         onClose();
         return;
       }
-      if (!isWebGame && !isPcGame) {
+      if (!isWebGame && !isDownloadOnly) {
         if (e.code === 'Digit5' || e.key === '5' || e.code === 'KeyC' || e.key === 'c' || e.key === 'C') {
           if (!e.repeat) insertCoin();
         }
@@ -873,7 +875,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, isWebGame, isPcGame, insertCoin]);
+  }, [onClose, isWebGame, isDownloadOnly, insertCoin]);
 
   if (!game) return null;
 
@@ -933,9 +935,10 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
   }
 
   // -------------------------------------------------------------
-  // PC GAME (Drive download instead of emulation)
+  // DOWNLOAD-ONLY GAME (Drive download instead of emulation)
   // -------------------------------------------------------------
-  if (isPcGame) {
+  if (isDownloadOnly) {
+    const consoleLabel = formatConsoleName(consoleNormalized);
     return (
       <div
         ref={containerRef}
@@ -950,8 +953,11 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
             </button>
           </div>
           <p className="text-xs text-slate-400 leading-relaxed">
-            This is a PC game stored in your Google Drive. PC titles can't be emulated in the browser —
-            download the installer files and run them on your computer.
+            {isPcGame ? (
+              "This is a PC game stored in your Google Drive. PC titles can't be emulated in the browser — download the installer files and run them on your computer."
+            ) : (
+              `This is a ${consoleLabel} game stored in your Google Drive. This system can't be emulated in the browser — download the files and run them with your emulator or console.`
+            )}
           </p>
           <div className="text-[11px] text-slate-500 flex items-center gap-2">
             <FolderInput className="w-3.5 h-3.5" />

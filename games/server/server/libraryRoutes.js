@@ -223,10 +223,12 @@ export function registerLibraryRoutes(app, { Database }) {
       }
     }
 
+    const folderViewId = game.isFolder ? game.driveId : (game.folderId || null);
+
     res.json({
       success: true,
       type: 'drive',
-      folderViewUrl: `https://drive.google.com/drive/folders/${game.driveId}`,
+      folderViewUrl: folderViewId ? `https://drive.google.com/drive/folders/${folderViewId}` : null,
       directUrl: driveId ? `https://drive.google.com/uc?export=download&id=${driveId}` : null,
       links
     });

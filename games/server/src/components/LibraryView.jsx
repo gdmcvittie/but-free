@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Play, Heart, Search, RefreshCw, HardDrive, Globe, Download, Gamepad2 } from 'lucide-react';
+import { isGameDownloadOnly } from '../utils/consoles';
 
 export default function LibraryView({
   games = [],
@@ -200,7 +201,7 @@ export default function LibraryView({
                 {/* Hover Play Overlay */}
                 <div className="game-card-overlay absolute inset-0 flex items-center justify-center p-2">
                   <div className="w-10 h-10 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-lg shadow-purple-600/50 transform translate-y-1 group-hover:translate-y-0 transition-transform">
-                    {game.console === 'pc' || game.isPcGame ? (
+                    {isGameDownloadOnly(game) ? (
                       <Download className="w-4 h-4" />
                     ) : game.console === 'web' ? (
                       <Globe className="w-4 h-4" />
@@ -219,7 +220,7 @@ export default function LibraryView({
                 <div className="game-card-sub">
                   <span className="truncate">{game.sizeFormatted || (game.size ? `${(game.size / 1024 / 1024).toFixed(1)} MB` : 'ROM')}</span>
                   <span className="text-purple-400 font-semibold group-hover:underline shrink-0">
-                    {game.console === 'pc' || game.isPcGame ? 'Files ↓' : game.console === 'web' ? 'Web Play →' : 'Play →'}
+                    {isGameDownloadOnly(game) ? 'Files ↓' : game.console === 'web' ? 'Web Play →' : 'Play →'}
                   </span>
                 </div>
               </div>

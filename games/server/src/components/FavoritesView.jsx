@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Heart, Play, Gamepad2, Search, ArrowRight } from 'lucide-react';
+import { Heart, Play, Download, Globe, Gamepad2, Search, ArrowRight } from 'lucide-react';
+import { isGameDownloadOnly } from '../utils/consoles';
 
 export default function FavoritesView({
   games = [],
@@ -125,7 +126,13 @@ export default function FavoritesView({
                 {/* Hover Play Overlay */}
                 <div className="game-card-overlay absolute inset-0 flex items-center justify-center p-2">
                   <div className="w-10 h-10 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-lg shadow-purple-600/50 transform translate-y-1 group-hover:translate-y-0 transition-transform">
-                    <Play className="w-4 h-4 ml-0.5 fill-white" />
+                    {isGameDownloadOnly(game) ? (
+                      <Download className="w-4 h-4" />
+                    ) : game.console === 'web' ? (
+                      <Globe className="w-4 h-4" />
+                    ) : (
+                      <Play className="w-4 h-4 ml-0.5 fill-white" />
+                    )}
                   </div>
                 </div>
               </div>

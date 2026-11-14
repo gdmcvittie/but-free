@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Play, Heart, Gamepad2, History, ArrowRight } from 'lucide-react';
+import { Play, Download, Globe, Heart, Gamepad2, History, ArrowRight } from 'lucide-react';
 import { fetchJson } from '../utils/api';
+import { isGameDownloadOnly } from '../utils/consoles';
 
 function formatAgo(timestamp) {
   if (!timestamp) return '';
@@ -150,7 +151,13 @@ export default function RecentlyPlayedView({
                 {/* Hover Play Overlay */}
                 <div className="game-card-overlay absolute inset-0 flex items-center justify-center p-2">
                   <div className="w-10 h-10 rounded-full bg-purple-600 text-white flex items-center justify-center shadow-lg shadow-purple-600/50 transform translate-y-1 group-hover:translate-y-0 transition-transform">
-                    <Play className="w-4 h-4 ml-0.5 fill-white" />
+                    {isGameDownloadOnly(game) ? (
+                      <Download className="w-4 h-4" />
+                    ) : game.console === 'web' ? (
+                      <Globe className="w-4 h-4" />
+                    ) : (
+                      <Play className="w-4 h-4 ml-0.5 fill-white" />
+                    )}
                   </div>
                 </div>
               </div>
@@ -163,7 +170,7 @@ export default function RecentlyPlayedView({
                 <div className="game-card-sub">
                   <span className="truncate">played {formatAgo(game.playedAt) || 'recently'}</span>
                   <span className="text-purple-400 font-semibold group-hover:underline shrink-0">
-                    Play Again →
+                    {isGameDownloadOnly(game) ? 'Files ↓' : game.console === 'web' ? 'Web Play →' : 'Play Again →'}
                   </span>
                 </div>
               </div>

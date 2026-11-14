@@ -1,25 +1,6 @@
 import React, { useState } from 'react';
 import { Gamepad2, Compass, Download, Heart, Settings, ChevronDown, History, Layers } from 'lucide-react';
-
-const CONSOLE_DISPLAY_NAMES = {
-  nes: 'NES',
-  snes: 'SNES',
-  gb: 'Game Boy',
-  gbc: 'GBC',
-  gba: 'GBA',
-  sega: 'Genesis',
-  genesis: 'Genesis',
-  megadrive: 'Mega Drive',
-  neo: 'Neo Geo',
-  neogeo: 'Neo Geo',
-  arcade: 'Arcade',
-  pce: 'PC Engine',
-  tg16: 'TurboGrafx-16',
-  gg: 'Game Gear',
-  sms: 'Master System',
-  pc: 'PC Games',
-  web: 'Web Games'
-};
+import { formatConsoleName } from '../utils/consoles';
 
 export default function Sidebar({
   currentView,
@@ -135,7 +116,7 @@ export default function Sidebar({
                           }`}
                           onClick={() => selectConsole(c.key)}
                         >
-                          <span className="nav-submenu-label">{CONSOLE_DISPLAY_NAMES[c.key] || c.key}</span>
+                          <span className="nav-submenu-label">{formatConsoleName(c.key)}</span>
                           <span className="nav-submenu-count">{c.count}</span>
                         </button>
                       ))}
@@ -168,7 +149,7 @@ export default function Sidebar({
               <div className="handheld-consoles-list">
                 {consoles.map((c) => {
                   const isConsoleActive = currentView === 'library' && libraryConsole === c.key;
-                  const label = CONSOLE_DISPLAY_NAMES[c.key] || c.key.toUpperCase();
+                  const label = formatConsoleName(c.key);
                   return (
                     <button
                       key={c.key}
