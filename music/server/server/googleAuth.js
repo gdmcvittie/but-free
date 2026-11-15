@@ -243,8 +243,9 @@ export const googleAuth = {
 
   verifySessionToken(token) {
     if (!token || typeof token !== 'string') return null;
-    const [encoded, hmac] = token.split('.');
+    let [encoded, hmac] = token.split('.');
     if (!encoded || !hmac) return null;
+    encoded = encoded.trim().replace(/ /g, '+');
     try {
       const payloadStr = Buffer.from(encoded, 'base64').toString('utf8');
       const expected = crypto.createHmac('sha256', config.google.sessionSecret).update(payloadStr).digest('hex');

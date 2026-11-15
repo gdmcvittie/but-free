@@ -83,6 +83,29 @@ function generatePairingCode() {
   return code;
 }
 
+function createDeviceToken(user, ttl = 10 * 365 * 24 * 60 * 60 * 1000) {
+  if (!user || !user.id) return null;
+  const exp = Date.now() + ttl;
+  const payload = `${user.id}:${exp}`;
+  const hmac = crypto.createHmac('sha256', config.google.sessionSecret).update(payload).digest('hex');
+  return `dt.${user.id}.${exp}.${hmac}`;
+}
+
+function verifyDeviceToken(token) {
+  if (!token || typeof token !== 'string') return null;
+  const parts = token.split('.');
+  if (parts.length !== 4 || parts[0] !== 'dt') return null;
+  const [_, userId, expStr, hmac] = parts;
+  const exp = Number(expStr);
+  if (!exp || Date.now() > exp) return null;
+  const payload = `${userId}:${expStr}`;
+  const expected = crypto.createHmac('sha256', config.google.sessionSecret).update(payload).digest('hex');
+  if (hmac.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(hmac), Buffer.from(expected))) {
+    return null;
+  }
+  return db.getUser(userId);
+}
+
 function authenticateDevice(req) {
   let token = null;
   if (req.headers.authorization) {
@@ -94,6 +117,17 @@ function authenticateDevice(req) {
   if (!token && req.body?.token) token = String(req.body.token);
 
   if (!token) return null;
+  token = token.trim();
+
+  if (token.startsWith('dt.')) {
+    return verifyDeviceToken(token);
+  }
+
+  // Fallback for standard session tokens (handling '+' converted to space)
+  const parts = token.split('.');
+  if (parts.length === 2) {
+    token = parts[0].replace(/ /g, '+') + '.' + parts[1];
+  }
   return googleAuth.verifySessionToken(token);
 }
 
@@ -860,8 +894,8 @@ export function registerDeviceRoutes(app) {
       return res.status(400).json({ ok: false, error: 'Code expired. Please request a new code on your device.' });
     }
 
-    // Generate 10-year device token
-    const token = googleAuth.createSessionToken(req.user, 10 * 365 * 24 * 60 * 60 * 1000);
+    // Generate compact 10-year device token
+    const token = createDeviceToken(req.user, 10 * 365 * 24 * 60 * 60 * 1000);
     entry.completed = true;
     entry.userId = req.user.id;
     entry.token = token;
@@ -882,87 +916,97 @@ export function registerDeviceRoutes(app) {
 
   // Check device auth & Drive sync status
   app.get('/api/device/drive/status', (req, res) => {
-    const user = authenticateDevice(req);
-    if (!user) {
-      return res.status(401).json({ ok: false, error: 'Unauthorized device' });
-    }
-
-    const tracks = db.getUserItems(user.id, 'track');
-    const audiobooks = db.getUserItems(user.id, 'audiobook');
-
-    return res.json({
-      ok: true,
-      connected: true,
-      user: {
-        id: user.id,
-        email: user.email || '',
-        name: user.name || '',
-        musicFolder: user.musicFolderName || null,
-        audiobooksFolder: user.audiobooksFolderName || null
-      },
-      counts: {
-        tracks: tracks.length,
-        audiobooks: audiobooks.length
+    try {
+      const user = authenticateDevice(req);
+      if (!user) {
+        return res.status(401).json({ ok: false, error: 'Unauthorized device. Please re-pair in Settings.' });
       }
-    });
+
+      const tracks = db.getUserItems(user.id, 'track') || [];
+      const audiobooks = db.getUserItems(user.id, 'audiobook') || [];
+
+      return res.json({
+        ok: true,
+        connected: true,
+        user: {
+          id: user.id,
+          email: user.email || '',
+          name: user.name || '',
+          musicFolder: user.musicFolderName || null,
+          audiobooksFolder: user.audiobooksFolderName || null
+        },
+        counts: {
+          tracks: tracks.length,
+          audiobooks: audiobooks.length
+        }
+      });
+    } catch (err) {
+      console.error('[DeviceApi] Error in /api/device/drive/status:', err);
+      return res.status(500).json({ ok: false, error: err.message || 'Server error' });
+    }
   });
 
   // Get full Drive library catalog for syncing
   app.get('/api/device/drive/library', (req, res) => {
-    const user = authenticateDevice(req);
-    if (!user) {
-      return res.status(401).json({ ok: false, error: 'Unauthorized device' });
-    }
+    try {
+      const user = authenticateDevice(req);
+      if (!user) {
+        return res.status(401).json({ ok: false, error: 'Unauthorized device. Please re-pair in Settings.' });
+      }
 
-    const kind = String(req.query.kind || '').toLowerCase();
-    let tracks = [];
-    let audiobooks = [];
+      const kind = String(req.query.kind || '').toLowerCase();
+      let tracks = [];
+      let audiobooks = [];
 
-    if (kind !== 'audiobooks' && kind !== 'audiobook') {
-      const rawTracks = db.getUserItems(user.id, 'track');
-      tracks = rawTracks.map((t) => {
-        const artist = safePart(t.artist || 'Unknown Artist');
-        const album = safePart(t.album || 'Unknown Album');
-        const filename = t.fileName || `${safePart(t.title || 'Track')}.mp3`;
-        return {
-          id: t.id,
-          title: t.title || 'Untitled',
-          artist: t.artist || '',
-          album: t.album || '',
-          size: t.sizeBytes || 0,
-          filename,
-          path: `Music/${artist}/${album}/${filename}`,
-          googleFileId: t.googleFileId || null
-        };
+      if (kind !== 'audiobooks' && kind !== 'audiobook') {
+        const rawTracks = db.getUserItems(user.id, 'track') || [];
+        tracks = rawTracks.map((t) => {
+          const artist = safePart(t.artist || 'Unknown Artist');
+          const album = safePart(t.album || 'Unknown Album');
+          const filename = t.fileName || `${safePart(t.title || 'Track')}.mp3`;
+          return {
+            id: t.id,
+            title: t.title || 'Untitled',
+            artist: t.artist || '',
+            album: t.album || '',
+            size: t.sizeBytes || 0,
+            filename,
+            path: `Music/${artist}/${album}/${filename}`,
+            googleFileId: t.googleFileId || null
+          };
+        });
+      }
+
+      if (kind !== 'music' && kind !== 'songs') {
+        const rawBooks = db.getUserItems(user.id, 'audiobook') || [];
+        audiobooks = rawBooks.map((b) => {
+          const author = safePart(b.author || 'Unknown Author');
+          const series = b.series ? safePart(b.series) : null;
+          const filename = b.fileName || `${safePart(b.title || 'Audiobook')}.m4b`;
+          const dir = series ? `Audiobook/${author}/${series}` : `Audiobook/${author}`;
+          return {
+            id: b.id,
+            title: b.title || 'Untitled',
+            author: b.author || '',
+            series: b.series || '',
+            narrator: b.narrator || '',
+            size: b.sizeBytes || 0,
+            filename,
+            path: `${dir}/${filename}`,
+            googleFileId: b.googleFileId || null
+          };
+        });
+      }
+
+      return res.json({
+        ok: true,
+        tracks,
+        audiobooks
       });
+    } catch (err) {
+      console.error('[DeviceApi] Error in /api/device/drive/library:', err);
+      return res.status(500).json({ ok: false, error: err.message || 'Server error' });
     }
-
-    if (kind !== 'music' && kind !== 'songs') {
-      const rawBooks = db.getUserItems(user.id, 'audiobook');
-      audiobooks = rawBooks.map((b) => {
-        const author = safePart(b.author || 'Unknown Author');
-        const series = b.series ? safePart(b.series) : null;
-        const filename = b.fileName || `${safePart(b.title || 'Audiobook')}.m4b`;
-        const dir = series ? `Audiobook/${author}/${series}` : `Audiobook/${author}`;
-        return {
-          id: b.id,
-          title: b.title || 'Untitled',
-          author: b.author || '',
-          series: b.series || '',
-          narrator: b.narrator || '',
-          size: b.sizeBytes || 0,
-          filename,
-          path: `${dir}/${filename}`,
-          googleFileId: b.googleFileId || null
-        };
-      });
-    }
-
-    return res.json({
-      ok: true,
-      tracks,
-      audiobooks
-    });
   });
 
   // Download/stream Drive audio file directly to player
