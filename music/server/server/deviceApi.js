@@ -968,7 +968,10 @@ export function registerDeviceRoutes(app) {
       }
 
       const kind = String(req.query.kind || '').toLowerCase();
-      const limit = Math.min(Math.max(parseInt(req.query.limit || '100', 10), 1), 500);
+      const limitParam = req.query.limit;
+      const limit = (limitParam === 'all' || !limitParam)
+        ? 10000
+        : Math.min(Math.max(parseInt(limitParam, 10) || 5000, 1), 10000);
       let tracks = [];
       let audiobooks = [];
 
