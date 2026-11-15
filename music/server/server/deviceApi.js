@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { DATA_DIR, BIN_DIR, ROOT_DIR, config } from './config.js';
 import binManager from './binManager.js';
 import youtubeMusic from './youtubeMusic.js';
@@ -790,15 +791,21 @@ export function registerDeviceRoutes(app) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ code })
         });
-        const data = await res.json();
-        if (data.ok) {
+        let data = null;
+        try {
+          data = await res.json();
+        } catch {
+          showError('Server returned an unexpected error (' + res.status + '). Please try again.');
+          return;
+        }
+        if (data && data.ok) {
           pairView.style.display = 'none';
           successView.style.display = 'block';
         } else {
-          showError(data.error || 'Pairing failed. The code may have expired.');
+          showError((data && data.error) || 'Pairing failed. The code may have expired.');
         }
       } catch (err) {
-        showError('Network error connecting to server.');
+        showError('Network error connecting to server: ' + (err.message || ''));
       }
     }
 
@@ -876,38 +883,43 @@ export function registerDeviceRoutes(app) {
 
   // 1c. Confirm pairing code (called by web page after user signs in)
   app.post('/api/device/pair/confirm', (req, res) => {
-    if (!req.user) {
-      return res.status(401).json({ ok: false, error: 'Sign in with Google first.' });
-    }
+    try {
+      if (!req.user) {
+        return res.status(401).json({ ok: false, error: 'Sign in with Google first.' });
+      }
 
-    devicePairingStore = loadPairingStore();
-    cleanupPairingStore();
-    const code = String(req.body?.code || '').trim().toUpperCase();
-    const entry = devicePairingStore[code];
+      devicePairingStore = loadPairingStore();
+      cleanupPairingStore();
+      const code = String(req.body?.code || '').trim().toUpperCase();
+      const entry = devicePairingStore[code];
 
-    if (!entry) {
-      return res.status(400).json({ ok: false, error: 'Pairing code not found or expired. Please check your screen.' });
-    }
-    if (Date.now() - entry.createdAt > 5 * 60 * 1000) {
-      delete devicePairingStore[code];
+      if (!entry) {
+        return res.status(400).json({ ok: false, error: 'Pairing code not found or expired. Please check your screen.' });
+      }
+      if (Date.now() - entry.createdAt > 5 * 60 * 1000) {
+        delete devicePairingStore[code];
+        savePairingStore(devicePairingStore);
+        return res.status(400).json({ ok: false, error: 'Code expired. Please request a new code on your device.' });
+      }
+
+      // Generate compact 10-year device token
+      const token = createDeviceToken(req.user, 10 * 365 * 24 * 60 * 60 * 1000);
+      entry.completed = true;
+      entry.userId = req.user.id;
+      entry.token = token;
+      entry.email = req.user.email;
+      entry.name = req.user.name;
       savePairingStore(devicePairingStore);
-      return res.status(400).json({ ok: false, error: 'Code expired. Please request a new code on your device.' });
+
+      return res.json({
+        ok: true,
+        email: req.user.email,
+        name: req.user.name
+      });
+    } catch (err) {
+      console.error('[DeviceApi] Error in /api/device/pair/confirm:', err);
+      return res.status(500).json({ ok: false, error: err.message || 'Server error' });
     }
-
-    // Generate compact 10-year device token
-    const token = createDeviceToken(req.user, 10 * 365 * 24 * 60 * 60 * 1000);
-    entry.completed = true;
-    entry.userId = req.user.id;
-    entry.token = token;
-    entry.email = req.user.email;
-    entry.name = req.user.name;
-    savePairingStore(devicePairingStore);
-
-    return res.json({
-      ok: true,
-      email: req.user.email,
-      name: req.user.name
-    });
   });
 
   // -------------------------------------------------------------------------
