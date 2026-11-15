@@ -101,14 +101,18 @@ app.get('/api/auth/google/url', (req, res) => {
 });
 
 app.get('/api/auth/google/callback', async (req, res) => {
-  const { code, error } = req.query;
+  const { code, error, state } = req.query;
   if (error) return res.redirect(`/?auth_error=${encodeURIComponent(String(error))}`);
   if (!code) return res.redirect('/?auth_error=no_code');
 
   try {
     const user = await googleAuth.handleCallback(String(code), req);
     res.cookie(googleAuth.SESSION_COOKIE, googleAuth.createSessionToken(user), googleAuth.cookieOptions(req));
-    res.redirect('/');
+    let dest = '/';
+    if (state && typeof state === 'string' && state.startsWith('redirect:')) {
+      dest = state.slice(9) || '/';
+    }
+    res.redirect(dest);
 
     // Restore progress / favourites / playlists from the Drive JSON documents.
     // Done after the redirect so sign-in is never slowed by Drive latency.

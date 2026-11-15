@@ -5,6 +5,9 @@ import binManager from './binManager.js';
 import youtubeMusic from './youtubeMusic.js';
 import abbClient from './abbClient.js';
 import torrentNode from './torrentNode.js';
+import db from './db.js';
+import googleAuth from './googleAuth.js';
+import googleDrive from './googleDrive.js';
 import { sanitizeTitle, sanitizeSegment, extensionOf } from './libraryParser.js';
 
 const DEVICE_DOWNLOADS_DIR = path.join(DATA_DIR, 'device_downloads');
@@ -35,6 +38,63 @@ function safePart(str, fallback = 'Unknown') {
 
 function nap(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+
+// ---------------------------------------------------------------------------
+// Device Pairing & Auth Store (for portable players / Roku / embedded clients)
+// ---------------------------------------------------------------------------
+const PAIRING_FILE = path.join(DATA_DIR, 'device_pairing.json');
+let devicePairingStore = {};
+
+function loadPairingStore() {
+  try {
+    if (fs.existsSync(PAIRING_FILE)) {
+      return JSON.parse(fs.readFileSync(PAIRING_FILE, 'utf8'));
+    }
+  } catch {}
+  return {};
+}
+
+function savePairingStore(store) {
+  try {
+    fs.writeFileSync(PAIRING_FILE, JSON.stringify(store, null, 2), 'utf8');
+  } catch {}
+}
+
+function cleanupPairingStore() {
+  const now = Date.now();
+  let changed = false;
+  for (const [code, entry] of Object.entries(devicePairingStore)) {
+    if (now - entry.createdAt > 5 * 60 * 1000) {
+      delete devicePairingStore[code];
+      changed = true;
+    }
+  }
+  if (changed) savePairingStore(devicePairingStore);
+}
+
+const PAIRING_CHARS = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+function generatePairingCode() {
+  let code = '';
+  for (let i = 0; i < 4; i++) {
+    code += PAIRING_CHARS[Math.floor(Math.random() * PAIRING_CHARS.length)];
+  }
+  return code;
+}
+
+function authenticateDevice(req) {
+  let token = null;
+  if (req.headers.authorization) {
+    const [scheme, val] = req.headers.authorization.split(' ');
+    if (scheme?.toLowerCase() === 'bearer' && val) token = val;
+  }
+  if (!token && req.query.token) token = String(req.query.token);
+  if (!token && req.query.deviceToken) token = String(req.query.deviceToken);
+  if (!token && req.body?.token) token = String(req.body.token);
+
+  if (!token) return null;
+  return googleAuth.verifySessionToken(token);
 }
 
 function createJob(type, meta = {}) {
@@ -419,6 +479,514 @@ export function registerDeviceRoutes(app) {
       serverTime: Date.now()
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Device Pairing & Connect UI
+  // -------------------------------------------------------------------------
+
+  // Web page: music.butfree.online/device
+  app.get('/device', (req, res) => {
+    const deviceCode = String(req.query.code || '').trim().toUpperCase();
+    const user = req.user;
+
+    let loginUrl = '#';
+    if (!user) {
+      try {
+        const dest = '/device' + (deviceCode ? `?code=${encodeURIComponent(deviceCode)}` : '');
+        loginUrl = googleAuth.getAuthUrl(req, `redirect:${dest}`);
+      } catch (err) {
+        loginUrl = `/?auth_error=${encodeURIComponent(err.message)}`;
+      }
+    }
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FRAUDIO - Connect Device</title>
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: #0E1119;
+      color: #E7EAF0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      background: #141824;
+      border: 1px solid #1F263B;
+      border-radius: 20px;
+      padding: 40px 32px;
+      max-width: 440px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    }
+    .logo-badge {
+      width: 64px;
+      height: 64px;
+      background: #1B2033;
+      border: 2px solid #3DDC97;
+      border-radius: 18px;
+      margin: 0 auto 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .logo-badge svg {
+      width: 32px;
+      height: 32px;
+      fill: none;
+      stroke: #3DDC97;
+      stroke-width: 2.5;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 700;
+      color: #FFFFFF;
+      margin-bottom: 8px;
+      letter-spacing: -0.5px;
+    }
+    .subtitle {
+      color: #8C96AD;
+      font-size: 14px;
+      line-height: 1.5;
+      margin-bottom: 24px;
+    }
+    .user-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #1B2236;
+      border: 1px solid #28334E;
+      border-radius: 30px;
+      padding: 6px 14px;
+      font-size: 13px;
+      color: #3DDC97;
+      margin-bottom: 24px;
+    }
+    .code-input-wrap {
+      margin-bottom: 20px;
+    }
+    input.code-input {
+      width: 100%;
+      padding: 14px 16px;
+      background: #0B0E15;
+      border: 2px solid #28334E;
+      border-radius: 12px;
+      color: #FFFFFF;
+      font-size: 32px;
+      text-align: center;
+      letter-spacing: 12px;
+      text-transform: uppercase;
+      font-weight: 700;
+      outline: none;
+      transition: all 0.2s;
+    }
+    input.code-input:focus {
+      border-color: #3DDC97;
+      box-shadow: 0 0 0 3px rgba(61, 220, 151, 0.2);
+    }
+    input.code-input::placeholder {
+      color: #2F3B56;
+      letter-spacing: 8px;
+    }
+    .btn {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+    .btn-primary {
+      background: #3DDC97;
+      color: #0E1119;
+    }
+    .btn-primary:hover {
+      background: #4ae8a3;
+      transform: translateY(-1px);
+    }
+    .btn-primary:disabled {
+      background: #252D3F;
+      color: #5A6682;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .btn-google {
+      background: #FFFFFF;
+      color: #1F2937;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .btn-google:hover {
+      background: #F3F4F6;
+    }
+    .btn-google svg {
+      width: 20px;
+      height: 20px;
+    }
+    .msg-box {
+      margin-top: 18px;
+      font-size: 14px;
+      border-radius: 10px;
+      padding: 12px;
+      display: none;
+    }
+    .msg-box.error {
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #F87171;
+    }
+    .msg-box.success {
+      background: rgba(61, 220, 151, 0.12);
+      border: 1px solid rgba(61, 220, 151, 0.3);
+      color: #3DDC97;
+    }
+    .success-panel {
+      display: none;
+    }
+    .success-icon {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: rgba(61, 220, 151, 0.15);
+      border: 2px solid #3DDC97;
+      margin: 0 auto 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .success-icon svg {
+      width: 36px;
+      height: 36px;
+      stroke: #3DDC97;
+      stroke-width: 3;
+      fill: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div id="pairView">
+      <div class="logo-badge">
+        <svg viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polygon points="10 8 16 12 10 16 10 8" fill="#3DDC97"></polygon>
+        </svg>
+      </div>
+      <h1>Connect Player</h1>
+      ${user ? `
+        <div class="user-pill">
+          <span>●</span>
+          <span>${user.email || user.name || 'Signed In'}</span>
+        </div>
+        <p class="subtitle">Enter the 4-character code shown on your portable player to link your Google Drive audio library.</p>
+        <div class="code-input-wrap">
+          <input id="codeInput" class="code-input" maxlength="4" placeholder="----" autofocus autocomplete="off" spellcheck="false" value="${deviceCode}">
+        </div>
+        <button id="pairBtn" class="btn btn-primary">Pair Device</button>
+        <div id="msgBox" class="msg-box"></div>
+      ` : `
+        <p class="subtitle">Sign in with Google to connect your portable player to your personal Google Drive audio library.</p>
+        <a href="${loginUrl}" class="btn btn-google">
+          <svg viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+          </svg>
+          Sign in with Google
+        </a>
+      `}
+    </div>
+
+    <div id="successView" class="success-panel">
+      <div class="success-icon">
+        <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+      </div>
+      <h1>Device Connected!</h1>
+      <p class="subtitle" id="successDesc">Your portable player is now linked to your Google Drive library. You can now sync your Music and Audiobooks directly on the player.</p>
+    </div>
+  </div>
+
+  ${user ? `
+  <script>
+    const input = document.getElementById('codeInput');
+    const btn = document.getElementById('pairBtn');
+    const msg = document.getElementById('msgBox');
+    const pairView = document.getElementById('pairView');
+    const successView = document.getElementById('successView');
+
+    function showError(text) {
+      msg.className = 'msg-box error';
+      msg.textContent = text;
+      msg.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Pair Device';
+    }
+
+    async function submitPair() {
+      const code = (input.value || '').trim().toUpperCase();
+      if (!code || code.length < 4) {
+        showError('Please enter a valid 4-character code.');
+        input.focus();
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Connecting…';
+      msg.style.display = 'none';
+
+      try {
+        const res = await fetch('/api/device/pair/confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          pairView.style.display = 'none';
+          successView.style.display = 'block';
+        } else {
+          showError(data.error || 'Pairing failed. The code may have expired.');
+        }
+      } catch (err) {
+        showError('Network error connecting to server.');
+      }
+    }
+
+    btn.addEventListener('click', submitPair);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submitPair();
+    });
+    input.addEventListener('input', () => {
+      input.value = input.value.toUpperCase();
+      if (input.value.length === 4) {
+        submitPair();
+      }
+    });
+  </script>
+  ` : ''}
+</body>
+</html>`;
+
+    res.type('html').send(html);
+  });
+
+  // 1a. Generate pairing code (called by DAP device)
+  app.get('/api/device/pair/code', (req, res) => {
+    devicePairingStore = loadPairingStore();
+    cleanupPairingStore();
+    const code = generatePairingCode();
+    devicePairingStore[code] = {
+      completed: false,
+      userId: null,
+      token: null,
+      createdAt: Date.now()
+    };
+    savePairingStore(devicePairingStore);
+    res.json({
+      ok: true,
+      code,
+      expiresIn: 300,
+      pairUrl: 'https://music.butfree.online/device'
+    });
+  });
+
+  // 1b. Poll pairing status (called by DAP device)
+  app.get('/api/device/pair/status/:code', (req, res) => {
+    devicePairingStore = loadPairingStore();
+    const code = String(req.params.code || '').toUpperCase();
+    const entry = devicePairingStore[code];
+
+    if (!entry) {
+      return res.json({ ok: false, status: 'expired' });
+    }
+    if (Date.now() - entry.createdAt > 5 * 60 * 1000) {
+      delete devicePairingStore[code];
+      savePairingStore(devicePairingStore);
+      return res.json({ ok: false, status: 'expired' });
+    }
+    if (!entry.completed || !entry.token) {
+      return res.json({ ok: true, status: 'pending' });
+    }
+
+    // Hand over token and delete code
+    const payload = {
+      ok: true,
+      status: 'complete',
+      token: entry.token,
+      user: {
+        id: entry.userId,
+        email: entry.email || '',
+        name: entry.name || ''
+      }
+    };
+    delete devicePairingStore[code];
+    savePairingStore(devicePairingStore);
+    return res.json(payload);
+  });
+
+  // 1c. Confirm pairing code (called by web page after user signs in)
+  app.post('/api/device/pair/confirm', (req, res) => {
+    if (!req.user) {
+      return res.status(401).json({ ok: false, error: 'Sign in with Google first.' });
+    }
+
+    devicePairingStore = loadPairingStore();
+    cleanupPairingStore();
+    const code = String(req.body?.code || '').trim().toUpperCase();
+    const entry = devicePairingStore[code];
+
+    if (!entry) {
+      return res.status(400).json({ ok: false, error: 'Pairing code not found or expired. Please check your screen.' });
+    }
+    if (Date.now() - entry.createdAt > 5 * 60 * 1000) {
+      delete devicePairingStore[code];
+      savePairingStore(devicePairingStore);
+      return res.status(400).json({ ok: false, error: 'Code expired. Please request a new code on your device.' });
+    }
+
+    // Generate 10-year device token
+    const token = googleAuth.createSessionToken(req.user, 10 * 365 * 24 * 60 * 60 * 1000);
+    entry.completed = true;
+    entry.userId = req.user.id;
+    entry.token = token;
+    entry.email = req.user.email;
+    entry.name = req.user.name;
+    savePairingStore(devicePairingStore);
+
+    return res.json({
+      ok: true,
+      email: req.user.email,
+      name: req.user.name
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Google Drive Device Sync Endpoints (requires device token)
+  // -------------------------------------------------------------------------
+
+  // Check device auth & Drive sync status
+  app.get('/api/device/drive/status', (req, res) => {
+    const user = authenticateDevice(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, error: 'Unauthorized device' });
+    }
+
+    const tracks = db.getUserItems(user.id, 'track');
+    const audiobooks = db.getUserItems(user.id, 'audiobook');
+
+    return res.json({
+      ok: true,
+      connected: true,
+      user: {
+        id: user.id,
+        email: user.email || '',
+        name: user.name || '',
+        musicFolder: user.musicFolderName || null,
+        audiobooksFolder: user.audiobooksFolderName || null
+      },
+      counts: {
+        tracks: tracks.length,
+        audiobooks: audiobooks.length
+      }
+    });
+  });
+
+  // Get full Drive library catalog for syncing
+  app.get('/api/device/drive/library', (req, res) => {
+    const user = authenticateDevice(req);
+    if (!user) {
+      return res.status(401).json({ ok: false, error: 'Unauthorized device' });
+    }
+
+    const kind = String(req.query.kind || '').toLowerCase();
+    let tracks = [];
+    let audiobooks = [];
+
+    if (kind !== 'audiobooks' && kind !== 'audiobook') {
+      const rawTracks = db.getUserItems(user.id, 'track');
+      tracks = rawTracks.map((t) => {
+        const artist = safePart(t.artist || 'Unknown Artist');
+        const album = safePart(t.album || 'Unknown Album');
+        const filename = t.fileName || `${safePart(t.title || 'Track')}.mp3`;
+        return {
+          id: t.id,
+          title: t.title || 'Untitled',
+          artist: t.artist || '',
+          album: t.album || '',
+          size: t.sizeBytes || 0,
+          filename,
+          path: `Music/${artist}/${album}/${filename}`,
+          googleFileId: t.googleFileId || null
+        };
+      });
+    }
+
+    if (kind !== 'music' && kind !== 'songs') {
+      const rawBooks = db.getUserItems(user.id, 'audiobook');
+      audiobooks = rawBooks.map((b) => {
+        const author = safePart(b.author || 'Unknown Author');
+        const series = b.series ? safePart(b.series) : null;
+        const filename = b.fileName || `${safePart(b.title || 'Audiobook')}.m4b`;
+        const dir = series ? `Audiobook/${author}/${series}` : `Audiobook/${author}`;
+        return {
+          id: b.id,
+          title: b.title || 'Untitled',
+          author: b.author || '',
+          series: b.series || '',
+          narrator: b.narrator || '',
+          size: b.sizeBytes || 0,
+          filename,
+          path: `${dir}/${filename}`,
+          googleFileId: b.googleFileId || null
+        };
+      });
+    }
+
+    return res.json({
+      ok: true,
+      tracks,
+      audiobooks
+    });
+  });
+
+  // Download/stream Drive audio file directly to player
+  app.get('/api/device/drive/file/:id', async (req, res) => {
+    const user = authenticateDevice(req);
+    if (!user) {
+      return res.status(401).send('Unauthorized device');
+    }
+
+    const item = db.getItem(user.id, req.params.id);
+    if (!item || !item.googleFileId) {
+      return res.status(404).send('Item not found in Google Drive library');
+    }
+
+    try {
+      const filename = item.fileName || `${item.title || 'file'}.mp3`;
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+      return await googleDrive.streamFile(user, item.googleFileId, req, res);
+    } catch (err) {
+      console.error(`[DeviceApi] Drive file stream error for ${req.params.id}:`, err);
+      if (!res.headersSent) res.status(500).send(err.message || 'Drive stream error');
+    }
+  });
+
 
   // 2. Search
   app.get('/api/device/search', async (req, res) => {

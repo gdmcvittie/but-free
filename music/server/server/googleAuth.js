@@ -234,8 +234,9 @@ export const googleAuth = {
   // ------------------------------------------------------------------
   // FRAUDIO session cookie
   // ------------------------------------------------------------------
-  createSessionToken(user) {
-    const payload = JSON.stringify({ id: user.id, email: user.email, exp: Date.now() + SESSION_TTL_MS });
+  createSessionToken(user, customTtlMs = null) {
+    const ttl = customTtlMs || SESSION_TTL_MS;
+    const payload = JSON.stringify({ id: user.id, email: user.email, exp: Date.now() + ttl });
     const hmac = crypto.createHmac('sha256', config.google.sessionSecret).update(payload).digest('hex');
     return `${Buffer.from(payload).toString('base64')}.${hmac}`;
   },
@@ -301,3 +302,4 @@ export const googleAuth = {
 };
 
 export default googleAuth;
+
