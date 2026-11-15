@@ -937,6 +937,7 @@ export function registerDeviceRoutes(app) {
       const tracks = db.getUserItems(user.id, 'track') || [];
       const audiobooks = db.getUserItems(user.id, 'audiobook') || [];
 
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
       return res.json({
         ok: true,
         connected: true,
@@ -967,51 +968,58 @@ export function registerDeviceRoutes(app) {
       }
 
       const kind = String(req.query.kind || '').toLowerCase();
+      const limit = Math.min(Math.max(parseInt(req.query.limit || '100', 10), 1), 500);
       let tracks = [];
       let audiobooks = [];
 
-      if (kind !== 'audiobooks' && kind !== 'audiobook') {
-        const rawTracks = db.getUserItems(user.id, 'track') || [];
-        tracks = rawTracks.map((t) => {
-          const artist = safePart(t.artist || 'Unknown Artist');
-          const album = safePart(t.album || 'Unknown Album');
-          const filename = t.fileName || `${safePart(t.title || 'Track')}.mp3`;
-          return {
-            id: t.id,
-            title: t.title || 'Untitled',
-            artist: t.artist || '',
-            album: t.album || '',
-            size: t.sizeBytes || 0,
-            filename,
-            path: `Music/${artist}/${album}/${filename}`,
-            googleFileId: t.googleFileId || null
-          };
-        });
-      }
+      const rawTracks = (kind !== 'audiobooks' && kind !== 'audiobook')
+        ? (db.getUserItems(user.id, 'track') || [])
+        : [];
+      const rawBooks = (kind !== 'music' && kind !== 'songs')
+        ? (db.getUserItems(user.id, 'audiobook') || [])
+        : [];
 
-      if (kind !== 'music' && kind !== 'songs') {
-        const rawBooks = db.getUserItems(user.id, 'audiobook') || [];
-        audiobooks = rawBooks.map((b) => {
-          const author = safePart(b.author || 'Unknown Author');
-          const series = b.series ? safePart(b.series) : null;
-          const filename = b.fileName || `${safePart(b.title || 'Audiobook')}.m4b`;
-          const dir = series ? `Audiobook/${author}/${series}` : `Audiobook/${author}`;
-          return {
-            id: b.id,
-            title: b.title || 'Untitled',
-            author: b.author || '',
-            series: b.series || '',
-            narrator: b.narrator || '',
-            size: b.sizeBytes || 0,
-            filename,
-            path: `${dir}/${filename}`,
-            googleFileId: b.googleFileId || null
-          };
-        });
-      }
+      tracks = rawTracks.slice(0, limit).map((t) => {
+        const artist = safePart(t.artist || 'Unknown Artist');
+        const album = safePart(t.album || 'Unknown Album');
+        const filename = t.fileName || `${safePart(t.title || 'Track')}.mp3`;
+        return {
+          id: String(t.id || ''),
+          title: String(t.title || 'Untitled').replace(/[\x00-\x1F\x7F]/g, ' ').trim(),
+          artist: String(t.artist || '').replace(/[\x00-\x1F\x7F]/g, ' ').trim(),
+          album: String(t.album || '').replace(/[\x00-\x1F\x7F]/g, ' ').trim(),
+          size: Number(t.sizeBytes) || 0,
+          filename,
+          path: `Music/${artist}/${album}/${filename}`,
+          googleFileId: t.googleFileId || null
+        };
+      });
 
+      audiobooks = rawBooks.slice(0, limit).map((b) => {
+        const author = safePart(b.author || 'Unknown Author');
+        const series = b.series ? safePart(b.series) : null;
+        const filename = b.fileName || `${safePart(b.title || 'Audiobook')}.m4b`;
+        const dir = series ? `Audiobook/${author}/${series}` : `Audiobook/${author}`;
+        return {
+          id: String(b.id || ''),
+          title: String(b.title || 'Untitled').replace(/[\x00-\x1F\x7F]/g, ' ').trim(),
+          author: String(b.author || '').replace(/[\x00-\x1F\x7F]/g, ' ').trim(),
+          series: String(b.series || '').replace(/[\x00-\x1F\x7F]/g, ' ').trim(),
+          narrator: String(b.narrator || '').replace(/[\x00-\x1F\x7F]/g, ' ').trim(),
+          size: Number(b.sizeBytes) || 0,
+          filename,
+          path: `${dir}/${filename}`,
+          googleFileId: b.googleFileId || null
+        };
+      });
+
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
       return res.json({
         ok: true,
+        counts: {
+          tracks: rawTracks.length,
+          audiobooks: rawBooks.length
+        },
         tracks,
         audiobooks
       });
