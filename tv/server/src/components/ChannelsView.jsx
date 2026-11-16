@@ -183,8 +183,9 @@ export default function ChannelsView({
     if (guideCategory === 'featured') {
       list = filtered.filter(c => c.channelType === 'new_episodes' || c.channelType === 'movies');
     } else if (guideCategory === 'show') {
-      list = filtered.filter(c => c.channelType === 'show');
-    } else if (guideCategory === 'genre') {
+      list = filtered.filter(c => c.channelType === 'show' || c.channelType === 'new_episodes');
+    } else if (guideCategory === 'genre' || guideCategory === 'movies' || guideCategory === 'movie') {
+      // Movie Channels filter: strictly show only movie genre channels
       list = filtered.filter(c => c.channelType === 'genre');
     } else if (guideCategory === 'faves') {
       list = filtered.filter(c =>
@@ -194,14 +195,14 @@ export default function ChannelsView({
     return list;
   }, [filtered, guideCategory, favorites]);
 
-  // Selected channel for preview & EPG pane
+  // Selected channel for preview & EPG pane (must belong to currently filtered list)
   const selectedChannel = useMemo(() => {
     if (selectedChannelId) {
-      const found = channels.find(c => c.id === selectedChannelId);
+      const found = guideFilteredChannels.find(c => c.id === selectedChannelId);
       if (found) return found;
     }
-    return guideFilteredChannels[0] || channels[0] || null;
-  }, [selectedChannelId, channels, guideFilteredChannels]);
+    return guideFilteredChannels[0] || null;
+  }, [selectedChannelId, guideFilteredChannels]);
 
   const selectedSchedule = useMemo(() => {
     if (!selectedChannel) return null;
@@ -337,7 +338,7 @@ export default function ChannelsView({
 
                       <div>
                         <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary)', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-                          {selectedChannel.channelType === 'show' ? 'TV Show Channel' : selectedChannel.channelType === 'genre' ? 'Movie Genre' : 'Featured Channel'}
+                          {selectedChannel.channelType === 'show' || selectedChannel.channelType === 'new_episodes' ? 'TV Show Channel' : selectedChannel.channelType === 'genre' ? 'Movie Genre' : 'Featured Channel'}
                         </div>
                         <div style={{ fontSize: '16px', fontWeight: 800, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {selectedChannel.name}
@@ -357,7 +358,7 @@ export default function ChannelsView({
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span className="live-dot-pulse" style={{ width: '6px', height: '6px' }} />
                       <span style={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.5px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                        GOOGLE DRIVE · {selectedChannel.channelType === 'show' ? 'TV SERIES' : 'MOVIES'}
+                        GOOGLE DRIVE · {selectedChannel.channelType === 'show' || selectedChannel.channelType === 'new_episodes' ? 'TV SERIES' : 'MOVIES'}
                       </span>
                     </div>
 
@@ -368,7 +369,7 @@ export default function ChannelsView({
                         if (onToggleFavorite) {
                           onToggleFavorite({
                             title: selectedChannel.name,
-                            type: selectedChannel.channelType === 'show' ? 'tv' : 'movie',
+                            type: selectedChannel.channelType === 'show' || selectedChannel.channelType === 'new_episodes' ? 'tv' : 'movie',
                             image: selectedChannel.posterUrl
                           });
                         }
@@ -484,19 +485,21 @@ export default function ChannelsView({
                 </span>
               </div>
 
-              {/* Category Pills (matching Roku source filter) */}
+              {/* Category Pills */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                 {[
                   { id: 'all', label: 'All' },
-                  { id: 'featured', label: 'Featured' },
+                  { id: 'genre', label: 'Movie Channels' },
                   { id: 'show', label: 'TV Shows' },
-                  { id: 'genre', label: 'Movie Genres' },
                   { id: 'faves', label: 'Favorites' }
                 ].map(cat => (
                   <button
                     key={cat.id}
                     type="button"
-                    onClick={() => setGuideCategory(cat.id)}
+                    onClick={() => {
+                      setGuideCategory(cat.id);
+                      setSelectedChannelId(null);
+                    }}
                     style={{
                       background: guideCategory === cat.id ? 'var(--primary-dark)' : '#20202a',
                       color: guideCategory === cat.id ? '#fff' : 'var(--text-secondary)',
@@ -598,7 +601,7 @@ export default function ChannelsView({
                       </div>
                       <div className="guide-row-meta-sub" style={{ fontSize: '10.5px', color: 'var(--text-muted)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                         <span style={{ textTransform: 'capitalize' }}>
-                          {channel.channelType === 'show' ? 'TV Show' : channel.channelType === 'genre' ? 'Genre' : 'Featured'}
+                          {channel.channelType === 'show' || channel.channelType === 'new_episodes' ? 'TV Show' : channel.channelType === 'genre' ? 'Movie Genre' : 'Featured'}
                         </span>
                         <span>·</span>
                         <span>{channel.playlist?.length || 0} eps</span>

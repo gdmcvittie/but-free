@@ -2461,14 +2461,25 @@ async function scanUserDrive(userId) {
       // Parse Movies with poster and genre lookup
       const movies = [];
       const genreMap = {}; // genreName -> [movie objects]
+      // Filter out subtitles and any TV show episodes that might be in the movies folder
+      const actualMovieFiles = movieFiles.filter(f => {
+        if (f.isSubtitle) return false;
+        const fn = f.name || '';
+        const rp = f.relPath || f.folderPath || '';
+        if (/[ ._-]+[sS](\d{1,2})[eE](\d{1,2})/i.test(fn) || /^[sS](\d{1,2})[eE](\d{1,2})/i.test(fn)) return false;
+        if (/[ ._-]+(\d{1,2})[xX](\d{1,2})/i.test(fn)) return false;
+        if (/\bseason[\s._-]*\d+\b/i.test(fn) || /\bseason[\s._-]*\d+\b/i.test(rp)) return false;
+        if (/\bseries[\s._-]*\d+\b/i.test(fn) || /\bseries[\s._-]*\d+\b/i.test(rp)) return false;
+        return true;
+      });
       setScanProgress(userId, {
         stage: 'posters',
-        message: `Fetching posters for ${movieFiles.length} movies...`,
-        totalMovies: movieFiles.length,
+        message: `Fetching posters for ${actualMovieFiles.length} movies...`,
+        totalMovies: actualMovieFiles.length,
         moviesProcessed: 0
       });
       const rootMoviesName = folders.movies?.name || 'Movies';
-      for (const f of movieFiles) {
+      for (const f of actualMovieFiles) {
         const cleanTitle = f.name.replace(/\.[^/.]+$/, '').replace(/[._]/g, ' ');
         const yearMatch = cleanTitle.match(/(.*?)[\(\[\s]+(19\d\d|20\d\d)[\)\]\s]*/);
         const title = yearMatch ? yearMatch[1].trim() : cleanTitle;
@@ -2508,7 +2519,7 @@ async function scanUserDrive(userId) {
         setScanProgress(userId, {
           stage: 'posters',
           moviesProcessed: (cur?.moviesProcessed || 0) + 1,
-          message: `Fetching movie posters... (${(cur?.moviesProcessed || 0) + 1}/${movieFiles.length})`
+          message: `Fetching movie posters... (${(cur?.moviesProcessed || 0) + 1}/${actualMovieFiles.length})`
         });
       }
 
@@ -3053,10 +3064,28 @@ app.get('/api/drive/channels', optionalAuth, (req, res) => {
 
   // Per-genre movie channels
   const genres = library.genres || {};
+  const showNamesSet = new Set((library.showsList || []).map(s => s.toLowerCase().trim()));
   for (const [genreName, movies] of Object.entries(genres)) {
     if (genreName === 'All Movies') continue;
+    // Skip if genreName matches a known TV show
+    if (showNamesSet.has(genreName.toLowerCase().trim())) continue;
     if (!Array.isArray(movies) || movies.length === 0) continue;
-    const shuffled = shuffleArray(movies);
+
+    // Filter out any TV show episodes that might have leaked into movies
+    const validMovies = movies.filter(m => {
+      if (!m) return false;
+      if (m.season != null || m.episode != null || m.show) return false;
+      const fn = m.filename || m.name || m.title || '';
+      const rp = m.relPath || m.folder || m.folderPath || '';
+      if (/[ ._-]+[sS](\d{1,2})[eE](\d{1,2})/i.test(fn) || /^[sS](\d{1,2})[eE](\d{1,2})/i.test(fn)) return false;
+      if (/[ ._-]+(\d{1,2})[xX](\d{1,2})/i.test(fn)) return false;
+      if (/\bseason[\s._-]*\d+\b/i.test(fn) || /\bseason[\s._-]*\d+\b/i.test(rp)) return false;
+      if (/\bseries[\s._-]*\d+\b/i.test(fn) || /\bseries[\s._-]*\d+\b/i.test(rp)) return false;
+      return true;
+    });
+    if (validMovies.length === 0) continue;
+
+    const shuffled = shuffleArray(validMovies);
     const totalDuration = shuffled.reduce((sum, m) => sum + (m.duration || 0), 0);
     channels.push({
       id: `genre_${channelIdFromName(genreName)}`,
@@ -3064,10 +3093,10 @@ app.get('/api/drive/channels', optionalAuth, (req, res) => {
       type: 'genre',
       channelType: 'genre',
       playlist: shuffled,
-      posterUrl: movies.find(m => m.posterUrl)?.posterUrl ||
-        movies.find(m => m.thumbnailUrl)?.thumbnailUrl ||
+      posterUrl: validMovies.find(m => m.posterUrl)?.posterUrl ||
+        validMovies.find(m => m.thumbnailUrl)?.thumbnailUrl ||
         null,
-      movieCount: movies.length,
+      movieCount: validMovies.length,
       totalDuration
     });
   }
