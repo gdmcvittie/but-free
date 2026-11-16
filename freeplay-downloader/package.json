@@ -1,6 +1,6 @@
 {
   "name": "freeplay-downloader",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "FitGirl / Steam repack downloader - slimmed down from my-games-server",
@@ -44,20 +44,13 @@
     "protocols": [
       {
         "name": "Freeplay Downloader Download Link",
-        "schemes": [
-          "freeplayDL"
-        ]
+        "schemes": ["freeplayDL"]
       }
     ],
     "asar": true,
-    "asarUnpack": [
-      "**/node_modules/7zip-bin/**/*"
-    ],
+    "asarUnpack": ["**/node_modules/7zip-bin/**/*"],
     "win": {
-      "target": [
-        "portable",
-        "nsis"
-      ],
+      "target": ["portable", "nsis"],
       "requestedExecutionLevel": "asInvoker"
     },
     "linux": {
