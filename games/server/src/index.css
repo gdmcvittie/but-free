@@ -2828,4 +2828,143 @@ input:-webkit-autofill:active {
   box-shadow: 0 0 6px rgba(245, 158, 11, 0.6);
 }
 
+/* ==========================================================================
+   Sticky Library Header on Desktop
+   ========================================================================== */
+@media (min-width: 768px) {
+  .library-sticky-header {
+    position: sticky;
+    top: 0;
+    z-index: 25;
+    background-color: #181818;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  }
+}
+
+.mobile-landscape-1080 .library-sticky-header {
+  position: static !important;
+  border-bottom: none !important;
+  box-shadow: none !important;
+}
+
+/* ==========================================================================
+   Toast Notification Styles
+   ========================================================================== */
+.app-toast-message {
+  position: fixed;
+  bottom: 2.25rem;
+  right: 1.5rem;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 4px;
+  background-color: #1f1f1f !important;
+  color: #e2e8f0;
+  border: 1px solid #d97706; /* Default amber/warning */
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.85), 0 2px 6px rgba(0, 0, 0, 0.6);
+  max-width: 28rem;
+  cursor: pointer;
+  animation: toastFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.app-toast-message.toast-success {
+  border-color: #10b981;
+}
+
+.app-toast-message.toast-info {
+  border-color: #31a8ff;
+}
+
+.app-toast-message.toast-warning {
+  border-color: #f59e0b;
+}
+
+@keyframes toastFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.app-toast-icon {
+  font-size: 1.15rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.app-toast-text {
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.45;
+  color: #f1f5f9;
+  flex: 1;
+}
+
+.app-toast-action {
+  padding: 0.2rem 0.5rem;
+  border-radius: 2px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  background-color: #0078d4;
+  color: #ffffff;
+  flex-shrink: 0;
+  transition: background-color 0.15s;
+}
+
+.app-toast-action:hover {
+  background-color: #1084d8;
+}
+
+.app-toast-close {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 0.875rem;
+  line-height: 1;
+  padding: 0.25rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+
+.app-toast-close:hover {
+  color: #ffffff;
+}
+
+@media (max-width: 768px) {
+  .app-toast-message {
+    bottom: 4.75rem;
+    left: 1rem;
+    right: 1rem;
+    max-width: none;
+  }
+}
+
+/* Emulator In-Game Toast */
+.emulator-toast {
+  position: absolute;
+  bottom: 1.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  padding: 0.45rem 0.85rem;
+  border-radius: 3px;
+  background-color: #1e1e1e !important;
+  color: #31a8ff;
+  border: 1px solid #383838;
+  font-size: 0.75rem;
+  font-family: monospace;
+  font-weight: 600;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.85);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 

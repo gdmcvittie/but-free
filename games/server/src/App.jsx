@@ -110,6 +110,16 @@ export default function App() {
   const [activeGameToPlay, setActiveGameToPlay] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
 
+  // Auto-dismiss informational toasts after 5 seconds
+  useEffect(() => {
+    if (toastMessage && !toastMessage.action) {
+      const timer = setTimeout(() => {
+        setToastMessage(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [toastMessage]);
+
   const checkDriveStatus = useCallback(async () => {
     try {
       const data = await fetchJson('/api/auth/drive-status');
@@ -446,19 +456,21 @@ export default function App() {
         currentFolderId={user?.gamesFolderId}
       />
 
-      {/* Google Drive Token Warning Toast */}
+      {/* Google Drive Token Warning & System Notifications Toast */}
       {toastMessage && (
         <div
           role="alert"
           onClick={() => {
             if (toastMessage.onClick) toastMessage.onClick();
           }}
-          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 p-3 px-3.5 rounded-sm bg-[#222222] text-slate-200 border border-amber-500/60 shadow-2xl cursor-pointer max-w-md animate-in fade-in slide-in-from-bottom-4 duration-200"
+          className={`app-toast-message ${toastMessage.type === 'success' ? 'toast-success' : toastMessage.type === 'info' ? 'toast-info' : 'toast-warning'}`}
         >
-          <span className="text-lg text-amber-400 shrink-0">⚠️</span>
-          <span className="text-xs font-medium leading-relaxed flex-1">{toastMessage.text}</span>
+          <span className="app-toast-icon">
+            {toastMessage.type === 'success' ? '✅' : toastMessage.type === 'info' ? 'ℹ️' : '⚠️'}
+          </span>
+          <span className="app-toast-text">{toastMessage.text}</span>
           {toastMessage.action && (
-            <span className="px-2 py-0.5 rounded-sm text-[11px] font-semibold bg-[#0078d4] hover:bg-[#1084d8] text-white shrink-0">
+            <span className="app-toast-action">
               {toastMessage.action}
             </span>
           )}
@@ -468,7 +480,7 @@ export default function App() {
               e.stopPropagation();
               setToastMessage(null);
             }}
-            className="text-slate-400 hover:text-white p-1 shrink-0"
+            className="app-toast-close"
             aria-label="Dismiss"
           >
             ✕

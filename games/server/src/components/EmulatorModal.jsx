@@ -1096,7 +1096,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
             allow="autoplay; gamepad; fullscreen; screen-wake-lock"
           />
           {toast && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 px-3 py-1.5 rounded-sm bg-[#222222] text-[#31a8ff] border border-[#383838] text-xs font-mono font-semibold shadow-lg">
+            <div className="emulator-toast">
               {toast}
             </div>
           )}
@@ -1228,7 +1228,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
       )}
       <div ref={screenMountRef} className="game-screen-mount w-full h-full" tabIndex={-1} />
       {toast && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 px-3 py-1.5 rounded-sm bg-[#222222] text-[#31a8ff] border border-[#383838] text-xs font-mono font-semibold shadow-lg">
+        <div className="emulator-toast">
           {toast}
         </div>
       )}

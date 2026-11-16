@@ -44,71 +44,74 @@ export default function LibraryView({
   }, [games, selectedConsole, searchQuery]);
 
   return (
-    <div className={`flex-1 flex flex-col bg-[#181818] ${isMobileLandscape1080 ? 'p-2 sm:p-3' : 'p-3 sm:p-5 lg:p-6'}`}>
-      {/* Top Header Row (Photoshop Application / Shelf Bar) */}
-      <div className={`flex flex-col md:flex-row md:items-center justify-between gap-3 ${isMobileLandscape1080 ? 'mb-2.5' : 'mb-5 pb-3'}`}>
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className={`font-bold ${isMobileLandscape1080 ? 'text-base sm:text-lg' : 'text-xl'} text-white tracking-tight flex items-center gap-2`}>
-              <span className="text-white font-extrabold">{selectedConsole ? selectedConsole.toUpperCase() : 'ALL FORMATS'}</span>
-            </h1>
-          </div>
-          {!isMobileLandscape1080 && (
-            <p className="text-xs text-slate-400 mt-1 flex items-center gap-2">
-              {user?.gamesFolderName ? (
-                <span className="flex items-center gap-1.5 font-mono text-[11px]">
-                  <HardDrive className="w-3.5 h-3.5 text-[#31a8ff]" />
-                  <span><strong>/{user.gamesFolderName}</strong></span>
-                </span>
-              ) : (
-                <span>No Google Drive folder linked. Connect your collection in Settings.</span>
-              )}
-            </p>
-          )}
-        </div>
-
-        {/* Action Controls */}
-        <div className="flex items-center gap-2">
-          <div className={`relative ${isMobileLandscape1080 ? 'min-w-[170px] max-w-[260px]' : 'min-w-[240px]'}`}>
-            <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="text"
-              placeholder=""
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="workstation-search-input w-full pl-8 pr-10 py-1.5 rounded-sm text-xs text-white placeholder-zinc-500 focus:outline-none transition-colors"
-            />
+    <div className={`flex-1 flex flex-col bg-[#181818] ${isMobileLandscape1080 ? 'p-2 sm:p-3' : 'px-3 sm:px-5 lg:px-6 pb-6'}`}>
+      {/* Sticky Library Header on Desktop */}
+      <div className={`library-sticky-header ${isMobileLandscape1080 ? 'pt-2 pb-2 mb-2' : 'pt-3 sm:pt-5 lg:pt-6 pb-2.5 mb-4'}`}>
+        {/* Top Header Row (Photoshop Application / Shelf Bar) */}
+        <div className={`flex flex-col md:flex-row md:items-center justify-between gap-3 ${isMobileLandscape1080 ? 'mb-2' : 'mb-3'}`}>
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h1 className={`font-bold ${isMobileLandscape1080 ? 'text-base sm:text-lg' : 'text-xl'} text-white tracking-tight flex items-center gap-2`}>
+                <span className="text-white font-extrabold">{selectedConsole ? selectedConsole.toUpperCase() : 'ALL FORMATS'}</span>
+              </h1>
+            </div>
+            {!isMobileLandscape1080 && (
+              <p className="text-xs text-slate-400 mt-1 flex items-center gap-2">
+                {user?.gamesFolderName ? (
+                  <span className="flex items-center gap-1.5 font-mono text-[11px]">
+                    <HardDrive className="w-3.5 h-3.5 text-[#31a8ff]" />
+                    <span><strong>/{user.gamesFolderName}</strong></span>
+                  </span>
+                ) : (
+                  <span>No Google Drive folder linked. Connect your collection in Settings.</span>
+                )}
+              </p>
+            )}
           </div>
 
-          <button
-            onClick={onScanDrive}
-            disabled={isScanning}
-            className="btn btn-secondary btn-sm"
-            title="Scan Google Drive for new games"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin text-[#31a8ff]' : ''}`} />
-            <span>{isScanning ? 'Syncing...' : 'Sync Drive'}</span>
-          </button>
+          {/* Action Controls */}
+          <div className="flex items-center gap-2">
+            <div className={`relative ${isMobileLandscape1080 ? 'min-w-[170px] max-w-[260px]' : 'min-w-[240px]'}`}>
+              <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                placeholder=""
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="workstation-search-input w-full pl-8 pr-10 py-1.5 rounded-sm text-xs text-white placeholder-zinc-500 focus:outline-none transition-colors"
+              />
+            </div>
+
+            <button
+              onClick={onScanDrive}
+              disabled={isScanning}
+              className="btn btn-secondary btn-sm"
+              title="Scan Google Drive for new games"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin text-[#31a8ff]' : ''}`} />
+              <span>{isScanning ? 'Syncing...' : 'Sync Drive'}</span>
+            </button>
+          </div>
         </div>
+
+        {/* Consoles / System Filter Bar (Hidden in 1080p landscape since consoles are along the sidebar) */}
+        {!isMobileLandscape1080 && (
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+            {consoles.map(({ key, count }) => {
+              const isSelected = selectedConsole === key;
+              return (
+                <button
+                  key={key}
+                  onClick={() => selectConsole(key)}
+                  className={`filter-chip ${isSelected ? 'active' : ''}`}
+                >
+                  <span className="console-key font-mono text-[11px]">{key}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
-
-      {/* Consoles / System Filter Bar (Hidden in 1080p landscape since consoles are along the sidebar) */}
-      {!isMobileLandscape1080 && (
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-3 mb-4 scrollbar-none">
-          {consoles.map(({ key, count }) => {
-            const isSelected = selectedConsole === key;
-            return (
-              <button
-                key={key}
-                onClick={() => selectConsole(key)}
-                className={`filter-chip ${isSelected ? 'active' : ''}`}
-              >
-                <span className="console-key font-mono text-[11px]">{key}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
 
       {/* Game Cards Grid */}
       {loading ? (
