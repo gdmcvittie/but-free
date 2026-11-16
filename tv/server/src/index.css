@@ -690,6 +690,19 @@ body {
   padding: 10px 16px;
   background: #18181e;
   border-bottom: 1px solid var(--border-color);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.mobile-title {
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  font-family: var(--font-display);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .mobile-header-icon-btn {
@@ -759,21 +772,59 @@ body {
   display: none;
 }
 
-@media (max-width: 768px) {
-  .desktop-only {
+/* Mobile portrait & narrow screen layout: applies to all phones, tablets/iPads in portrait, and narrow viewports */
+@media screen and (orientation: portrait) and (max-width: 1200px),
+       screen and (max-width: 768px),
+       screen and (pointer: coarse) and (orientation: portrait) {
+  .app-layout {
+    flex-direction: column !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    width: 100% !important;
+    overflow: hidden !important;
+  }
+
+  .desktop-only,
+  aside.sidebar,
+  .sidebar {
     display: none !important;
   }
 
   .mobile-header {
-    display: flex;
+    display: flex !important;
+    width: 100% !important;
+    flex-shrink: 0 !important;
+    height: 52px;
+    box-sizing: border-box;
+    position: relative;
+    z-index: 50;
   }
 
   .mobile-search-row {
-    display: flex;
+    display: flex !important;
+    width: 100% !important;
+    flex-shrink: 0 !important;
+    box-sizing: border-box;
+  }
+
+  .main-content-wrapper {
+    flex: 1 !important;
+    min-height: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+
+  .docked-player-card {
+    top: 0 !important;
+    padding: 10px !important;
+    border-radius: 0 !important;
+    margin-bottom: 8px !important;
   }
 
   .mobile-bottom-nav {
-    display: flex;
+    display: flex !important;
     align-items: center;
     justify-content: space-around;
     position: fixed;
@@ -811,8 +862,9 @@ body {
   }
 
   .main-content-scroll {
-    padding: 14px;
-    padding-bottom: calc(64px + env(safe-area-inset-bottom)) !important;
+    padding: 12px !important;
+    padding-bottom: calc(72px + env(safe-area-inset-bottom)) !important;
+    -webkit-overflow-scrolling: touch;
   }
 
   .sticky-mobile-filter {
@@ -930,7 +982,9 @@ body {
   }
 }
 
-@media (max-width: 768px) {
+@media screen and (orientation: portrait) and (max-width: 1200px),
+       screen and (max-width: 768px),
+       screen and (pointer: coarse) and (orientation: portrait) {
   .install-banner {
     bottom: calc(68px + env(safe-area-inset-bottom));
   }
