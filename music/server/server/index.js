@@ -1087,6 +1087,23 @@ app.post('/api/playlists/:id/items', async (req, res) => {
   return res.json(updated);
 });
 
+app.post('/api/playlists/:id/download-songs', async (req, res) => {
+  const playlist = db.getPlaylist(req.user.id, req.params.id);
+  if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+  const { songs } = req.body || {};
+  const usable = (Array.isArray(songs) ? songs : []).filter((s) => s?.videoId);
+  if (!usable.length) return res.status(400).json({ error: 'No songs provided.' });
+  if (!req.user.musicFolderId) {
+    return res.status(400).json({ error: 'Pick a music folder in Settings before downloading.' });
+  }
+  try {
+    const job = youtubeMusic.startSongDownload(req.user, usable, { playlistId: playlist.id });
+    return res.json({ job });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Failed to start download.' });
+  }
+});
+
 app.delete('/api/playlists/:id', async (req, res) => {
   const playlist = db.getPlaylist(req.user.id, req.params.id);
   if (playlist && playlist.kind === 'music' && req.user.musicFolderId) {

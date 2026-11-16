@@ -64,12 +64,13 @@ export default function PlaylistBuilderModal({
   const [wizardVibe, setWizardVibe] = useState('');
   const [wizardArtists, setWizardArtists] = useState('');
   const [wizardSongs, setWizardSongs] = useState('');
-  const [wizardTargetCount, setWizardTargetCount] = useState(20);
+  const [wizardTargetCount, setWizardTargetCount] = useState(50);
   const [wizardDiscoverNew, setWizardDiscoverNew] = useState(false);
   const [wizardDiscoverCount, setWizardDiscoverCount] = useState(5);
   const [wizardGenerating, setWizardGenerating] = useState(false);
   const [wizardSummary, setWizardSummary] = useState(null);
   const [discoveredTracksMap, setDiscoveredTracksMap] = useState(new Map());
+  const [matchedTracksMap, setMatchedTracksMap] = useState(new Map());
 
   // Initialize or reset when modal opens or playlist changes
   useEffect(() => {
@@ -95,7 +96,8 @@ export default function PlaylistBuilderModal({
       try {
         const data = await api.library(kind);
         if (!cancelled) {
-          setLibraryItems(Array.isArray(data) ? data : []);
+          const items = Array.isArray(data) ? data : (data?.items || []);
+          setLibraryItems(items);
         }
       } catch (err) {
         if (!cancelled) notify?.('Could not load library', err.message, true);
@@ -107,17 +109,20 @@ export default function PlaylistBuilderModal({
     return () => { cancelled = true; };
   }, [isOpen, initialPlaylist, initialTab, kind, notify]);
 
-  // Map of all items by ID for fast lookup (library items + discovered items)
+  // Map of all items by ID for fast lookup (library items + matched wizard items + discovered items)
   const itemsById = useMemo(() => {
     const map = new Map();
     for (const item of libraryItems) {
       map.set(item.id, item);
     }
+    for (const [id, item] of matchedTracksMap.entries()) {
+      map.set(id, item);
+    }
     for (const [id, item] of discoveredTracksMap.entries()) {
       map.set(id, item);
     }
     return map;
-  }, [libraryItems, discoveredTracksMap]);
+  }, [libraryItems, matchedTracksMap, discoveredTracksMap]);
 
   // Set of selected IDs for O(1) membership check
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
@@ -376,6 +381,19 @@ export default function PlaylistBuilderModal({
         setName(res.playlistName || 'Vibe Playlist');
       }
 
+      // Add matched library tracks to matchedTracksMap and libraryItems
+      const newMatchedMap = new Map();
+      for (const t of (res.matchedTracks || [])) {
+        if (t?.id) newMatchedMap.set(t.id, t);
+      }
+      setMatchedTracksMap(newMatchedMap);
+
+      setLibraryItems((prev) => {
+        const existingIds = new Set(prev.map((item) => item.id));
+        const toAdd = (res.matchedTracks || []).filter((t) => t?.id && !existingIds.has(t.id));
+        return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+      });
+
       // Add newly discovered songs to discoveredTracksMap
       const newMap = new Map();
       for (const ds of (res.discoveredSongs || [])) {
@@ -402,7 +420,7 @@ export default function PlaylistBuilderModal({
 
       notify?.(
         'Vibe Playlist Generated',
-        `Curated ${matchedIds.length} tracks from library${discoveredIds.length ? ` and queued ${discoveredIds.length} new songs to download!` : '.'}`
+        `Curated ${matchedIds.length} tracks from library${discoveredIds.length ? ` and queued ${discoveredIds.length} new songs to download on save!` : '.'}`
       );
     } catch (err) {
       notify?.('Wizard error', err.message, true);
@@ -419,7 +437,13 @@ export default function PlaylistBuilderModal({
       notify?.('Name required', 'Please provide a playlist name.', true);
       return;
     }
-    if (!selectedIds.length) {
+    const validItemIds = selectedIds.filter((id) => !id.startsWith('discovery_'));
+    const pendingDiscovery = selectedIds
+      .filter((id) => id.startsWith('discovery_'))
+      .map((id) => discoveredTracksMap.get(id))
+      .filter(Boolean);
+
+    if (!validItemIds.length && !pendingDiscovery.length) {
       notify?.('No tracks selected', 'Please select at least one song for the playlist.', true);
       return;
     }
@@ -427,10 +451,6 @@ export default function PlaylistBuilderModal({
     setSaving(true);
     setSyncStatus('Saving and syncing to Google Drive (.m3u8)…');
     try {
-      // Filter only real library track IDs for storage in playlist.itemIds
-      // (Any newly discovered tracks downloading in background will land in library)
-      const validItemIds = selectedIds.filter((id) => !id.startsWith('discovery_'));
-
       let savedPlaylist = null;
       if (initialPlaylist?.id) {
         // Update existing
@@ -451,6 +471,19 @@ export default function PlaylistBuilderModal({
       } catch (syncErr) {
         console.warn('[Builder] Drive sync notice:', syncErr.message);
         notify?.('Playlist saved', `"${cleanName}" saved locally. Drive sync will retry.`);
+      }
+
+      // If there are discovered tracks queued, start download job linked to this playlist
+      if (pendingDiscovery.length > 0) {
+        try {
+          await api.downloadSongsForPlaylist(savedPlaylist.id, pendingDiscovery);
+          notify?.(
+            'Downloading missing songs',
+            `Started downloading ${pendingDiscovery.length} new songs. They will be added to "${cleanName}" and synced to Drive automatically.`
+          );
+        } catch (dlErr) {
+          console.warn('[Builder] Song discovery download start failed:', dlErr.message);
+        }
       }
 
       onSaved?.(savedPlaylist);
@@ -863,7 +896,7 @@ export default function PlaylistBuilderModal({
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '6px' }}>({wizardTargetCount} tracks)</span>
                       </div>
                       <div style={{ display: 'flex', gap: '0.35rem' }}>
-                        {[15, 20, 25, 35, 50].map((num) => (
+                        {[20, 35, 50, 75, 100].map((num) => (
                           <button
                             key={num}
                             type="button"
@@ -1458,6 +1491,11 @@ export default function PlaylistBuilderModal({
                   }}
                 >
                   {pluralize(selectedIds.length, 'track')}
+                  {selectedIds.some((id) => id.startsWith('discovery_')) && (
+                    <span style={{ opacity: 0.8, marginLeft: '4px' }}>
+                      ({selectedIds.filter((id) => id.startsWith('discovery_')).length} new)
+                    </span>
+                  )}
                 </span>
               </div>
 
@@ -1551,7 +1589,7 @@ export default function PlaylistBuilderModal({
                                   fontWeight: 600
                                 }}
                               >
-                                <Download size={9} /> Downloading
+                                <Download size={9} /> Will download on save
                               </span>
                             )}
                           </div>

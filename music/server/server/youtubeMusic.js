@@ -1553,12 +1553,12 @@ export async function downloadAlbum(user, album, onProgress = () => {}) {
 }
 
 /** Saves one or more individual songs found via search. */
-export function downloadSongs(user, songs, onProgress = () => {}) {
+export async function downloadSongs(user, songs, onProgress = () => {}, options = {}) {
   const list = (Array.isArray(songs) ? songs : [songs]).filter((s) => s?.videoId);
   if (!list.length) throw new Error('No song selected.');
 
   const single = list.length === 1 ? list[0] : null;
-  return downloadTracks(user, list.map((song) => ({
+  const result = await downloadTracks(user, list.map((song) => ({
     videoId: song.videoId,
     title: song.title,
     artist: song.artist,
@@ -1571,6 +1571,25 @@ export function downloadSongs(user, songs, onProgress = () => {}) {
     album: single?.album || 'Singles',
     coverUrl: null
   }, onProgress);
+
+  const savedIds = (result?.itemIds || []).filter(Boolean);
+  if (options?.playlistId && savedIds.length > 0) {
+    try {
+      const existing = db.getPlaylist(user.id, options.playlistId);
+      if (existing) {
+        const merged = [...new Set([...(existing.itemIds || []), ...savedIds])];
+        db.setPlaylistItems(user.id, options.playlistId, merged);
+        if (user.musicFolderId) {
+          const updated = db.getPlaylist(user.id, options.playlistId);
+          await googleDrive.syncPlaylistM3u(user, updated);
+        }
+      }
+    } catch (plErr) {
+      console.warn('[Playlists] Failed to attach downloaded songs to playlist:', plErr.message);
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -1680,7 +1699,7 @@ const MAX_QUEUED = 50;
 // needs; nothing here holds live handles (sockets, processes).
 const QUEUE_BUILDERS = {
   album: (user, args) => (onProgress) => downloadAlbum(user, args, onProgress),
-  songs: (user, args) => (onProgress) => downloadSongs(user, args, onProgress),
+  songs: (user, args, options) => (onProgress) => downloadSongs(user, args, onProgress, options),
   playlist: (user, args) => (onProgress) => downloadPlaylist(user, args, onProgress),
   liked: (user) => (onProgress) => downloadLiked(user, onProgress)
 };
@@ -1698,6 +1717,7 @@ function syncQueueStore(userId) {
       title: job.title,
       artist: job.artist,
       args: job._spec?.args ?? {},
+      options: job._spec?.options ?? {},
       queuedAt: job.queuedAt
     };
   }
@@ -1878,8 +1898,8 @@ export function resumePendingQueue() {
         startDownload(
           user,
           { title: entry.title, artist: entry.artist, kind: entry.kind },
-          build(user, entry.args || {}),
-          { kind: entry.kind, args: entry.args || {} }
+          build(user, entry.args || {}, entry.options || {}),
+          { kind: entry.kind, args: entry.args || {}, options: entry.options || {} }
         );
         resumed += 1;
       } catch (err) {
@@ -1903,7 +1923,7 @@ export function startAlbumDownload(user, album) {
   );
 }
 
-export function startSongDownload(user, songs) {
+export function startSongDownload(user, songs, options = {}) {
   const list = (Array.isArray(songs) ? songs : [songs]).filter((s) => s?.videoId);
   if (!list.length) throw new Error('No song selected.');
   const first = list[0] || {};
@@ -1914,8 +1934,8 @@ export function startSongDownload(user, songs) {
       artist: first.artist,
       kind: 'songs'
     },
-    (onProgress) => downloadSongs(user, list, onProgress),
-    { kind: 'songs', args: list }
+    (onProgress) => downloadSongs(user, list, onProgress, options),
+    { kind: 'songs', args: list, options }
   );
 }
 
