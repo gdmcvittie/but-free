@@ -10,7 +10,8 @@ import {
   HardDriveDownload,
   Cloud,
   Download,
-  Sparkles
+  Sparkles,
+  Wand2
 } from 'lucide-react';
 import { api } from './api';
 import MediaCard from './MediaCard';
@@ -37,6 +38,7 @@ export default function Playlists({ kind = 'audiobooks', libraryVersion, onPlay,
   const [playlistTarget, setPlaylistTarget] = useState(null);
   const [builderOpen, setBuilderOpen] = useState(false);
   const [builderTarget, setBuilderTarget] = useState(null);
+  const [builderTab, setBuilderTab] = useState('wizard');
   const [syncingAllDrive, setSyncingAllDrive] = useState(false);
 
   const load = useCallback(async () => {
@@ -187,8 +189,9 @@ export default function Playlists({ kind = 'audiobooks', libraryVersion, onPlay,
 
   const openTotal = openItems.reduce((sum, i) => sum + (i.durationSec || 0), 0);
 
-  const handleOpenBuilder = (playlist = null) => {
+  const handleOpenBuilder = (playlist = null, initialTab = 'wizard') => {
     setBuilderTarget(playlist);
+    setBuilderTab(initialTab);
     setBuilderOpen(true);
   };
 
@@ -243,12 +246,30 @@ export default function Playlists({ kind = 'audiobooks', libraryVersion, onPlay,
             </button>
             <button
               type="button"
-              className="btn btn-primary btn-sm"
-              onClick={() => handleOpenBuilder(null)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: 600 }}
+              className="btn btn-secondary btn-sm"
+              onClick={() => handleOpenBuilder(null, 'artists')}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+              title="Browse and batch add artists, albums, genres, and songs"
             >
               <Sparkles size={14} />
-              Fast Playlist Builder
+              Manual Builder
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => handleOpenBuilder(null, 'wizard')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                fontWeight: 600,
+                background: 'linear-gradient(135deg, var(--accent, #3ddc97) 0%, #20b875 100%)',
+                color: '#000'
+              }}
+              title="AI Vibe Matcher: describe a vibe, favorite bands & songs to generate a playlist"
+            >
+              <Wand2 size={14} />
+              Vibe Wizard
             </button>
           </div>
         )}
@@ -269,16 +290,35 @@ export default function Playlists({ kind = 'audiobooks', libraryVersion, onPlay,
           Create
         </button>
         {kind === 'music' && (
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => handleOpenBuilder(null)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
-            title="Open batch playlist builder by artist, album, genre, or song"
-          >
-            <Sparkles size={14} />
-            Builder
-          </button>
+          <>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => handleOpenBuilder(null, 'wizard')}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                background: 'linear-gradient(135deg, var(--accent, #3ddc97) 0%, #20b875 100%)',
+                color: '#000',
+                fontWeight: 600
+              }}
+              title="Guided wizard: match music vibe, bands, and discover missing songs"
+            >
+              <Wand2 size={14} />
+              Vibe Wizard
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => handleOpenBuilder(null, 'artists')}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+              title="Open batch playlist builder by artist, album, genre, or song"
+            >
+              <Sparkles size={14} />
+              Builder
+            </button>
+          </>
         )}
       </form>
 
@@ -520,6 +560,7 @@ export default function Playlists({ kind = 'audiobooks', libraryVersion, onPlay,
       <PlaylistBuilderModal
         isOpen={builderOpen}
         initialPlaylist={builderTarget}
+        initialTab={builderTab}
         kind={kind}
         onClose={() => {
           setBuilderOpen(false);

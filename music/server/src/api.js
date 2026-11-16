@@ -130,6 +130,7 @@ export const api = {
   deletePlaylist: (id) => del(`/api/playlists/${encodeURIComponent(id)}`),
   syncPlaylistToDrive: (id) => post(`/api/playlists/${encodeURIComponent(id)}/sync-drive`),
   syncAllPlaylistsToDrive: () => post('/api/playlists/sync-drive'),
+  generateVibePlaylist: (params) => post('/api/playlists/wizard/generate', params),
   playlistExportUrl: (id) => apiUrl(`/api/playlists/${encodeURIComponent(id)}/export`),
 
   // ---- offline -------------------------------------------------------

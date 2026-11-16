@@ -26,6 +26,7 @@ import { groupAudiobookItems } from './bookGrouper.js';
 import audiobookStitcher, { recoverInterruptedJobs } from './audiobookStitcher.js';
 import id3Editor from './id3Editor.js';
 import deviceApi from './deviceApi.js';
+import playlistWizard from './playlistWizard.js';
 
 const DEFAULT_OWNER_EMAIL = 'gdmcvittie@gmail.com';
 
@@ -1138,6 +1139,17 @@ app.get(['/api/playlists/:id/export', '/api/playlists/:id/m3u8'], (req, res) => 
   res.setHeader('Content-Type', 'audio/x-mpegurl; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(safeName)}.m3u8"`);
   return res.send(m3u);
+});
+
+// Vibe Playlist Wizard: generates matching tracks from library & discovers new songs from YouTube Music
+app.post('/api/playlists/wizard/generate', async (req, res) => {
+  try {
+    const result = await playlistWizard.generateVibePlaylist(req.user, req.body || {});
+    return res.json(result);
+  } catch (err) {
+    console.error('[PlaylistWizard] Error:', err);
+    return res.status(500).json({ error: err.message || 'Failed to generate vibe playlist.' });
+  }
 });
 
 // =========================================================================

@@ -298,6 +298,7 @@ function rowChannelId(renderer) {
  * carry a video id are treated as songs.
  */
 function toListItem(renderer) {
+  if (!renderer) return null;
   const columns = (renderer.flexColumns || [])
     .map((c) => c.musicResponsiveListItemFlexColumnRenderer?.text)
     .filter(Boolean);

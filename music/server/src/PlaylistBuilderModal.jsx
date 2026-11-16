@@ -19,21 +19,39 @@ import {
   ChevronDown,
   ChevronRight,
   Layers,
-  Sparkles
+  Sparkles,
+  Wand2,
+  Radio,
+  Sliders
 } from 'lucide-react';
 import { api } from './api';
 import { formatDuration, formatLengthShort, pluralize } from './format';
 
+const PRESET_VIBES = [
+  { label: '🎸 90s Grunge & Alt', vibe: '90s Grunge Alternative Rock' },
+  { label: '🌆 80s Synthwave & Pop', vibe: '80s Synthwave Electronic Pop' },
+  { label: '☕ Chill Lo-Fi Beats', vibe: 'Chill Lo-Fi Beats Downtempo' },
+  { label: '⚡ Classic & Hard Rock', vibe: 'Classic Hard Rock' },
+  { label: '🎧 90s/00s Hip-Hop', vibe: '90s 2000s Hip Hop Rap' },
+  { label: '🎺 Jazz & Soul Lounge', vibe: 'Smooth Jazz Soul Lounge' },
+  { label: '🏖️ Summer Roadtrip', vibe: 'Upbeat Summer Roadtrip Pop Rock' },
+  { label: '🏃 High Energy Workout', vibe: 'High Energy Workout EDM Rock' },
+  { label: '🪕 Indie Folk & Acoustic', vibe: 'Indie Folk Acoustic Singer-Songwriter' },
+  { label: '🌌 Ambient & Focus', vibe: 'Ambient Calm Instrumental Focus' },
+  { label: '💥 Heavy Metal', vibe: 'Heavy Metal Thrash' }
+];
+
 export default function PlaylistBuilderModal({
   isOpen,
   initialPlaylist = null,
+  initialTab = null,
   kind = 'music',
   onClose,
   onSaved,
   notify
 }) {
   const [name, setName] = useState('');
-  const [tab, setTab] = useState('artists'); // 'artists' | 'albums' | 'genres' | 'songs'
+  const [tab, setTab] = useState('wizard'); // 'wizard' | 'artists' | 'albums' | 'genres' | 'songs'
   const [search, setSearch] = useState('');
   const [libraryItems, setLibraryItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -42,6 +60,17 @@ export default function PlaylistBuilderModal({
   const [saving, setSaving] = useState(false);
   const [syncStatus, setSyncStatus] = useState(null);
 
+  // Wizard Specific State
+  const [wizardVibe, setWizardVibe] = useState('');
+  const [wizardArtists, setWizardArtists] = useState('');
+  const [wizardSongs, setWizardSongs] = useState('');
+  const [wizardTargetCount, setWizardTargetCount] = useState(20);
+  const [wizardDiscoverNew, setWizardDiscoverNew] = useState(false);
+  const [wizardDiscoverCount, setWizardDiscoverCount] = useState(5);
+  const [wizardGenerating, setWizardGenerating] = useState(false);
+  const [wizardSummary, setWizardSummary] = useState(null);
+  const [discoveredTracksMap, setDiscoveredTracksMap] = useState(new Map());
+
   // Initialize or reset when modal opens or playlist changes
   useEffect(() => {
     if (!isOpen) return;
@@ -49,12 +78,15 @@ export default function PlaylistBuilderModal({
     if (initialPlaylist) {
       setName(initialPlaylist.name || '');
       setSelectedIds(Array.isArray(initialPlaylist.itemIds) ? [...initialPlaylist.itemIds] : []);
+      setTab(initialTab || 'artists');
     } else {
       setName('');
       setSelectedIds([]);
+      setTab(initialTab || 'wizard');
     }
     setSearch('');
     setSyncStatus(null);
+    setWizardSummary(null);
 
     // Fetch library items
     let cancelled = false;
@@ -73,16 +105,19 @@ export default function PlaylistBuilderModal({
     })();
 
     return () => { cancelled = true; };
-  }, [isOpen, initialPlaylist, kind, notify]);
+  }, [isOpen, initialPlaylist, initialTab, kind, notify]);
 
-  // Map of all items by ID for fast lookup
+  // Map of all items by ID for fast lookup (library items + discovered items)
   const itemsById = useMemo(() => {
     const map = new Map();
     for (const item of libraryItems) {
       map.set(item.id, item);
     }
+    for (const [id, item] of discoveredTracksMap.entries()) {
+      map.set(id, item);
+    }
     return map;
-  }, [libraryItems]);
+  }, [libraryItems, discoveredTracksMap]);
 
   // Set of selected IDs for O(1) membership check
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
@@ -116,6 +151,13 @@ export default function PlaylistBuilderModal({
       }))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
   }, [libraryItems]);
+
+  // Top library artists for quick chips
+  const topLibraryArtists = useMemo(() => {
+    return [...artistGroups]
+      .sort((a, b) => b.trackCount - a.trackCount)
+      .slice(0, 10);
+  }, [artistGroups]);
 
   // Group library items by Album
   const albumGroups = useMemo(() => {
@@ -238,7 +280,7 @@ export default function PlaylistBuilderModal({
       toSelect = filteredAlbums.flatMap((a) => a.tracks);
     } else if (tab === 'genres') {
       toSelect = filteredGenres.flatMap((g) => g.tracks);
-    } else {
+    } else if (tab === 'songs') {
       toSelect = filteredSongs;
     }
     const ids = toSelect.map((t) => t.id);
@@ -258,7 +300,7 @@ export default function PlaylistBuilderModal({
       toDeselect = filteredAlbums.flatMap((a) => a.tracks);
     } else if (tab === 'genres') {
       toDeselect = filteredGenres.flatMap((g) => g.tracks);
-    } else {
+    } else if (tab === 'songs') {
       toDeselect = filteredSongs;
     }
     const removeSet = new Set(toDeselect.map((t) => t.id));
@@ -303,6 +345,72 @@ export default function PlaylistBuilderModal({
     setSelectedIds([]);
   };
 
+  const handleAddArtistChip = (artistName) => {
+    setWizardArtists((prev) => {
+      const parts = prev.split(',').map((p) => p.trim()).filter(Boolean);
+      if (parts.some((p) => p.toLowerCase() === artistName.toLowerCase())) {
+        return parts.filter((p) => p.toLowerCase() !== artistName.toLowerCase()).join(', ');
+      }
+      return [...parts, artistName].join(', ');
+    });
+  };
+
+  // Wizard Generation Action
+  const handleGenerateWizard = async () => {
+    setWizardGenerating(true);
+    setWizardSummary(null);
+    try {
+      const res = await api.generateVibePlaylist({
+        vibe: wizardVibe,
+        artists: wizardArtists.split(',').map((s) => s.trim()).filter(Boolean),
+        favoriteSongs: wizardSongs.split(',').map((s) => s.trim()).filter(Boolean),
+        targetCount: wizardTargetCount,
+        discoverNew: wizardDiscoverNew,
+        discoverCount: wizardDiscoverCount
+      });
+
+      if (!res.ok) throw new Error(res.error || 'Failed to generate playlist');
+
+      // Set suggested playlist name if empty or default
+      if (!name.trim() || name === 'New Playlist') {
+        setName(res.playlistName || 'Vibe Playlist');
+      }
+
+      // Add newly discovered songs to discoveredTracksMap
+      const newMap = new Map();
+      for (const ds of (res.discoveredSongs || [])) {
+        const customId = `discovery_${ds.videoId}`;
+        newMap.set(customId, {
+          ...ds,
+          id: customId,
+          isNewDiscovery: true
+        });
+      }
+      setDiscoveredTracksMap(newMap);
+
+      const matchedIds = (res.matchedTracks || []).map((t) => t.id);
+      const discoveredIds = Array.from(newMap.keys());
+      const combinedIds = [...matchedIds, ...discoveredIds];
+
+      setSelectedIds(combinedIds);
+
+      setWizardSummary({
+        matched: matchedIds.length,
+        discovered: discoveredIds.length,
+        playlistName: res.playlistName
+      });
+
+      notify?.(
+        'Vibe Playlist Generated',
+        `Curated ${matchedIds.length} tracks from library${discoveredIds.length ? ` and queued ${discoveredIds.length} new songs to download!` : '.'}`
+      );
+    } catch (err) {
+      notify?.('Wizard error', err.message, true);
+    } finally {
+      setWizardGenerating(false);
+    }
+  };
+
   // Save playlist and trigger Google Drive M3U8 sync
   const handleSave = async (e) => {
     e?.preventDefault();
@@ -319,14 +427,18 @@ export default function PlaylistBuilderModal({
     setSaving(true);
     setSyncStatus('Saving and syncing to Google Drive (.m3u8)…');
     try {
+      // Filter only real library track IDs for storage in playlist.itemIds
+      // (Any newly discovered tracks downloading in background will land in library)
+      const validItemIds = selectedIds.filter((id) => !id.startsWith('discovery_'));
+
       let savedPlaylist = null;
       if (initialPlaylist?.id) {
         // Update existing
         await api.renamePlaylist(initialPlaylist.id, cleanName);
-        savedPlaylist = await api.setPlaylistItems(initialPlaylist.id, selectedIds);
+        savedPlaylist = await api.setPlaylistItems(initialPlaylist.id, validItemIds);
       } else {
         // Create new with items
-        savedPlaylist = await api.createPlaylist(cleanName, kind, selectedIds);
+        savedPlaylist = await api.createPlaylist(cleanName, kind, validItemIds);
       }
 
       // Sync playlist as .m3u8 file directly to Google Drive main music folder
@@ -360,9 +472,9 @@ export default function PlaylistBuilderModal({
         onClick={(e) => e.stopPropagation()}
         style={{
           width: '95vw',
-          maxWidth: '1050px',
+          maxWidth: '1080px',
           height: '88vh',
-          maxHeight: '900px',
+          maxHeight: '920px',
           display: 'flex',
           flexDirection: 'column',
           padding: 0,
@@ -392,14 +504,14 @@ export default function PlaylistBuilderModal({
                 justifyContent: 'center'
               }}
             >
-              <Sparkles size={18} />
+              <Wand2 size={18} />
             </div>
             <div>
               <h2 style={{ fontSize: '1.1rem', margin: 0, lineHeight: 1.2 }}>
-                {initialPlaylist ? 'Edit Playlist' : 'Fast Playlist Builder'}
+                {initialPlaylist ? 'Edit Playlist' : 'Playlist Builder & Vibe Wizard'}
               </h2>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                Batch add by artist, album, genre, or song · Auto-syncs to Google Drive (.m3u8) for Compás Player
+                Guided vibe matching, batch selection & auto-sync to Google Drive (.m3u8) for Compás Player / HiBy R1
               </div>
             </div>
           </div>
@@ -424,11 +536,11 @@ export default function PlaylistBuilderModal({
             <input
               type="text"
               className="input-field"
-              placeholder="Playlist name (e.g. Best of 80s Rock, Workout Beats)"
+              placeholder="Playlist name (e.g. 90s Grunge Nirvana Mix, Summer Beats)"
               value={name}
               onChange={(e) => setName(e.target.value)}
               style={{ width: '100%', fontSize: '0.92rem', padding: '0.5rem 0.8rem' }}
-              autoFocus={!initialPlaylist}
+              autoFocus={!initialPlaylist && tab !== 'wizard'}
             />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -466,7 +578,7 @@ export default function PlaylistBuilderModal({
 
         {/* Main Body (Split View) */}
         <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
-          {/* Left Column: Fast Selection Browser */}
+          {/* Left Column: Browser / Wizard */}
           <div
             style={{
               flex: '1 1 60%',
@@ -487,9 +599,18 @@ export default function PlaylistBuilderModal({
                 background: 'rgba(0, 0, 0, 0.15)'
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
                 {/* Tabs */}
                 <div className="stitcher-mode-tabs" style={{ margin: 0 }}>
+                  <button
+                    type="button"
+                    className={`stitcher-mode-btn ${tab === 'wizard' ? 'active' : ''}`}
+                    onClick={() => { setTab('wizard'); setSearch(''); }}
+                    style={tab === 'wizard' ? { color: '#000', background: 'var(--accent, #3ddc97)', fontWeight: 600 } : { color: 'var(--accent, #3ddc97)' }}
+                  >
+                    <Wand2 size={13} />
+                    Vibe Wizard
+                  </button>
                   <button
                     type="button"
                     className={`stitcher-mode-btn ${tab === 'artists' ? 'active' : ''}`}
@@ -524,69 +645,344 @@ export default function PlaylistBuilderModal({
                   </button>
                 </div>
 
-                {/* Batch Select / Deselect for active filter */}
-                <div style={{ display: 'flex', gap: '0.35rem' }}>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={handleSelectAllFiltered}
-                    title="Select all currently filtered items"
-                    style={{ fontSize: '0.75rem', padding: '0.3rem 0.55rem' }}
-                  >
-                    <CheckSquare size={12} />
-                    Select Filtered
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={handleDeselectAllFiltered}
-                    title="Deselect all currently filtered items"
-                    style={{ fontSize: '0.75rem', padding: '0.3rem 0.55rem' }}
-                  >
-                    <Square size={12} />
-                    Deselect
-                  </button>
-                </div>
-              </div>
-
-              {/* Search input */}
-              <div className="toolbar-search" style={{ margin: 0, width: '100%' }}>
-                <Search size={14} style={{ position: 'absolute', left: '10px', top: '10px', color: 'var(--text-muted)' }} />
-                <input
-                  type="text"
-                  className="input-field"
-                  placeholder={`Search ${tab}…`}
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  style={{ width: '100%', paddingLeft: '2.2rem', height: '34px', fontSize: '0.84rem' }}
-                />
-                {search && (
-                  <button
-                    type="button"
-                    onClick={() => setSearch('')}
-                    style={{
-                      position: 'absolute',
-                      right: '8px',
-                      top: '7px',
-                      background: 'transparent',
-                      border: 'none',
-                      color: 'var(--text-muted)',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    <X size={14} />
-                  </button>
+                {/* Batch Select / Deselect for active filter (only when not in wizard) */}
+                {tab !== 'wizard' && (
+                  <div style={{ display: 'flex', gap: '0.35rem' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={handleSelectAllFiltered}
+                      title="Select all currently filtered items"
+                      style={{ fontSize: '0.75rem', padding: '0.3rem 0.55rem' }}
+                    >
+                      <CheckSquare size={12} />
+                      Select Filtered
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={handleDeselectAllFiltered}
+                      title="Deselect all currently filtered items"
+                      style={{ fontSize: '0.75rem', padding: '0.3rem 0.55rem' }}
+                    >
+                      <Square size={12} />
+                      Deselect
+                    </button>
+                  </div>
                 )}
               </div>
+
+              {/* Search input (only for browsing tabs) */}
+              {tab !== 'wizard' && (
+                <div className="toolbar-search" style={{ margin: 0, width: '100%' }}>
+                  <Search size={14} style={{ position: 'absolute', left: '10px', top: '10px', color: 'var(--text-muted)' }} />
+                  <input
+                    type="text"
+                    className="input-field"
+                    placeholder={`Search ${tab}…`}
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    style={{ width: '100%', paddingLeft: '2.2rem', height: '34px', fontSize: '0.84rem' }}
+                  />
+                  {search && (
+                    <button
+                      type="button"
+                      onClick={() => setSearch('')}
+                      style={{
+                        position: 'absolute',
+                        right: '8px',
+                        top: '7px',
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
-            {/* List / Grid Content */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '0.5rem' }}>
-              {loading ? (
+            {/* List / Grid / Wizard Content */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0.65rem' }}>
+              {loading && tab !== 'wizard' ? (
                 <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                   Loading library…
                 </div>
               ) : null}
+
+              {/* TAB 0: VIBE WIZARD */}
+              {tab === 'wizard' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem', padding: '0.5rem 0.25rem' }}>
+                  {/* Banner */}
+                  <div
+                    style={{
+                      padding: '0.85rem 1rem',
+                      borderRadius: '8px',
+                      background: 'linear-gradient(135deg, rgba(61, 220, 151, 0.12) 0%, rgba(20, 24, 35, 0.5) 100%)',
+                      border: '1px solid rgba(61, 220, 151, 0.25)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.75rem'
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '50%',
+                        background: 'rgba(61, 220, 151, 0.2)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'var(--accent, #3ddc97)',
+                        flexShrink: 0
+                      }}
+                    >
+                      <Sparkles size={18} />
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-bright, #fff)' }}>
+                        Vibe Playlist Wizard
+                      </div>
+                      <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        Tell us what kind of music, favorite bands, and favorite songs you want. The wizard scans your library and curates matching tracks, and can optionally discover missing songs from YouTube Music!
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Question 1: What kind of music / vibe? */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '0.4rem', color: 'var(--text-bright, #fff)' }}>
+                      1. What kind of music or vibe?
+                    </label>
+                    <input
+                      type="text"
+                      className="input-field"
+                      placeholder="e.g. 90s Grunge & Alternative Rock, Late Night Lo-Fi Beats, 80s Synthwave Chill..."
+                      value={wizardVibe}
+                      onChange={(e) => setWizardVibe(e.target.value)}
+                      style={{ width: '100%', fontSize: '0.88rem', padding: '0.55rem 0.8rem' }}
+                    />
+                    {/* Preset Vibe Chips */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginTop: '0.5rem' }}>
+                      {PRESET_VIBES.map((pv) => (
+                        <button
+                          key={pv.label}
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => setWizardVibe(pv.vibe)}
+                          style={{
+                            fontSize: '0.73rem',
+                            padding: '0.25rem 0.55rem',
+                            background: wizardVibe === pv.vibe ? 'rgba(61, 220, 151, 0.2)' : undefined,
+                            borderColor: wizardVibe === pv.vibe ? 'var(--accent, #3ddc97)' : undefined,
+                            color: wizardVibe === pv.vibe ? 'var(--accent, #3ddc97)' : undefined
+                          }}
+                        >
+                          {pv.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Question 2: Some favorite bands or artists? */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '0.4rem', color: 'var(--text-bright, #fff)' }}>
+                      2. Some bands or artists you like
+                    </label>
+                    <input
+                      type="text"
+                      className="input-field"
+                      placeholder="e.g. Nirvana, Pearl Jam, Soundgarden, Alice In Chains (comma separated)"
+                      value={wizardArtists}
+                      onChange={(e) => setWizardArtists(e.target.value)}
+                      style={{ width: '100%', fontSize: '0.88rem', padding: '0.55rem 0.8rem' }}
+                    />
+                    {/* Quick Artist Suggestions from User's Library */}
+                    {topLibraryArtists.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.35rem', marginTop: '0.45rem' }}>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>From your library:</span>
+                        {topLibraryArtists.map((artist) => {
+                          const isAdded = wizardArtists.toLowerCase().includes(artist.name.toLowerCase());
+                          return (
+                            <button
+                              key={artist.name}
+                              type="button"
+                              onClick={() => handleAddArtistChip(artist.name)}
+                              style={{
+                                fontSize: '0.72rem',
+                                padding: '1px 6px',
+                                borderRadius: '4px',
+                                border: isAdded ? '1px solid var(--accent, #3ddc97)' : '1px solid var(--border-color)',
+                                background: isAdded ? 'rgba(61, 220, 151, 0.15)' : 'rgba(255, 255, 255, 0.04)',
+                                color: isAdded ? 'var(--accent, #3ddc97)' : 'var(--text-muted)',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              + {artist.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Question 3: A favorite song or two? */}
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, marginBottom: '0.4rem', color: 'var(--text-bright, #fff)' }}>
+                      3. A favorite song or two (optional)
+                    </label>
+                    <input
+                      type="text"
+                      className="input-field"
+                      placeholder="e.g. Black Hole Sun, Smells Like Teen Spirit, Alive"
+                      value={wizardSongs}
+                      onChange={(e) => setWizardSongs(e.target.value)}
+                      style={{ width: '100%', fontSize: '0.88rem', padding: '0.55rem 0.8rem' }}
+                    />
+                  </div>
+
+                  {/* Question 4: Settings & Discovery */}
+                  <div
+                    style={{
+                      padding: '0.85rem 1rem',
+                      borderRadius: '8px',
+                      background: 'rgba(255, 255, 255, 0.03)',
+                      border: '1px solid var(--border-color)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.85rem'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <div>
+                        <span style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-bright, #fff)' }}>Target playlist size:</span>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '6px' }}>({wizardTargetCount} tracks)</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.35rem' }}>
+                        {[15, 20, 25, 35, 50].map((num) => (
+                          <button
+                            key={num}
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => setWizardTargetCount(num)}
+                            style={{
+                              padding: '0.25rem 0.6rem',
+                              fontSize: '0.75rem',
+                              background: wizardTargetCount === num ? 'var(--accent, #3ddc97)' : undefined,
+                              color: wizardTargetCount === num ? '#000' : undefined,
+                              fontWeight: wizardTargetCount === num ? 600 : undefined
+                            }}
+                          >
+                            {num}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Discovery Setting Toggle */}
+                    <div
+                      style={{
+                        borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+                        paddingTop: '0.75rem',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.5rem'
+                      }}
+                    >
+                      <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.65rem', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={wizardDiscoverNew}
+                          onChange={(e) => setWizardDiscoverNew(e.target.checked)}
+                          style={{ marginTop: '3px', cursor: 'pointer' }}
+                        />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-bright, #fff)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <Download size={13} style={{ color: 'var(--accent, #3ddc97)' }} />
+                            Find & download songs not in your library
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                            Searches YouTube Music for matching tracks you don&apos;t own yet, downloads them to your Google Drive music folder & adds them to your library and this playlist.
+                          </div>
+                        </div>
+                      </label>
+
+                      {wizardDiscoverNew && (
+                        <div style={{ paddingLeft: '1.75rem', display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.78rem' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>New songs to discover:</span>
+                          <div style={{ display: 'flex', gap: '0.35rem' }}>
+                            {[3, 5, 8, 10].map((num) => (
+                              <button
+                                key={num}
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => setWizardDiscoverCount(num)}
+                                style={{
+                                  padding: '0.2rem 0.5rem',
+                                  fontSize: '0.72rem',
+                                  background: wizardDiscoverCount === num ? 'var(--accent, #3ddc97)' : undefined,
+                                  color: wizardDiscoverCount === num ? '#000' : undefined
+                                }}
+                              >
+                                +{num}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Generate Button */}
+                  <div>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={handleGenerateWizard}
+                      disabled={wizardGenerating || (!wizardVibe.trim() && !wizardArtists.trim() && !wizardSongs.trim())}
+                      style={{
+                        width: '100%',
+                        padding: '0.75rem',
+                        fontSize: '0.92rem',
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '0.5rem'
+                      }}
+                    >
+                      <Sparkles size={16} />
+                      {wizardGenerating ? 'Analyzing Vibe & Generating Playlist…' : 'Generate Vibe Playlist'}
+                    </button>
+                  </div>
+
+                  {/* Wizard Result Summary */}
+                  {wizardSummary && (
+                    <div
+                      style={{
+                        padding: '0.75rem 1rem',
+                        borderRadius: '8px',
+                        background: 'rgba(61, 220, 151, 0.08)',
+                        border: '1px solid rgba(61, 220, 151, 0.25)',
+                        fontSize: '0.8rem',
+                        color: 'var(--text-bright, #fff)'
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, color: 'var(--accent, #3ddc97)' }}>
+                        ✓ Curated {wizardSummary.matched} library tracks
+                        {wizardSummary.discovered > 0 && ` + ${wizardSummary.discovered} new songs downloading from YouTube Music`}!
+                      </div>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '3px' }}>
+                        Review and reorder the tracks in the queue on the right, or switch to Artists/Albums/Genres/Songs to add more, then click &quot;Save & Sync to Drive (.m3u8)&quot;.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* TAB 1: ARTISTS */}
               {!loading && tab === 'artists' && (
@@ -1032,7 +1428,7 @@ export default function PlaylistBuilderModal({
             style={{
               flex: '1 1 40%',
               minWidth: '280px',
-              maxWidth: '420px',
+              maxWidth: '440px',
               display: 'flex',
               flexDirection: 'column',
               background: 'rgba(0, 0, 0, 0.25)'
@@ -1110,74 +1506,95 @@ export default function PlaylistBuilderModal({
                   <Layers size={36} style={{ opacity: 0.3, marginBottom: '0.75rem' }} />
                   <div style={{ fontWeight: 500, fontSize: '0.85rem' }}>Queue is empty</div>
                   <div style={{ fontSize: '0.75rem', marginTop: '4px' }}>
-                    Click an artist, album, genre, or song on the left to add tracks.
+                    Use the 🪄 Vibe Wizard or pick artists, albums, genres, or songs on the left.
                   </div>
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                  {selectedItems.map((track, idx) => (
-                    <div
-                      key={`${track.id}-${idx}`}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.4rem',
-                        padding: '0.35rem 0.5rem',
-                        borderRadius: '4px',
-                        background: 'rgba(255, 255, 255, 0.03)',
-                        fontSize: '0.8rem'
-                      }}
-                    >
-                      <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', width: '22px', textAlign: 'right' }}>
-                        {idx + 1}.
-                      </span>
+                  {selectedItems.map((track, idx) => {
+                    const isNew = track.isNewDiscovery || track.id?.startsWith('discovery_');
+                    return (
+                      <div
+                        key={`${track.id}-${idx}`}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.4rem',
+                          padding: '0.35rem 0.5rem',
+                          borderRadius: '4px',
+                          background: isNew ? 'rgba(61, 220, 151, 0.06)' : 'rgba(255, 255, 255, 0.03)',
+                          border: isNew ? '1px solid rgba(61, 220, 151, 0.25)' : '1px solid transparent',
+                          fontSize: '0.8rem'
+                        }}
+                      >
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', width: '22px', textAlign: 'right' }}>
+                          {idx + 1}.
+                        </span>
 
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ color: 'var(--text-bright, #fff)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {track.title || 'Untitled'}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ color: 'var(--text-bright, #fff)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {track.title || 'Untitled'}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <span>{track.artist || 'Unknown Artist'}</span>
+                            {isNew && (
+                              <span
+                                style={{
+                                  fontSize: '0.65rem',
+                                  padding: '1px 5px',
+                                  borderRadius: '3px',
+                                  background: 'rgba(61, 220, 151, 0.15)',
+                                  color: 'var(--accent, #3ddc97)',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '2px',
+                                  fontWeight: 600
+                                }}
+                              >
+                                <Download size={9} /> Downloading
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {track.artist || 'Unknown Artist'}
+
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>
+                          {formatDuration(track.durationSec)}
+                        </span>
+
+                        <div style={{ display: 'flex', gap: '1px' }}>
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            disabled={idx === 0}
+                            onClick={() => handleMoveUp(idx)}
+                            title="Move up"
+                            style={{ padding: '2px', opacity: idx === 0 ? 0.3 : 0.8 }}
+                          >
+                            <ArrowUp size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            disabled={idx === selectedItems.length - 1}
+                            onClick={() => handleMoveDown(idx)}
+                            title="Move down"
+                            style={{ padding: '2px', opacity: idx === selectedItems.length - 1 ? 0.3 : 0.8 }}
+                          >
+                            <ArrowDown size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            className="icon-btn"
+                            onClick={() => handleRemoveFromQueue(track.id)}
+                            title="Remove from playlist"
+                            style={{ padding: '2px', color: 'var(--danger, #ef4444)' }}
+                          >
+                            <X size={12} />
+                          </button>
                         </div>
                       </div>
-
-                      <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>
-                        {formatDuration(track.durationSec)}
-                      </span>
-
-                      <div style={{ display: 'flex', gap: '1px' }}>
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          disabled={idx === 0}
-                          onClick={() => handleMoveUp(idx)}
-                          title="Move up"
-                          style={{ padding: '2px', opacity: idx === 0 ? 0.3 : 0.8 }}
-                        >
-                          <ArrowUp size={12} />
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          disabled={idx === selectedItems.length - 1}
-                          onClick={() => handleMoveDown(idx)}
-                          title="Move down"
-                          style={{ padding: '2px', opacity: idx === selectedItems.length - 1 ? 0.3 : 0.8 }}
-                        >
-                          <ArrowDown size={12} />
-                        </button>
-                        <button
-                          type="button"
-                          className="icon-btn"
-                          onClick={() => handleRemoveFromQueue(track.id)}
-                          title="Remove from playlist"
-                          style={{ padding: '2px', color: 'var(--danger, #ef4444)' }}
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1203,7 +1620,7 @@ export default function PlaylistBuilderModal({
               <span>
                 {selectedIds.length > 0
                   ? `${selectedIds.length} tracks will be compiled into an .m3u8 playlist file on Google Drive.`
-                  : 'Select tracks to build your playlist.'}
+                  : 'Use the Vibe Wizard or browse tabs to select tracks.'}
               </span>
             )}
           </div>
