@@ -1591,6 +1591,44 @@ app.get('/auth/device/token/:code', (req, res) => {
   });
 });
 
+// Confirm pairing from authenticated session (Web Settings modal or logged-in browser)
+app.post('/api/auth/device/confirm', authenticate, (req, res) => {
+  devicePairingStore = loadPairingStore();
+  cleanupPairingStore();
+  const code = String(req.body?.code || '').trim().toUpperCase();
+  if (!code) {
+    return res.status(400).json({ success: false, error: 'Please enter a pairing code' });
+  }
+  const entry = devicePairingStore[code];
+  if (!entry) {
+    return res.status(400).json({ success: false, error: 'Pairing code not found or expired. Please check your TV screen.' });
+  }
+  if (Date.now() - entry.createdAt > 5 * 60 * 1000) {
+    delete devicePairingStore[code];
+    savePairingStore(devicePairingStore);
+    return res.status(400).json({ success: false, error: 'Code expired. Please request a new code on your TV.' });
+  }
+
+  // Issue session token for the paired device
+  const sessionToken = jwt.sign(
+    { id: req.user.id, email: req.user.email, name: req.user.name, picture: req.user.picture },
+    SESSION_SECRET,
+    { expiresIn: '365d' }
+  );
+  entry.completed = true;
+  entry.userId = req.user.id;
+  entry.email = req.user.email;
+  entry.token = sessionToken;
+  savePairingStore(devicePairingStore);
+
+  res.json({
+    success: true,
+    message: 'TV successfully connected!',
+    email: req.user.email,
+    name: req.user.name
+  });
+});
+
 // Phone opens this page, enters code, authenticates with Google
 app.get('/device', (req, res) => {
   const deviceCode = req.query.code || '';

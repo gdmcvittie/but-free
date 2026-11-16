@@ -49,6 +49,43 @@ export default function CloudSettingsModal({ isOpen, onClose, user, folders, onU
   const [confirmRestartTorrent, setConfirmRestartTorrent] = useState(false);
   const torrentRestartPollRef = useRef(null);
 
+  // Device pairing state
+  const [deviceCode, setDeviceCode] = useState('');
+  const [pairingLoading, setPairingLoading] = useState(false);
+  const [pairingSuccess, setPairingSuccess] = useState(null);
+  const [pairingError, setPairingError] = useState(null);
+
+  const handlePairDevice = async (e) => {
+    if (e) e.preventDefault();
+    const code = (deviceCode || '').trim().toUpperCase();
+    if (!code || code.length < 6) {
+      setPairingError('Please enter the 6-character code shown on your TV screen.');
+      return;
+    }
+    setPairingLoading(true);
+    setPairingError(null);
+    setPairingSuccess(null);
+    try {
+      const res = await fetch('/api/auth/device/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to connect TV');
+      }
+      setPairingSuccess(data.message || 'TV successfully connected! You can now use FREEVEE on your TV.');
+      setDeviceCode('');
+      if (toast) toast.success('TV paired successfully!');
+    } catch (err) {
+      setPairingError(err.message || 'Error verifying pairing code.');
+      if (toast) toast.error(err.message || 'Failed to pair TV');
+    } finally {
+      setPairingLoading(false);
+    }
+  };
+
   // Torrent cache state
   const [torrentCache, setTorrentCache] = useState(null);
   const [isClearingCache, setIsClearingCache] = useState(false);
@@ -532,6 +569,7 @@ export default function CloudSettingsModal({ isOpen, onClose, user, folders, onU
               { id: 'rss', label: 'RSS', icon: <Rss size={14} /> },
               { id: 'server', label: 'Server', icon: <Server size={14} /> }
             ] : []),
+            { id: 'pair', label: 'Pair Device', icon: <Tv size={14} /> },
             { id: 'account', label: 'Account', icon: <User size={14} /> },
             { id: 'downloads', label: 'Apps', icon: <Download size={14} /> }
           ].map(tab => (
@@ -1358,6 +1396,116 @@ export default function CloudSettingsModal({ isOpen, onClose, user, folders, onU
                       <Trash2 size={13} className={isClearingCache ? 'spin' : ''} />
                       {isClearingCache ? 'Clearing...' : 'Clear Unwatched Cache'}
                     </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'pair' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div className="glass-panel" style={{ padding: '24px', borderRadius: '8px', background: '#1a1a24', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '16px' }}>
+                <div style={{ width: '56px', height: '56px', borderRadius: '14px', background: 'var(--primary-dark)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', boxShadow: '0 4px 16px rgba(124, 58, 237, 0.4)' }}>
+                  <Tv size={28} />
+                </div>
+
+                <div>
+                  <h2 style={{ fontSize: '18px', fontWeight: 800, margin: 0, color: '#fff' }}>Connect Your TV</h2>
+                  <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', margin: '6px 0 0', maxWidth: '420px', lineHeight: 1.5 }}>
+                    Enter the 6-character pairing code shown on your Roku, Fire TV, or Android TV screen to link your personal Google Drive library.
+                  </p>
+                </div>
+
+                {pairingSuccess && (
+                  <div style={{ width: '100%', maxWidth: '400px', background: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '6px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '10px', color: '#34d399', fontSize: '13px', textAlign: 'left' }}>
+                    <Check size={18} style={{ flexShrink: 0 }} />
+                    <div style={{ flex: 1 }}>{pairingSuccess}</div>
+                  </div>
+                )}
+
+                {pairingError && (
+                  <div style={{ width: '100%', maxWidth: '400px', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '6px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '10px', color: '#f87171', fontSize: '13px', textAlign: 'left' }}>
+                    <AlertCircle size={18} style={{ flexShrink: 0 }} />
+                    <div style={{ flex: 1 }}>{pairingError}</div>
+                  </div>
+                )}
+
+                <form onSubmit={handlePairDevice} style={{ width: '100%', maxWidth: '400px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    placeholder="XXXXXX"
+                    value={deviceCode}
+                    onChange={(e) => {
+                      setDeviceCode(e.target.value.toUpperCase());
+                      setPairingError(null);
+                    }}
+                    autoComplete="off"
+                    autoCapitalize="characters"
+                    spellCheck="false"
+                    style={{
+                      width: '100%',
+                      padding: '12px 16px',
+                      borderRadius: '6px',
+                      background: '#121218',
+                      border: '2px solid #343448',
+                      color: '#fff',
+                      fontSize: '24px',
+                      fontWeight: 800,
+                      textAlign: 'center',
+                      letterSpacing: '8px',
+                      outline: 'none',
+                      transition: 'border-color 0.2s ease',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = 'var(--primary-dark)'}
+                    onBlur={(e) => e.target.style.borderColor = '#343448'}
+                  />
+
+                  <button
+                    type="submit"
+                    className="action-btn primary"
+                    disabled={pairingLoading || deviceCode.trim().length !== 6}
+                    style={{
+                      padding: '12px',
+                      fontSize: '14px',
+                      fontWeight: 700,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      opacity: (pairingLoading || deviceCode.trim().length !== 6) ? 0.6 : 1
+                    }}
+                  >
+                    {pairingLoading ? (
+                      <>
+                        <RefreshCw size={16} className="spin" />
+                        <span>Connecting…</span>
+                      </>
+                    ) : (
+                      <>
+                        <Tv size={16} />
+                        <span>Connect TV</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+
+                {/* Instructions */}
+                <div style={{ width: '100%', maxWidth: '400px', borderTop: '1px solid var(--border-color)', paddingTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px', textAlign: 'left' }}>
+                  <div style={{ fontSize: '11.5px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    How to connect your TV:
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    1. Open the <strong>FREEVEE</strong> app on your Roku, Fire TV, or Android TV.<br />
+                    2. Select <strong>Sign In</strong> to display your 6-digit code on the TV screen.<br />
+                    3. Enter the code above and click <strong>Connect TV</strong>.
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Alternatively, on your phone you can visit{' '}
+                    <a href="https://tv.butfree.online/device" target="_blank" rel="noreferrer" style={{ color: 'var(--primary)', textDecoration: 'none' }}>
+                      tv.butfree.online/device
+                    </a>
                   </div>
                 </div>
               </div>

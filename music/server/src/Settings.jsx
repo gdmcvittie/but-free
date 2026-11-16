@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { FolderOpen, LogOut, RefreshCw, Trash2, HardDrive, Activity, KeyRound, Music, Disc, ListMusic, BookOpen, Download, Smartphone, Server, RotateCcw, Cookie, Save } from 'lucide-react';
+import { FolderOpen, LogOut, RefreshCw, Trash2, HardDrive, Activity, KeyRound, Music, Disc, ListMusic, BookOpen, Download, Smartphone, Server, RotateCcw, Cookie, Save, Radio, Check, AlertCircle } from 'lucide-react';
 import { api } from './api';
 import { hasNativeBridge } from './nativeBridge';
 import { formatBytes, pluralize } from './format';
@@ -40,6 +40,43 @@ export default function Settings({ user, libraryVersion, onOpenDrivePicker, onLo
   const [abbSession, setAbbSession] = useState(null);
   const [abbBusy, setAbbBusy] = useState(false);
   const [audiobookRateIndex, setAudiobookRateIndex] = useState(getSavedAudiobookRateIndex);
+
+  // Device pairing state (music.butfree.online/device)
+  const [deviceCode, setDeviceCode] = useState('');
+  const [pairingLoading, setPairingLoading] = useState(false);
+  const [pairingSuccess, setPairingSuccess] = useState(null);
+  const [pairingError, setPairingError] = useState(null);
+
+  const handlePairDevice = async (e) => {
+    if (e) e.preventDefault();
+    const code = (deviceCode || '').trim().toUpperCase();
+    if (!code || code.length < 4) {
+      setPairingError('Please enter the 4-character code shown on your player.');
+      return;
+    }
+    setPairingLoading(true);
+    setPairingError(null);
+    setPairingSuccess(null);
+    try {
+      const res = await fetch('/api/device/pair/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'Failed to connect device');
+      }
+      setPairingSuccess(`Player successfully linked to ${data.email || 'your account'}! You can now sync Music and Audiobooks directly on the player.`);
+      setDeviceCode('');
+      if (notify) notify('Device Paired', 'Portable player successfully linked!');
+    } catch (err) {
+      setPairingError(err.message || 'Error pairing device.');
+      if (notify) notify('Pairing Failed', err.message || 'Error pairing device');
+    } finally {
+      setPairingLoading(false);
+    }
+  };
 
   useEffect(() => {
     const handleSpeedChanged = (e) => {
@@ -1035,6 +1072,89 @@ export default function Settings({ user, libraryVersion, onOpenDrivePicker, onLo
         </div>
       </div>
       )}
+
+      {/* Pair Device (Portable Player / DAP) */}
+      <div className="panel" style={{ border: '1px solid rgba(61, 220, 151, 0.35)', background: '#161922' }}>
+        <div className="panel-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#3ddc97' }}>
+          <Radio size={16} />
+          Pair Device (Portable Player / DAP)
+        </div>
+        <div className="setting-help" style={{ marginBottom: '1.25rem' }}>
+          Connect your portable DAP, Hi-Res audio player, or Rockbox player to your personal Google Drive audio library by entering the 4-character code shown on the player.
+        </div>
+
+        {pairingSuccess && (
+          <div style={{ background: 'rgba(61, 220, 151, 0.12)', border: '1px solid rgba(61, 220, 151, 0.35)', borderRadius: '8px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '10px', color: '#3ddc97', fontSize: '0.85rem', marginBottom: '1rem' }}>
+            <Check size={18} style={{ flexShrink: 0 }} />
+            <div>{pairingSuccess}</div>
+          </div>
+        )}
+
+        {pairingError && (
+          <div style={{ background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '8px', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '10px', color: '#f87171', fontSize: '0.85rem', marginBottom: '1rem' }}>
+            <AlertCircle size={18} style={{ flexShrink: 0 }} />
+            <div>{pairingError}</div>
+          </div>
+        )}
+
+        <form onSubmit={handlePairDevice} style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', maxWidth: '420px', marginBottom: '1.25rem' }}>
+          <input
+            type="text"
+            className="input-field"
+            maxLength={4}
+            placeholder="----"
+            value={deviceCode}
+            onChange={(e) => {
+              setDeviceCode(e.target.value.toUpperCase());
+              setPairingError(null);
+            }}
+            autoComplete="off"
+            autoCapitalize="characters"
+            spellCheck="false"
+            style={{
+              width: '120px',
+              fontSize: '1.25rem',
+              fontWeight: 800,
+              letterSpacing: '6px',
+              textAlign: 'center',
+              padding: '8px 12px',
+              fontFamily: 'monospace'
+            }}
+          />
+
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={pairingLoading || deviceCode.trim().length !== 4}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: '130px', justifyContent: 'center' }}
+          >
+            {pairingLoading ? (
+              <>
+                <RefreshCw size={14} className="spin" />
+                Connecting…
+              </>
+            ) : (
+              <>
+                <Radio size={14} />
+                Pair Device
+              </>
+            )}
+          </button>
+        </form>
+
+        <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '1rem', fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.6 }}>
+          <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.35rem' }}>How to connect your player:</div>
+          1. Turn on your portable player and navigate to <strong>Cloud Sync / Pair</strong>.<br />
+          2. A 4-character code will appear on the player screen (e.g. <code>A7B2</code>).<br />
+          3. Enter the code above and click <strong>Pair Device</strong>.<br />
+          <div style={{ marginTop: '0.4rem', fontSize: '0.75rem' }}>
+            Alternatively, on your phone you can visit{' '}
+            <a href="https://music.butfree.online/device" target="_blank" rel="noreferrer" style={{ color: '#3ddc97', textDecoration: 'none' }}>
+              music.butfree.online/device
+            </a>
+          </div>
+        </div>
+      </div>
 
       {/* Account */}
       <div className="panel">
