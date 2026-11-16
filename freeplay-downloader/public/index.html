@@ -716,6 +716,7 @@
         </div>
       </div>
       <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <button class="btn btn-secondary btn-sm" id="btnRssSettings" onclick="openRssSettingsModal()" title="Configure RSS check frequency and release retention">⚙️ RSS Settings</button>
         <button class="btn btn-secondary btn-sm" id="btnDownloadsFolder" onclick="openDownloadsFolderModal()" title="Set the folder where downloads are saved">📁 Downloads Folder</button>
       </div>
     </div>
@@ -784,10 +785,22 @@
         <button class="btn btn-primary" id="btnLoadPcFeed" onclick="loadPcRssFeed()">📥 Fetch Feed</button>
       </div>
 
-      <!-- Feed Preset Buttons -->
-      <div class="pc-rss-presets-bar">
-        <span style="font-size: 11px; color: var(--text-muted); align-self: center; margin-right: 4px;">Presets:</span>
-        <button class="pc-rss-preset-btn" onclick="selectPcFeedPreset('https://fitgirl-repacks.site/feed/')">🔥 FitGirl Repacks</button>
+      <!-- Feed Preset Buttons & Retention -->
+      <div class="pc-rss-presets-bar" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <span style="font-size: 11px; color: var(--text-muted); align-self: center; margin-right: 4px;">Presets:</span>
+          <button class="pc-rss-preset-btn" onclick="selectPcFeedPreset('https://fitgirl-repacks.site/feed/')">🔥 FitGirl Repacks</button>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px; margin-left: auto;">
+          <span style="font-size: 11px; color: var(--text-muted);">Retention:</span>
+          <select id="pcRssInlineRetention" onchange="updateRssRetentionDirectly(this.value)" style="padding: 4px 8px; font-size: 11px; min-width: auto; border-radius: 6px; background: rgba(0,0,0,0.5); border: 1px solid var(--card-border); color: #fff; cursor: pointer;">
+            <option value="1">1 Month</option>
+            <option value="2">2 Months</option>
+            <option value="3">3 Months (Default)</option>
+            <option value="6">6 Months</option>
+            <option value="12">12 Months (1 Year)</option>
+          </select>
+        </div>
       </div>
 
       <!-- Feed Filter Input -->
@@ -931,6 +944,59 @@
           <button class="btn btn-secondary btn-sm" onclick="closePcTorrentFilesModal()">Cancel</button>
           <button class="btn btn-primary btn-sm" id="btnConfirmFileSelection" onclick="confirmPcFilesSelection()">⬇️ Download Selected Files</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── RSS Settings Modal ── -->
+  <div id="rssSettingsModal" class="pc-rss-modal-backdrop" style="display: none;">
+    <div class="pc-rss-modal-content" style="max-width: 520px; width: 95%;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div style="font-size: 16px; font-weight: 700; color: #fff;">⚙️ RSS &amp; Discover Settings</div>
+        <button class="btn btn-secondary btn-sm" onclick="closeRssSettingsModal()">✕ Close</button>
+      </div>
+      <div style="font-size: 13px; color: var(--text-muted);">
+        Configure background feed check frequency and release retention period. Releases are accumulated across overnight updates and stored locally.
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 14px; margin: 10px 0;">
+        <div>
+          <label style="display: block; font-size: 12px; font-weight: 600; color: #cbd5e1; margin-bottom: 6px;">
+            Feed Check Frequency
+          </label>
+          <select id="modalRssInterval" style="width: 100%; padding: 8px 12px; font-size: 12px; border-radius: 6px; background: rgba(0,0,0,0.5); border: 1px solid var(--card-border); color: #fff;">
+            <option value="15">Every 15 minutes</option>
+            <option value="30">Every 30 minutes (Default - Recommended)</option>
+            <option value="60">Every 1 hour</option>
+            <option value="120">Every 2 hours</option>
+            <option value="360">Every 6 hours</option>
+            <option value="720">Every 12 hours</option>
+            <option value="1440">Every 24 hours</option>
+          </select>
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+            How often the background worker sweeps for new FitGirl / PC feed updates.
+          </div>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 12px; font-weight: 600; color: #cbd5e1; margin-bottom: 6px;">
+            Feed Retention Period
+          </label>
+          <select id="modalRssRetention" style="width: 100%; padding: 8px 12px; font-size: 12px; border-radius: 6px; background: rgba(0,0,0,0.5); border: 1px solid var(--card-border); color: #fff;">
+            <option value="1">1 Month</option>
+            <option value="2">2 Months</option>
+            <option value="3">3 Months (Default - Recommended)</option>
+            <option value="6">6 Months</option>
+            <option value="12">12 Months (1 Year)</option>
+          </select>
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+            Feed releases are accumulated across refreshes and retained up to this cutoff.
+          </div>
+        </div>
+      </div>
+      <div id="rssSettingsAlert" class="alert"></div>
+      <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px;">
+        <button class="btn btn-primary btn-sm" onclick="saveRssSettingsFromModal()">💾 Save Settings</button>
+        <button class="btn btn-secondary btn-sm" onclick="closeRssSettingsModal()">✕ Cancel</button>
       </div>
     </div>
   </div>
@@ -1501,13 +1567,94 @@
       }
     }
 
+    // ── RSS Settings State & Handlers ─────────────────────────────────────
+    var currentRssSettings = { intervalMinutes: 30, retentionMonths: 3 };
+
+    async function loadRssSettings() {
+      try {
+        var res = await fetch('/api/settings/rss');
+        if (res.ok) {
+          var data = await res.json();
+          currentRssSettings = {
+            intervalMinutes: data.intervalMinutes || 30,
+            retentionMonths: data.retentionMonths || 3
+          };
+          var inlineSel = document.getElementById('pcRssInlineRetention');
+          if (inlineSel) inlineSel.value = String(currentRssSettings.retentionMonths);
+          var modalInterval = document.getElementById('modalRssInterval');
+          if (modalInterval) modalInterval.value = String(currentRssSettings.intervalMinutes);
+          var modalRetention = document.getElementById('modalRssRetention');
+          if (modalRetention) modalRetention.value = String(currentRssSettings.retentionMonths);
+        }
+      } catch (_) {}
+    }
+
+    function openRssSettingsModal() {
+      var modal = document.getElementById('rssSettingsModal');
+      if (modal) modal.style.display = 'flex';
+      loadRssSettings();
+    }
+
+    function closeRssSettingsModal() {
+      var modal = document.getElementById('rssSettingsModal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    async function saveRssSettingsFromModal() {
+      var intervalEl = document.getElementById('modalRssInterval');
+      var retentionEl = document.getElementById('modalRssRetention');
+      var interval = intervalEl ? parseInt(intervalEl.value, 10) : 30;
+      var retention = retentionEl ? parseInt(retentionEl.value, 10) : 3;
+
+      try {
+        var res = await fetch('/api/settings/rss', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ intervalMinutes: interval, retentionMonths: retention })
+        });
+        var data = await res.json();
+        if (data && data.success) {
+          currentRssSettings.intervalMinutes = data.intervalMinutes;
+          currentRssSettings.retentionMonths = data.retentionMonths;
+          var inlineSel = document.getElementById('pcRssInlineRetention');
+          if (inlineSel) inlineSel.value = String(data.retentionMonths);
+          showToast('RSS settings saved (Retention: ' + data.retentionMonths + ' mo, Interval: ' + data.intervalMinutes + 'm)', 'success');
+          closeRssSettingsModal();
+        } else {
+          showToast('Failed to save RSS settings', 'error');
+        }
+      } catch (err) {
+        showToast('Error saving RSS settings: ' + err.message, 'error');
+      }
+    }
+
+    async function updateRssRetentionDirectly(val) {
+      var months = parseInt(val, 10) || 3;
+      try {
+        var res = await fetch('/api/settings/rss', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ retentionMonths: months })
+        });
+        var data = await res.json();
+        if (data && data.success) {
+          currentRssSettings.retentionMonths = data.retentionMonths;
+          showToast('Feed retention set to ' + months + ' month' + (months > 1 ? 's' : ''), 'success');
+          // Refresh feed to apply new retention filter
+          loadPcRssFeed(undefined, true);
+        }
+      } catch (err) {
+        showToast('Failed to update retention: ' + err.message, 'error');
+      }
+    }
+
     function refreshPcRssFeed() {
       var input = document.getElementById('pcRssUrlInput');
       var url = input ? input.value.trim() : '';
-      loadPcRssFeed(url);
+      loadPcRssFeed(url, true);
     }
 
-    async function loadPcRssFeed(customUrl) {
+    async function loadPcRssFeed(customUrl, force) {
       var input = document.getElementById('pcRssUrlInput');
       var feedUrl = (customUrl || (input ? input.value : '') || '').trim();
       var grid = document.getElementById('pcRssGrid');
@@ -1527,7 +1674,9 @@
                        '<div style="font-size: 28px; margin-bottom: 8px;">⏳</div>Fetching and parsing RSS feed releases...</div>';
 
       try {
-        var res = await fetch('/api/pc-rss/feed?url=' + encodeURIComponent(feedUrl));
+        var sep = feedUrl.includes('?') ? '&' : '?';
+        var forceParam = force ? sep + 'refresh=true' : '';
+        var res = await fetch('/api/pc-rss/feed?url=' + encodeURIComponent(feedUrl) + forceParam);
         var data = await res.json();
 
         if (!data || !data.success || !data.feed) {
@@ -2975,6 +3124,7 @@
     // ── Init ─────────────────────────────────────────────────────────────
     setupSSE();
     loadDownloadsFolder();
+    loadRssSettings();
     refreshPcTorrentQueueUI();
     loadPopularGames();
     loadPcRssFeed();

@@ -3,6 +3,8 @@
 // Ported from my-games-server server.js.
 
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import {
   decodeHtmlEntities,
   getXmlTag,
@@ -14,6 +16,249 @@ import {
 } from './link-utils.js';
 
 const SCRAPE_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+let feedCachePath = null;
+
+export function setFeedCachePath(p) {
+  feedCachePath = p;
+}
+
+function loadFeedCache() {
+  try {
+    if (feedCachePath && fs.existsSync(feedCachePath)) {
+      const raw = fs.readFileSync(feedCachePath, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') return parsed;
+    }
+  } catch (err) {
+    console.warn('[PC RSS] Failed to read feed cache:', err.message);
+  }
+  return { items: [], lastFetched: 0, title: 'FitGirl Repacks', description: '', link: 'https://fitgirl-repacks.site/feed/' };
+}
+
+function saveFeedCache(cache) {
+  try {
+    if (feedCachePath) {
+      const dir = path.dirname(feedCachePath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(feedCachePath, JSON.stringify(cache, null, 2), 'utf8');
+    }
+  } catch (err) {
+    console.warn('[PC RSS] Failed to save feed cache:', err.message);
+  }
+}
+
+export async function fetchAndCacheFeed(feedUrl, options = {}) {
+  if (!feedUrl) feedUrl = 'https://fitgirl-repacks.site/feed/';
+  const isMainFeed = !feedUrl.includes('?s=') && !feedUrl.includes('&s=');
+  const forceRefresh = options.forceRefresh === true || options.force === true;
+  const retentionMonths = Math.max(1, parseInt(options.retentionMonths, 10) || 3);
+  const cache = loadFeedCache();
+  const now = Date.now();
+
+  // If main feed and cached recently (< 10 min) without forceRefresh, return pruned cached items
+  if (isMainFeed && !forceRefresh && cache.items && cache.items.length > 0 && (now - (cache.lastFetched || 0) < 10 * 60 * 1000)) {
+    const cutoffMs = now - (retentionMonths * 30 * 24 * 60 * 60 * 1000);
+    const validItems = cache.items.filter(item => {
+      let t = item.pubDate ? new Date(item.pubDate).getTime() : 0;
+      if (isNaN(t) || t <= 0) t = item.firstSeenAt ? new Date(item.firstSeenAt).getTime() : now;
+      return t >= cutoffMs;
+    });
+    return {
+      title: cache.title || 'PC Games Feed',
+      description: cache.description || '',
+      link: cache.link || feedUrl,
+      feedUrl,
+      itemsCount: validItems.length,
+      items: validItems,
+      cached: true
+    };
+  }
+
+  let xmlString = null;
+  let fetchError = null;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 14000);
+
+    const response = await fetch(feedUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': SCRAPE_USER_AGENT,
+        'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, text/html, */*'
+      }
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      throw new Error(`Remote feed server responded with HTTP ${response.status}`);
+    }
+    xmlString = await response.text();
+  } catch (err) {
+    fetchError = err;
+    console.warn('[PC RSS] Feed fetch error:', err.message);
+  }
+
+  // Fallback to cache if remote is unreachable
+  if (!xmlString) {
+    if (cache.items && cache.items.length > 0) {
+      const cutoffMs = now - (retentionMonths * 30 * 24 * 60 * 60 * 1000);
+      const validItems = cache.items.filter(item => {
+        let t = item.pubDate ? new Date(item.pubDate).getTime() : 0;
+        if (isNaN(t) || t <= 0) t = item.firstSeenAt ? new Date(item.firstSeenAt).getTime() : now;
+        return t >= cutoffMs;
+      });
+      return {
+        title: cache.title || 'PC Games Feed',
+        description: cache.description || '',
+        link: cache.link || feedUrl,
+        feedUrl,
+        itemsCount: validItems.length,
+        items: validItems,
+        cached: true,
+        stale: true,
+        fetchError: fetchError?.message
+      };
+    }
+    throw fetchError || new Error('Failed to fetch feed XML');
+  }
+
+  const isAtom = xmlString.includes('<feed') || xmlString.includes('<entry');
+
+  const feedTitle = getXmlTag(xmlString, 'title') || 'PC Games Feed';
+  const feedDesc = getXmlTag(xmlString, 'description') || getXmlTag(xmlString, 'subtitle') || '';
+  let feedLink = getXmlTag(xmlString, 'link') || feedUrl;
+  if (isAtom && !feedLink) {
+    const linkMatch = xmlString.match(/<link[^>]+rel=["']alternate["'][^>]+href=["']([^"']+)["']/i) ||
+                      xmlString.match(/<link[^>]+href=["']([^"']+)["']/i);
+    if (linkMatch) feedLink = linkMatch[1];
+  }
+
+  const itemTag = isAtom ? 'entry' : 'item';
+  const itemRegex = new RegExp(`<${itemTag}[^>]*>([\\s\\S]*?)<\\/${itemTag}>`, 'gi');
+  const fetchedItems = [];
+  let match;
+
+  while ((match = itemRegex.exec(xmlString)) !== null && fetchedItems.length < 100) {
+    const itemXml = match[1];
+    const title = getXmlTag(itemXml, 'title') || 'Untitled Release';
+
+    let link = getXmlTag(itemXml, 'link');
+    if (isAtom || !link) {
+      const atomLinkMatch = itemXml.match(/<link[^>]+href=["']([^"']+)["'][^>]*>/i);
+      if (atomLinkMatch) link = atomLinkMatch[1];
+    }
+    link = link.replace(/&amp;/g, '&').trim();
+
+    const pubDate = getXmlTag(itemXml, 'pubDate') || getXmlTag(itemXml, 'published') || getXmlTag(itemXml, 'updated') || getXmlTag(itemXml, 'dc:date');
+    const author = getXmlTag(itemXml, 'author') || getXmlTag(itemXml, 'dc:creator') || feedTitle;
+    const rawDesc = getXmlTag(itemXml, 'description') || getXmlTag(itemXml, 'summary');
+    const rawContent = getXmlTag(itemXml, 'content:encoded') || getXmlTag(itemXml, 'content') || rawDesc;
+
+    const decodedForExcerpt = decodeHtmlEntities(rawContent || rawDesc);
+    const cleanExcerpt = decodedForExcerpt
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<img[^>]*>/gi, '')
+      .replace(/<p>\s*This item belongs to:[\s\S]*?<\/p>/gi, '')
+      .replace(/<p>\s*This item has files of the following types:[\s\S]*?<\/p>/gi, '')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 260);
+
+    const thumbInfo = extractThumbnailAndWebm(itemXml, rawContent, link);
+    const downloads = extractAllDownloadsFromRssItem(itemXml, rawContent, link, title);
+    const firstMagnet = downloads.find(d => d.isMagnet);
+    const magnetUrl = firstMagnet ? firstMagnet.url : null;
+
+    const rawSizeStr = extractSizeFromText(rawContent || rawDesc || title);
+    const sizeBytes = rawSizeStr ? parseSizeStringToBytes(rawSizeStr) : null;
+
+    fetchedItems.push({
+      id: 'pcrss_' + crypto.createHash('md5').update(link || title).digest('hex').substring(0, 14),
+      title,
+      link,
+      pubDate,
+      firstSeenAt: Date.now(),
+      author,
+      excerpt: cleanExcerpt,
+      content: (rawContent || '').slice(0, 3000),
+      size: rawSizeStr,
+      sizeBytes,
+      thumbnail: thumbInfo.url,
+      isVideoThumbnail: thumbInfo.isVideo,
+      hasMagnet: !!magnetUrl,
+      magnetUrl: magnetUrl,
+      downloads: downloads,
+      hasDownloads: downloads.length > 0,
+      isUpdate: isFitgirlUpdateTitle(title),
+      feedTitle
+    });
+  }
+
+  // Merge newly fetched items with existing stored items to prevent overnight drops
+  const itemMap = new Map();
+  const existingStored = Array.isArray(cache.items) ? cache.items : [];
+  for (const item of existingStored) {
+    if (!item || !item.id) continue;
+    itemMap.set(item.id, item);
+  }
+
+  for (const item of fetchedItems) {
+    if (!item || !item.id) continue;
+    const prev = itemMap.get(item.id);
+    if (prev) {
+      itemMap.set(item.id, {
+        ...prev,
+        ...item,
+        firstSeenAt: prev.firstSeenAt || Date.now()
+      });
+    } else {
+      itemMap.set(item.id, {
+        ...item,
+        firstSeenAt: Date.now()
+      });
+    }
+  }
+
+  // Retention filter: prune items older than retentionMonths
+  const cutoffMs = now - (retentionMonths * 30 * 24 * 60 * 60 * 1000);
+  const validAccumulated = [];
+  for (const it of itemMap.values()) {
+    let t = it.pubDate ? new Date(it.pubDate).getTime() : 0;
+    if (isNaN(t) || t <= 0) t = it.firstSeenAt ? new Date(it.firstSeenAt).getTime() : now;
+    if (t >= cutoffMs) {
+      validAccumulated.push(it);
+    }
+  }
+
+  validAccumulated.sort((a, b) => {
+    const timeA = a.pubDate ? new Date(a.pubDate).getTime() : (a.firstSeenAt || 0);
+    const timeB = b.pubDate ? new Date(b.pubDate).getTime() : (b.firstSeenAt || 0);
+    return timeB - timeA;
+  });
+
+  // Save the updated cumulative cache
+  cache.items = validAccumulated;
+  cache.lastFetched = Date.now();
+  cache.title = feedTitle;
+  cache.description = feedDesc;
+  cache.link = feedLink;
+  saveFeedCache(cache);
+
+  const returnedItems = isMainFeed ? validAccumulated : fetchedItems;
+
+  return {
+    title: feedTitle,
+    description: feedDesc,
+    link: feedLink,
+    feedUrl,
+    itemsCount: returnedItems.length,
+    items: returnedItems
+  };
+}
 
 function extractSizeFromText(text) {
   if (!text) return null;
@@ -34,115 +279,47 @@ function parseSizeStringToBytes(str) {
   return Math.round(num * (mult[unit] || 1));
 }
 
-export function registerPcRssRoutes(app) {
+export function registerPcRssRoutes(app, options = {}) {
+  if (options.dataDir) {
+    setFeedCachePath(path.join(options.dataDir, 'pc_feed_cache.json'));
+  }
+
+  // Settings for RSS frequency and retention
+  app.get('/api/settings/rss', (_req, res) => {
+    const conf = (options.getConfig && options.getConfig()) || {};
+    res.json({
+      success: true,
+      intervalMinutes: parseInt(conf.rssInterval, 10) || 30,
+      retentionMonths: parseInt(conf.rssRetentionMonths, 10) || 3
+    });
+  });
+
+  app.post('/api/settings/rss', (req, res) => {
+    const { intervalMinutes, retentionMonths } = req.body || {};
+    const conf = (options.getConfig && options.getConfig()) || {};
+    if (intervalMinutes !== undefined) {
+      conf.rssInterval = Math.max(5, parseInt(intervalMinutes, 10) || 30);
+    }
+    if (retentionMonths !== undefined) {
+      conf.rssRetentionMonths = Math.max(1, parseInt(retentionMonths, 10) || 3);
+    }
+    if (options.saveConfig) options.saveConfig();
+    res.json({
+      success: true,
+      intervalMinutes: conf.rssInterval,
+      retentionMonths: conf.rssRetentionMonths
+    });
+  });
+
   // 1. Fetch & Parse RSS / Atom Feed: /api/pc-rss/feed?url=<feedUrl>
   app.get('/api/pc-rss/feed', async (req, res) => {
-    const feedUrl = (req.query.url || '').trim();
-    if (!feedUrl) {
-      return res.status(400).json({ success: false, error: 'Feed URL is required' });
-    }
+    const feedUrl = (req.query.url || '').trim() || 'https://fitgirl-repacks.site/feed/';
+    const forceRefresh = req.query.refresh === 'true' || req.query.force === 'true';
+    const retentionMonths = parseInt(req.query.retentionMonths || (options.getConfig && options.getConfig().rssRetentionMonths), 10) || 3;
 
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 14000);
-
-      const response = await fetch(feedUrl, {
-        signal: controller.signal,
-        headers: {
-          'User-Agent': SCRAPE_USER_AGENT,
-          'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, text/html, */*'
-        }
-      });
-      clearTimeout(timeout);
-
-      if (!response.ok) {
-        throw new Error(`Remote feed server responded with HTTP ${response.status}`);
-      }
-
-      const xmlString = await response.text();
-      const isAtom = xmlString.includes('<feed') || xmlString.includes('<entry');
-
-      const feedTitle = getXmlTag(xmlString, 'title') || 'PC Games Feed';
-      const feedDesc = getXmlTag(xmlString, 'description') || getXmlTag(xmlString, 'subtitle') || '';
-      let feedLink = getXmlTag(xmlString, 'link') || feedUrl;
-      if (isAtom && !feedLink) {
-        const linkMatch = xmlString.match(/<link[^>]+rel=["']alternate["'][^>]+href=["']([^"']+)["']/i) ||
-                          xmlString.match(/<link[^>]+href=["']([^"']+)["']/i);
-        if (linkMatch) feedLink = linkMatch[1];
-      }
-
-      const itemTag = isAtom ? 'entry' : 'item';
-      const itemRegex = new RegExp(`<${itemTag}[^>]*>([\\s\\S]*?)<\\/${itemTag}>`, 'gi');
-      const items = [];
-      let match;
-
-      while ((match = itemRegex.exec(xmlString)) !== null && items.length < 50) {
-        const itemXml = match[1];
-        const title = getXmlTag(itemXml, 'title') || 'Untitled Release';
-
-        let link = getXmlTag(itemXml, 'link');
-        if (isAtom || !link) {
-          const atomLinkMatch = itemXml.match(/<link[^>]+href=["']([^"']+)["'][^>]*>/i);
-          if (atomLinkMatch) link = atomLinkMatch[1];
-        }
-        link = link.replace(/&amp;/g, '&').trim();
-
-        const pubDate = getXmlTag(itemXml, 'pubDate') || getXmlTag(itemXml, 'published') || getXmlTag(itemXml, 'updated') || getXmlTag(itemXml, 'dc:date');
-        const author = getXmlTag(itemXml, 'author') || getXmlTag(itemXml, 'dc:creator') || feedTitle;
-        const rawDesc = getXmlTag(itemXml, 'description') || getXmlTag(itemXml, 'summary');
-        const rawContent = getXmlTag(itemXml, 'content:encoded') || getXmlTag(itemXml, 'content') || rawDesc;
-
-        // Clean excerpt: decode entities first so &lt;img...&gt; and &lt;p&gt; tags are real tags, then strip tags cleanly
-        const decodedForExcerpt = decodeHtmlEntities(rawContent || rawDesc);
-        const cleanExcerpt = decodedForExcerpt
-          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-          .replace(/<img[^>]*>/gi, '')
-          .replace(/<p>\s*This item belongs to:[\s\S]*?<\/p>/gi, '')
-          .replace(/<p>\s*This item has files of the following types:[\s\S]*?<\/p>/gi, '')
-          .replace(/<[^>]*>/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim()
-          .slice(0, 260);
-
-        // Extract preview image or WebM video for the thumbnail
-        const thumbInfo = extractThumbnailAndWebm(itemXml, rawContent, link);
-
-        // Extract all download links (enclosures, media contents, magnets, direct hoster mirrors)
-        const downloads = extractAllDownloadsFromRssItem(itemXml, rawContent, link, title);
-        const firstMagnet = downloads.find(d => d.isMagnet);
-        const magnetUrl = firstMagnet ? firstMagnet.url : null;
-
-        items.push({
-          id: 'pcrss_' + crypto.createHash('md5').update(link || title).digest('hex').substring(0, 14),
-          title,
-          link,
-          pubDate,
-          author,
-          excerpt: cleanExcerpt,
-          content: (rawContent || '').slice(0, 3000),
-          thumbnail: thumbInfo.url,
-          isVideoThumbnail: thumbInfo.isVideo,
-          hasMagnet: !!magnetUrl,
-          magnetUrl: magnetUrl,
-          downloads: downloads,
-          hasDownloads: downloads.length > 0,
-          isUpdate: isFitgirlUpdateTitle(title),
-          feedTitle
-        });
-      }
-
-      res.json({
-        success: true,
-        feed: {
-          title: feedTitle,
-          description: feedDesc,
-          link: feedLink,
-          feedUrl,
-          itemsCount: items.length,
-          items
-        }
-      });
+      const feed = await fetchAndCacheFeed(feedUrl, { retentionMonths, forceRefresh });
+      res.json({ success: true, feed });
     } catch (err) {
       console.error('[PC RSS] Feed fetch error:', err.message);
       res.status(500).json({ success: false, error: err.message });

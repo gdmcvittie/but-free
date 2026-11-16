@@ -9,7 +9,7 @@ import fs from 'fs';
 import os from 'os';
 import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
-import { registerPcRssRoutes } from './stream/pc-rss.js';
+import { registerPcRssRoutes, fetchAndCacheFeed } from './stream/pc-rss.js';
 import { createDownloadQueue } from './stream/download-queue.js';
 import { electronBridge } from './lib/electron-bridge.js';
 
@@ -35,7 +35,9 @@ try {
 // ── Configuration State ────────────────────────────────────────────────────
 let config = {
   port: parseInt(process.env.PORT || '5055', 10),
-  downloadsFolder: ''
+  downloadsFolder: '',
+  rssInterval: 30,
+  rssRetentionMonths: 3
 };
 
 function loadConfig() {
@@ -63,6 +65,10 @@ function loadConfig() {
       }
     }
   }
+
+  // Ensure valid defaults
+  config.rssInterval = parseInt(config.rssInterval, 10) || 30;
+  config.rssRetentionMonths = parseInt(config.rssRetentionMonths, 10) || 3;
 
   // Ensure there is always a valid downloads folder so the user is never stuck
   if (!config.downloadsFolder || !String(config.downloadsFolder).trim()) {
@@ -140,8 +146,30 @@ const downloadQueue = createDownloadQueue({
   torrentQueuePath: TORRENT_QUEUE_PATH
 });
 
-registerPcRssRoutes(app);
+registerPcRssRoutes(app, {
+  dataDir,
+  getConfig: () => config,
+  saveConfig
+});
 downloadQueue.registerRoutes(app);
+
+// ── RSS Feed Background Sweeper ─────────────────────────────────────────────
+let lastRssSweep = 0;
+async function sweepRssFeeds() {
+  try {
+    const intervalMinutes = Math.max(5, parseInt(config.rssInterval, 10) || 30);
+    const retentionMonths = Math.max(1, parseInt(config.rssRetentionMonths, 10) || 3);
+    const intervalMs = intervalMinutes * 60 * 1000;
+    if (Date.now() - lastRssSweep >= intervalMs) {
+      lastRssSweep = Date.now();
+      await fetchAndCacheFeed('https://fitgirl-repacks.site/feed/', { retentionMonths, forceRefresh: true });
+    }
+  } catch (err) {
+    console.warn('[RSS Worker] Background sweep error:', err.message);
+  }
+}
+setInterval(sweepRssFeeds, 60 * 1000);
+setTimeout(sweepRssFeeds, 30 * 1000);
 
 // ── SSE Events Endpoint ────────────────────────────────────────────────────
 app.get('/api/events', (req, res) => {
