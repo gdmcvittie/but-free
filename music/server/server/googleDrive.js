@@ -11,6 +11,7 @@ import {
   buildAudiobookRecord,
   buildTrackRecord,
   extensionOf,
+  formatPlaylistM3u8,
   isAudioFile,
   isImageFile,
   sanitizeSegment,
@@ -859,6 +860,138 @@ export const googleDrive = {
     const data = await res.json();
     return { id: data.id, name: data.name || fileName, updated: false };
   },
+
+  /**
+   * Creates or overwrites a text document (e.g. M3U8 playlist) directly in a Drive folder.
+   */
+  async writeTextFile(user, folderId, fileName, textContent, mimeType = 'audio/x-mpegurl; charset=UTF-8', { fileId = null } = {}) {
+    if (!folderId) throw new Error('No Drive folder selected.');
+    const body = Buffer.from(textContent, 'utf8');
+
+    if (fileId) {
+      // Update file name and metadata if needed
+      await driveFetch(user, `${DRIVE_API}/files/${fileId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json; charset=UTF-8' },
+        body: JSON.stringify({ name: fileName })
+      }).catch(() => null);
+
+      const url = `${DRIVE_UPLOAD_API}/files/${fileId}?uploadType=media&fields=${encodeURIComponent('id,name,modifiedTime,size')}`;
+      const res = await driveFetch(user, url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': mimeType },
+        body
+      });
+      if (!res.ok) throw new Error(`Drive file update failed (HTTP ${res.status})`);
+      return { id: fileId, name: fileName, updated: true };
+    }
+
+    const url = new URL(`${DRIVE_UPLOAD_API}/files`);
+    url.searchParams.set('uploadType', 'multipart');
+    url.searchParams.set('fields', 'id,name,modifiedTime,size');
+
+    const boundary = `fraudio-${crypto.randomBytes(12).toString('hex')}`;
+    const preamble =
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
+      `${JSON.stringify({ name: fileName, parents: [folderId] })}\r\n` +
+      `--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`;
+    const epilogue = `\r\n--${boundary}--`;
+
+    const res = await driveFetch(user, url.toString(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': `multipart/related; boundary=${boundary}`,
+        'Content-Length': String(
+          Buffer.byteLength(preamble) + body.length + Buffer.byteLength(epilogue)
+        )
+      },
+      body: Buffer.concat([Buffer.from(preamble), body, Buffer.from(epilogue)])
+    });
+    if (!res.ok) throw new Error(`Drive playlist upload failed (HTTP ${res.status})`);
+    const data = await res.json();
+    return { id: data.id, name: data.name || fileName, updated: false };
+  },
+
+  /**
+   * Syncs a music playlist as an individual .m3u8 file into the user's main Google Drive music folder.
+   * Compas Player / HiBy R1 uses this file to discover and play playlists.
+   */
+  async syncPlaylistM3u(user, playlist, items = null) {
+    const folderId = user.musicFolderId;
+    if (!folderId || !playlist) return null;
+
+    let playlistItems = items;
+    if (!playlistItems) {
+      const allTracks = db.getUserItems(user.id, 'track');
+      const byId = new Map(allTracks.map((t) => [t.id, t]));
+      playlistItems = (playlist.itemIds || []).map((id) => byId.get(id)).filter(Boolean);
+    }
+
+    const m3uContent = formatPlaylistM3u8(playlist, playlistItems);
+    const safeName = sanitizeSegment(playlist.name, 'Playlist');
+    const fileName = `${safeName}.m3u8`;
+
+    let fileId = playlist.driveFileId || null;
+    if (!fileId) {
+      const existing = await this.findFileByName(user, folderId, fileName).catch(() => null);
+      if (existing) fileId = existing.id;
+    }
+
+    const res = await this.writeTextFile(user, folderId, fileName, m3uContent, 'audio/x-mpegurl; charset=UTF-8', { fileId });
+    if (res?.id && res.id !== playlist.driveFileId) {
+      db.setPlaylistDriveFileId?.(user.id, playlist.id, res.id);
+    }
+    return { id: res.id, fileName, count: playlistItems.length };
+  },
+
+  /**
+   * Deletes a playlist's individual .m3u8 file from the user's main Google Drive music folder.
+   */
+  async deletePlaylistM3u(user, playlist) {
+    const folderId = user.musicFolderId;
+    if (!folderId || !playlist) return false;
+    try {
+      let fileId = playlist.driveFileId;
+      if (!fileId && playlist.name) {
+        const safeName = sanitizeSegment(playlist.name, 'Playlist');
+        const fileName = `${safeName}.m3u8`;
+        const existing = await this.findFileByName(user, folderId, fileName).catch(() => null);
+        if (existing) fileId = existing.id;
+      }
+      if (fileId) {
+        await this.deleteFile(user, fileId).catch(() => null);
+        return true;
+      }
+    } catch (err) {
+      console.warn(`[Drive] Could not delete playlist file for ${playlist.name}:`, err.message);
+    }
+    return false;
+  },
+
+  /**
+   * Syncs all music playlists as individual .m3u8 files in the user's main Google Drive music folder.
+   */
+  async syncAllMusicPlaylists(user) {
+    const folderId = user.musicFolderId;
+    if (!folderId) return [];
+    const playlists = db.getPlaylists(user.id, 'music');
+    const allTracks = db.getUserItems(user.id, 'track');
+    const byId = new Map(allTracks.map((t) => [t.id, t]));
+
+    const synced = [];
+    for (const pl of playlists) {
+      try {
+        const full = db.getPlaylist(user.id, pl.id);
+        const items = (full?.itemIds || []).map((id) => byId.get(id)).filter(Boolean);
+        const res = await this.syncPlaylistM3u(user, full || pl, items);
+        if (res) synced.push({ id: pl.id, name: pl.name, ...res });
+      } catch (err) {
+        console.warn(`[Drive] Failed to sync playlist "${pl.name}":`, err.message);
+      }
+    }
+    return synced;
+  },
+
 
   async uploadFile(user, localPath, { name, mimeType, folderId, onProgress } = {}) {
     const safeName = sanitizeSegment(stripExtension(name || path.basename(localPath)), 'Untitled');

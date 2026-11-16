@@ -1,8 +1,21 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Play, Trash2, Pencil, ListMusic, Shuffle, HardDrive, HardDriveDownload } from 'lucide-react';
+import {
+  Plus,
+  Play,
+  Trash2,
+  Pencil,
+  ListMusic,
+  Shuffle,
+  HardDrive,
+  HardDriveDownload,
+  Cloud,
+  Download,
+  Sparkles
+} from 'lucide-react';
 import { api } from './api';
 import MediaCard from './MediaCard';
 import AddToPlaylistModal from './AddToPlaylistModal';
+import PlaylistBuilderModal from './PlaylistBuilderModal';
 import { formatLengthShort, pluralize } from './format';
 import {
   getOfflineIds,
@@ -22,6 +35,9 @@ export default function Playlists({ kind = 'audiobooks', libraryVersion, onPlay,
   const [renameValue, setRenameValue] = useState('');
   const [busy, setBusy] = useState(false);
   const [playlistTarget, setPlaylistTarget] = useState(null);
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const [builderTarget, setBuilderTarget] = useState(null);
+  const [syncingAllDrive, setSyncingAllDrive] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -171,13 +187,71 @@ export default function Playlists({ kind = 'audiobooks', libraryVersion, onPlay,
 
   const openTotal = openItems.reduce((sum, i) => sum + (i.durationSec || 0), 0);
 
+  const handleOpenBuilder = (playlist = null) => {
+    setBuilderTarget(playlist);
+    setBuilderOpen(true);
+  };
+
+  const handleSyncAllDrive = async () => {
+    setSyncingAllDrive(true);
+    try {
+      const res = await api.syncAllPlaylistsToDrive();
+      notify(
+        'Google Drive Sync Complete',
+        `Synced ${res.count || res.synced?.length || 0} playlists (.m3u8) to Google Drive for Compás Player / HiBy R1.`
+      );
+    } catch (err) {
+      notify('Drive sync failed', err.message, true);
+    } finally {
+      setSyncingAllDrive(false);
+    }
+  };
+
+  const handleSyncSingleDrive = async (playlist, e) => {
+    e?.stopPropagation();
+    try {
+      notify('Syncing to Drive...', `Syncing "${playlist.name}.m3u8" to Google Drive`);
+      await api.syncPlaylistToDrive(playlist.id);
+      notify('Playlist synced', `"${playlist.name}.m3u8" synced to Google Drive for Compás Player / HiBy R1.`);
+    } catch (err) {
+      notify('Drive sync failed', err.message, true);
+    }
+  };
+
   return (
     <>
-      <div className="view-header">
-        <h1 className="view-title">Playlists</h1>
-        <p className="view-subtitle">
-          {loading ? 'Loading…' : pluralize(playlists.length, 'playlist')}
-        </p>
+      <div className="view-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
+        <div>
+          <h1 className="view-title">Playlists</h1>
+          <p className="view-subtitle">
+            {loading ? 'Loading…' : pluralize(playlists.length, 'playlist')}
+            {kind === 'music' && ' · Auto-synced to Google Drive (.m3u8) for Compás Player / HiBy R1'}
+          </p>
+        </div>
+        {kind === 'music' && (
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={handleSyncAllDrive}
+              disabled={syncingAllDrive || playlists.length === 0}
+              title="Sync all playlists as .m3u8 files into the main music folder on Google Drive"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+            >
+              <Cloud size={14} />
+              {syncingAllDrive ? 'Syncing Drive…' : 'Sync All to Drive (.m3u8)'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => handleOpenBuilder(null)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontWeight: 600 }}
+            >
+              <Sparkles size={14} />
+              Fast Playlist Builder
+            </button>
+          </div>
+        )}
       </div>
 
       <form onSubmit={handleCreate} className="toolbar">
@@ -194,13 +268,38 @@ export default function Playlists({ kind = 'audiobooks', libraryVersion, onPlay,
           <Plus size={15} />
           Create
         </button>
+        {kind === 'music' && (
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => handleOpenBuilder(null)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+            title="Open batch playlist builder by artist, album, genre, or song"
+          >
+            <Sparkles size={14} />
+            Builder
+          </button>
+        )}
       </form>
 
       {!loading && playlists.length === 0 ? (
         <div className="empty-state">
           <ListMusic size={40} style={{ color: 'var(--text-muted)', margin: '0 auto 1rem' }} />
           <h3>No playlists yet</h3>
-          <p>Group books and albums together, then play them back-to-back in one queue.</p>
+          <p>Group tracks and albums together into playlists synced to Google Drive and your HiBy R1.</p>
+          {kind === 'music' && (
+            <p style={{ marginTop: '1rem' }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => handleOpenBuilder(null)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+              >
+                <Sparkles size={15} />
+                Open Fast Playlist Builder
+              </button>
+            </p>
+          )}
         </div>
       ) : (
         <div className="row-list">
@@ -211,10 +310,61 @@ export default function Playlists({ kind = 'audiobooks', libraryVersion, onPlay,
                 <div className="row-item" onClick={() => handleOpen(playlist)}>
                   <div className="row-thumb-placeholder"><ListMusic size={16} /></div>
                   <div className="row-meta">
-                    <div className="row-title">{playlist.name}</div>
+                    <div className="row-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span>{playlist.name}</span>
+                      {kind === 'music' && (
+                        <span
+                          style={{
+                            fontSize: '0.68rem',
+                            fontWeight: 600,
+                            padding: '1px 6px',
+                            borderRadius: '999px',
+                            background: 'rgba(61, 220, 151, 0.1)',
+                            border: '1px solid rgba(61, 220, 151, 0.2)',
+                            color: 'var(--accent, #3ddc97)'
+                          }}
+                          title="Formatted as .m3u8 in main Google Drive music folder for Compás Player"
+                        >
+                          .m3u8 Drive
+                        </span>
+                      )}
+                    </div>
                     <div className="row-subtitle">{pluralize(playlist.count, 'item')}</div>
                   </div>
                   <div className="row-aside">
+                    {kind === 'music' && (
+                      <>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          title="Open in Playlist Builder (batch add artists, albums, genres, songs)"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenBuilder(playlist);
+                          }}
+                        >
+                          <Sparkles size={13} style={{ color: 'var(--accent, #3ddc97)' }} />
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          title="Sync .m3u8 playlist file to Google Drive"
+                          onClick={(e) => handleSyncSingleDrive(playlist, e)}
+                        >
+                          <Cloud size={13} />
+                        </button>
+                        <a
+                          href={api.playlistExportUrl(playlist.id)}
+                          download={`${playlist.name || 'playlist'}.m3u8`}
+                          className="icon-btn"
+                          title="Download .m3u8 file"
+                          onClick={(e) => e.stopPropagation()}
+                          style={{ display: 'flex', alignItems: 'center', color: 'inherit' }}
+                        >
+                          <Download size={13} />
+                        </a>
+                      </>
+                    )}
                     <button
                       type="button"
                       className="icon-btn"
@@ -241,7 +391,7 @@ export default function Playlists({ kind = 'audiobooks', libraryVersion, onPlay,
 
                 {isOpen && (
                   <div style={{ padding: '0.5rem 0 1rem 3.25rem' }}>
-                    <div className="toolbar" style={{ marginBottom: '1rem' }}>
+                    <div className="toolbar" style={{ marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
                       {openItems.length > 0 && (
                         <>
                           <button
@@ -261,6 +411,30 @@ export default function Playlists({ kind = 'audiobooks', libraryVersion, onPlay,
                             <Shuffle size={13} />
                             Shuffle
                           </button>
+                          {kind === 'music' && (
+                            <>
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => handleOpenBuilder(playlist)}
+                                title="Add/remove tracks in Fast Playlist Builder"
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                              >
+                                <Sparkles size={13} />
+                                Edit in Builder
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm"
+                                onClick={(e) => handleSyncSingleDrive(playlist, e)}
+                                title="Sync .m3u8 playlist file to Google Drive"
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                              >
+                                <Cloud size={13} />
+                                Sync to Drive (.m3u8)
+                              </button>
+                            </>
+                          )}
                           {(() => {
                             const isPlaylistOffline = openItems.length > 0 && openItems.every((t) => offlineIds.has(t.id));
                             return (
@@ -340,6 +514,24 @@ export default function Playlists({ kind = 'audiobooks', libraryVersion, onPlay,
         items={playlistTarget ? [playlistTarget] : []}
         kind={kind}
         onClose={() => setPlaylistTarget(null)}
+        notify={notify}
+      />
+
+      <PlaylistBuilderModal
+        isOpen={builderOpen}
+        initialPlaylist={builderTarget}
+        kind={kind}
+        onClose={() => {
+          setBuilderOpen(false);
+          setBuilderTarget(null);
+        }}
+        onSaved={async () => {
+          await load();
+          if (openId) {
+            const full = await api.playlist(openId);
+            setOpenItems(full.items || []);
+          }
+        }}
         notify={notify}
       />
 

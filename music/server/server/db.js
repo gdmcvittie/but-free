@@ -1325,7 +1325,7 @@ const db = {
     return s.music.playlists[playlistId] || s.audiobooks.playlists[playlistId] || null;
   },
 
-  createPlaylist(userId, name, { id = null, kind = null, createdAt = null, updatedAt = null } = {}) {
+  createPlaylist(userId, name, { id = null, kind = null, createdAt = null, updatedAt = null, driveFileId = null } = {}) {
     const s = getUserStore(userId);
     const isMusic = kind === 'music';
     const section = isMusic ? 'music' : 'audiobooks';
@@ -1339,6 +1339,7 @@ const db = {
       id: playlistId,
       kind: isMusic ? 'music' : 'audiobooks',
       name: String(name || 'New Playlist').trim() || 'New Playlist',
+      driveFileId: driveFileId || null,
       itemIds: [],
       createdAt: createdAt || now,
       updatedAt: updatedAt || now
@@ -1391,6 +1392,15 @@ const db = {
     const section = playlistKind === 'music' ? 'music' : 'audiobooks';
     save(userId, section);
     touchMeta(userId);
+    return playlist;
+  },
+
+  setPlaylistDriveFileId(userId, playlistId, driveFileId) {
+    const playlist = this.getPlaylist(userId, playlistId);
+    if (!playlist) return null;
+    playlist.driveFileId = driveFileId;
+    const section = playlist.kind === 'music' ? 'music' : 'audiobooks';
+    save(userId, section);
     return playlist;
   },
 

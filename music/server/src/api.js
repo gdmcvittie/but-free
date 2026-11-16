@@ -122,11 +122,15 @@ export const api = {
 
   // ---- playlists -----------------------------------------------------
   playlists: (kind) => get(`/api/playlists?kind=${encodeURIComponent(kind)}`),
-  createPlaylist: (name, kind) => post('/api/playlists', { name, kind }),
+  createPlaylist: (name, kind, itemIds = []) => post('/api/playlists', { name, kind, itemIds }),
   playlist: (id) => get(`/api/playlists/${encodeURIComponent(id)}`),
   renamePlaylist: (id, name) => patch(`/api/playlists/${encodeURIComponent(id)}`, { name }),
+  setPlaylistItems: (id, itemIds) => patch(`/api/playlists/${encodeURIComponent(id)}`, { itemIds }),
   addToPlaylist: (id, itemIds) => post(`/api/playlists/${encodeURIComponent(id)}/items`, { itemIds }),
   deletePlaylist: (id) => del(`/api/playlists/${encodeURIComponent(id)}`),
+  syncPlaylistToDrive: (id) => post(`/api/playlists/${encodeURIComponent(id)}/sync-drive`),
+  syncAllPlaylistsToDrive: () => post('/api/playlists/sync-drive'),
+  playlistExportUrl: (id) => apiUrl(`/api/playlists/${encodeURIComponent(id)}/export`),
 
   // ---- offline -------------------------------------------------------
   offline: () => get('/api/offline'),

@@ -9,7 +9,7 @@ import torrentNode from './torrentNode.js';
 import db from './db.js';
 import googleAuth from './googleAuth.js';
 import googleDrive from './googleDrive.js';
-import { sanitizeTitle, sanitizeSegment, extensionOf } from './libraryParser.js';
+import { sanitizeTitle, sanitizeSegment, extensionOf, formatPlaylistM3u8 } from './libraryParser.js';
 
 const DEVICE_DOWNLOADS_DIR = path.join(DATA_DIR, 'device_downloads');
 try {
@@ -981,6 +981,9 @@ export function registerDeviceRoutes(app) {
       const rawBooks = (kind !== 'music' && kind !== 'songs')
         ? (db.getUserItems(user.id, 'audiobook') || [])
         : [];
+      const rawPlaylists = (kind !== 'audiobooks' && kind !== 'audiobook')
+        ? (db.getPlaylists(user.id, 'music') || [])
+        : [];
 
       tracks = rawTracks.slice(0, limit).map((t) => {
         const artist = safePart(t.artist || 'Unknown Artist');
@@ -1016,19 +1019,118 @@ export function registerDeviceRoutes(app) {
         };
       });
 
+      const playlists = rawPlaylists.map((p) => {
+        const full = db.getPlaylist(user.id, p.id);
+        const safeName = safePart(p.name || 'Playlist');
+        return {
+          id: String(p.id),
+          name: String(p.name || 'Untitled'),
+          count: full?.itemIds?.length || p.count || 0,
+          filename: `${safeName}.m3u8`,
+          path: `Music/FRAUDIO/${safeName}.m3u8`,
+          updatedAt: p.updatedAt
+        };
+      });
+
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       return res.json({
         ok: true,
         counts: {
           tracks: rawTracks.length,
-          audiobooks: rawBooks.length
+          audiobooks: rawBooks.length,
+          playlists: playlists.length
         },
         tracks,
-        audiobooks
+        audiobooks,
+        playlists
       });
     } catch (err) {
       console.error('[DeviceApi] Error in /api/device/drive/library:', err);
       return res.status(500).json({ ok: false, error: err.message || 'Server error' });
+    }
+  });
+
+  // Get music playlists for paired device
+  app.get('/api/device/drive/playlists', (req, res) => {
+    try {
+      const user = authenticateDevice(req);
+      if (!user) return res.status(401).json({ ok: false, error: 'Unauthorized device' });
+      const playlists = db.getPlaylists(user.id, 'music').map((p) => {
+        const full = db.getPlaylist(user.id, p.id);
+        const safeName = safePart(p.name || 'Playlist');
+        return {
+          id: String(p.id),
+          name: String(p.name || 'Untitled'),
+          count: full?.itemIds?.length || p.count || 0,
+          filename: `${safeName}.m3u8`,
+          path: `Music/FRAUDIO/${safeName}.m3u8`,
+          updatedAt: p.updatedAt
+        };
+      });
+      return res.json({ ok: true, playlists });
+    } catch (err) {
+      return res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // Get details and tracks for a single playlist
+  app.get('/api/device/drive/playlists/:id', (req, res) => {
+    try {
+      const user = authenticateDevice(req);
+      if (!user) return res.status(401).json({ ok: false, error: 'Unauthorized device' });
+      const playlist = db.getPlaylist(user.id, req.params.id);
+      if (!playlist) return res.status(404).json({ ok: false, error: 'Playlist not found' });
+      const allTracks = db.getUserItems(user.id, 'track');
+      const byId = new Map(allTracks.map((t) => [t.id, t]));
+      const tracks = (playlist.itemIds || []).map((id) => byId.get(id)).filter(Boolean).map((t) => {
+        const artist = safePart(t.artist || 'Unknown Artist');
+        const album = safePart(t.album || 'Unknown Album');
+        const filename = t.fileName || `${safePart(t.title || 'Track')}.mp3`;
+        return {
+          id: String(t.id || ''),
+          title: String(t.title || 'Untitled').replace(/[\x00-\x1F\x7F]/g, ' ').trim(),
+          artist: String(t.artist || '').replace(/[\x00-\x1F\x7F]/g, ' ').trim(),
+          album: String(t.album || '').replace(/[\x00-\x1F\x7F]/g, ' ').trim(),
+          size: Number(t.sizeBytes) || 0,
+          filename,
+          path: `Music/${artist}/${album}/${filename}`,
+          googleFileId: t.googleFileId || null
+        };
+      });
+      const safeName = safePart(playlist.name || 'Playlist');
+      return res.json({
+        ok: true,
+        playlist: {
+          id: playlist.id,
+          name: playlist.name,
+          count: tracks.length,
+          filename: `${safeName}.m3u8`,
+          path: `Music/FRAUDIO/${safeName}.m3u8`
+        },
+        tracks
+      });
+    } catch (err) {
+      return res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // Stream raw .m3u8 playlist file to device
+  app.get('/api/device/drive/playlists/:id/m3u8', (req, res) => {
+    try {
+      const user = authenticateDevice(req);
+      if (!user) return res.status(401).send('Unauthorized device');
+      const playlist = db.getPlaylist(user.id, req.params.id);
+      if (!playlist) return res.status(404).send('Playlist not found');
+      const allTracks = db.getUserItems(user.id, 'track');
+      const byId = new Map(allTracks.map((t) => [t.id, t]));
+      const items = (playlist.itemIds || []).map((id) => byId.get(id)).filter(Boolean);
+      const m3u = formatPlaylistM3u8(playlist, items);
+      const safeName = safePart(playlist.name || 'Playlist');
+      res.setHeader('Content-Type', 'audio/x-mpegurl; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(safeName)}.m3u8"`);
+      return res.send(m3u);
+    } catch (err) {
+      return res.status(500).send(err.message || 'Server error');
     }
   });
 

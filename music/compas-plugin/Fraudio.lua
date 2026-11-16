@@ -35,6 +35,10 @@ local T = {
         ["Download to SD"] = "Descargar a SD",
         ["Play Album"] = "Reproducir álbum",
         ["Download Album"] = "Descargar álbum",
+        ["Playlists"] = "Listas de reproducción",
+        ["Sync All Playlists to SD"] = "Sincronizar todas las listas a SD",
+        ["Sync Playlist to SD"] = "Sincronizar lista a SD",
+        ["Play Playlist"] = "Reproducir lista",
     },
     de = {
         ["Fraudio"] = "Fraudio",
@@ -56,6 +60,10 @@ local T = {
         ["Download to SD"] = "Auf SD herunterladen",
         ["Play Album"] = "Album abspielen",
         ["Download Album"] = "Album herunterladen",
+        ["Playlists"] = "Wiedergabelisten",
+        ["Sync All Playlists to SD"] = "Alle Wiedergabelisten auf SD synchronisieren",
+        ["Sync Playlist to SD"] = "Wiedergabeliste auf SD synchronisieren",
+        ["Play Playlist"] = "Wiedergabeliste abspielen",
     }
 }
 
@@ -81,6 +89,7 @@ local drive_cache = {
     audiobooks = nil,
     albums = nil,
     artists = nil,
+    playlists = nil,
     last_fetched = 0
 }
 
@@ -93,15 +102,19 @@ local open_pairing_flow
 local show_pairing_code_screen
 local cancel_pairing
 local open_drive_music_menu
+local open_drive_playlists
 local open_drive_albums
 local open_drive_artists
 local open_drive_all_songs
 local open_drive_audiobooks_menu
 local open_album_detail
+local open_playlist_detail
 local stream_drive_track
 local queue_drive_tracks
 local download_drive_track_to_sd
 local download_drive_audiobook_to_sd
+local sync_drive_playlist_to_sd
+local sync_all_drive_playlists_to_sd
 local open_search_menu
 local open_search_prompt
 local search_music_results
@@ -166,6 +179,7 @@ local function unpair()
     drive_cache.audiobooks = nil
     drive_cache.albums = nil
     drive_cache.artists = nil
+    drive_cache.playlists = nil
     drive_cache.last_fetched = 0
 end
 
@@ -355,6 +369,17 @@ local function api_drive_library(kind, callback)
             callback(true, data)
         else
             callback(false, nil, err or tr("Could not load Drive library"))
+        end
+    end, true)
+end
+
+local function api_drive_playlist_detail(playlist_id, callback)
+    local token = get_device_token()
+    api_request("GET", "/api/device/drive/playlists/" .. url_encode(playlist_id), { token = token }, nil, function(ok, data, err)
+        if ok and data and data.ok then
+            callback(true, data.playlist, data.tracks or {})
+        else
+            callback(false, nil, nil, err or tr("Could not load playlist tracks"))
         end
     end, true)
 end
@@ -660,6 +685,7 @@ local function ensure_drive_cache(callback)
 
         drive_cache.tracks = data.tracks or {}
         drive_cache.audiobooks = data.audiobooks or {}
+        drive_cache.playlists = data.playlists or {}
         drive_cache.last_fetched = os.time()
 
         -- Group tracks into albums
@@ -845,8 +871,175 @@ local function open_drive_all_songs()
     end)
 end
 
+local function sync_drive_playlist_to_sd(playlist, on_finish)
+    local token = get_device_token()
+    local sd = plugin.sd_root()
+    if not sd then
+        plugin.show_toast(tr("SD card not available"))
+        return
+    end
+
+    local safe_name = sanitize_filename(playlist.name or "Playlist")
+    local filename = safe_name .. ".m3u8"
+    local m3u_dest = string.format("%s/Music/FRAUDIO/%s", sd, filename)
+    ensure_parent_dirs(m3u_dest)
+
+    local dl_url = string.format("%s/api/device/drive/playlists/%s/m3u8?token=%s",
+        get_server_url(), url_encode(playlist.id), url_encode(token))
+
+    plugin.show_toast(string.format(tr("Syncing playlist: %s"), playlist.name or safe_name))
+
+    -- 1. Download the .m3u8 playlist file
+    plugin.download_file_async(dl_url, m3u_dest, true, function(saved_path, err)
+        if not saved_path then
+            plugin.show_toast(string.format(tr("Failed to save playlist: %s"), tostring(err or "error")))
+            if on_finish then on_finish(false) end
+            return
+        end
+
+        -- Also write a copy into <SD>/Playlists/ for players scanning dedicated playlist folders
+        pcall(function()
+            local playlists_dir = sd .. "/Playlists"
+            plugin.mkdir(playlists_dir)
+            local alt_path = playlists_dir .. "/" .. filename
+            plugin.copy_file(saved_path, alt_path)
+        end)
+
+        -- 2. Fetch tracks belonging to this playlist and download any missing songs to SD
+        api_drive_playlist_detail(playlist.id, function(ok, pl_meta, tracks)
+            if not ok or not tracks or #tracks == 0 then
+                plugin.show_toast(string.format(tr("Playlist synced: %s"), playlist.name))
+                if on_finish then on_finish(true) end
+                return
+            end
+
+            local queued_count = 0
+            for _, t in ipairs(tracks) do
+                local artist = sanitize_filename(t.artist or "Unknown Artist")
+                local album = sanitize_filename(t.album or "Unknown Album")
+                local song_file = sanitize_filename(t.filename or ((t.title or "track") .. ".mp3"))
+                local track_path = string.format("%s/Music/FRAUDIO/%s/%s/%s", sd, artist, album, song_file)
+                if not plugin.file_exists or not plugin.file_exists(track_path) then
+                    download_drive_track_to_sd(t)
+                    queued_count = queued_count + 1
+                end
+            end
+
+            if queued_count > 0 then
+                plugin.show_toast(string.format(tr("Synced %s: downloading %d new songs"), playlist.name, queued_count))
+            else
+                plugin.show_toast(string.format(tr("Playlist %s synced (all songs on SD)!"), playlist.name))
+            end
+
+            if on_finish then on_finish(true) end
+        end)
+    end)
+end
+
+local function sync_all_drive_playlists_to_sd()
+    ensure_drive_cache(function(ok)
+        if not ok then return end
+        local playlists = drive_cache.playlists or {}
+        if #playlists == 0 then
+            plugin.show_toast(tr("No playlists found in Drive"))
+            return
+        end
+
+        plugin.show_confirmation(
+            string.format(tr("Sync all %d playlists to SD card?"), #playlists),
+            tr("Sync All Playlists"),
+            function()
+                plugin.show_toast(string.format(tr("Syncing %d playlists..."), #playlists))
+                for _, pl in ipairs(playlists) do
+                    sync_drive_playlist_to_sd(pl)
+                end
+            end
+        )
+    end)
+end
+
+local function open_playlist_detail(playlist)
+    plugin.show_toast(tr("Loading playlist..."))
+    api_drive_playlist_detail(playlist.id, function(ok, pl_meta, tracks)
+        if not ok or not tracks then
+            plugin.show_toast(tr("Could not load playlist"))
+            return
+        end
+
+        local items = {
+            string.format(tr("▶️ Play Playlist (%d tracks)"), #tracks),
+            tr("⬇️ Sync Playlist to SD (.m3u8 + songs)")
+        }
+
+        for _, t in ipairs(tracks) do
+            table.insert(items, string.format("🎵 %s · %s", t.title or "Track", t.artist or "Artist"))
+        end
+
+        plugin.show_list(playlist.name or tr("Playlist"), items, function(index)
+            if index == 1 then
+                if #tracks > 0 then
+                    queue_drive_tracks(tracks, 1)
+                else
+                    plugin.show_toast(tr("Playlist is empty"))
+                end
+            elseif index == 2 then
+                sync_drive_playlist_to_sd(playlist)
+            else
+                local track = tracks[index - 2]
+                if track then
+                    local actions = {
+                        tr("▶️ Stream Track"),
+                        tr("⬇️ Download to SD"),
+                        tr("▶️ Play From Here")
+                    }
+                    plugin.show_list(track.title or "Track", actions, function(act_idx)
+                        if act_idx == 1 then
+                            stream_drive_track(track)
+                        elseif act_idx == 2 then
+                            download_drive_track_to_sd(track)
+                        elseif act_idx == 3 then
+                            queue_drive_tracks(tracks, index - 2)
+                        end
+                    end)
+                end
+            end
+        end)
+    end)
+end
+
+local function open_drive_playlists()
+    ensure_drive_cache(function(ok)
+        if not ok then return end
+        local playlists = drive_cache.playlists or {}
+        local items = {
+            tr("⬇️ Sync All Playlists to SD")
+        }
+
+        for _, pl in ipairs(playlists) do
+            local count_str = string.format(tr("%d songs"), pl.count or 0)
+            table.insert(items, string.format("📋 %s (%s)", pl.name or "Playlist", count_str))
+        end
+
+        if #playlists == 0 then
+            table.insert(items, tr("No playlists created yet. Build one in Fraudio Web!"))
+        end
+
+        plugin.show_list(string.format(tr("Playlists (%d)"), #playlists), items, function(index)
+            if index == 1 then
+                sync_all_drive_playlists_to_sd()
+            elseif #playlists > 0 and index >= 2 then
+                local playlist = playlists[index - 1]
+                if playlist then
+                    open_playlist_detail(playlist)
+                end
+            end
+        end)
+    end)
+end
+
 local function open_drive_music_menu()
     local items = {
+        tr("📋 Playlists"),
         tr("💿 Albums"),
         tr("👤 Artists"),
         tr("🎵 All Songs"),
@@ -856,18 +1049,21 @@ local function open_drive_music_menu()
 
     plugin.show_list(tr("Google Drive Music"), items, function(index)
         if index == 1 then
-            open_drive_albums()
+            open_drive_playlists()
         elseif index == 2 then
-            open_drive_artists()
+            open_drive_albums()
         elseif index == 3 then
-            open_drive_all_songs()
+            open_drive_artists()
         elseif index == 4 then
+            open_drive_all_songs()
+        elseif index == 5 then
             drive_cache.tracks = nil
             drive_cache.audiobooks = nil
+            drive_cache.playlists = nil
             ensure_drive_cache(function(ok)
                 if ok then plugin.show_toast(tr("Drive library refreshed!")) end
             end)
-        elseif index == 5 then
+        elseif index == 6 then
             ensure_drive_cache(function(ok)
                 if ok and drive_cache.tracks then
                     local count = #drive_cache.tracks

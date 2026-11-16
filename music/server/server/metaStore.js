@@ -134,6 +134,7 @@ function dehydrate(userId, kind) {
     playlists[playlist.id] = {
       id: playlist.id,
       name: playlist.name,
+      driveFileId: playlist.driveFileId || null,
       items: itemIds.map(keyOf),
       createdAt: playlist.createdAt,
       updatedAt: playlist.updatedAt
@@ -269,6 +270,7 @@ function hydrate(userId, kind, doc) {
     db.createPlaylist(userId, playlist.name, {
       id: playlist.id,
       kind,
+      driveFileId: playlist.driveFileId || null,
       createdAt: playlist.createdAt
     });
     db.setPlaylistItems(userId, playlist.id, itemIds);
@@ -389,6 +391,13 @@ async function persistKind(user, kind) {
   });
   fileIdCache.set(key, result.id);
   console.log(`[META] ${kind}: wrote ${targetFilename} (${result.updated ? 'updated' : 'created'})`);
+
+  if (kind === 'music') {
+    googleDrive.syncAllMusicPlaylists(user).catch((err) => {
+      console.warn('[META] Failed to sync music playlist files to Drive:', err.message);
+    });
+  }
+
   return result;
 }
 

@@ -477,3 +477,32 @@ export function formatBytes(bytes) {
   const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
   return `${(n / 1024 ** i).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
+
+/**
+ * Formats a playlist and its track items into an Extended M3U8 string.
+ * Uses UTF-8 encoding with forward-slash relative file paths matching the
+ * directory structure inside the Google Drive music root and the SD card
+ * directory (/Music/FRAUDIO/<Artist>/<Album>/<file>) on Compas Player / HiBy R1.
+ */
+export function formatPlaylistM3u8(playlist, items = []) {
+  const name = playlist?.name || 'Playlist';
+  const lines = ['#EXTM3U', `#PLAYLIST:${name}`];
+  for (const item of items) {
+    if (!item) continue;
+    const duration = Math.round(Number(item.durationSec) || -1);
+    const artist = item.artist || item.author || 'Unknown Artist';
+    const title = item.title || 'Untitled';
+    lines.push(`#EXTINF:${duration},${artist} - ${title}`);
+
+    let relPath = item.drivePath;
+    if (!relPath) {
+      const artSeg = sanitizeSegment(artist, 'Unknown Artist');
+      const albSeg = sanitizeSegment(item.album || 'Unsorted');
+      const fName = item.fileName || `${sanitizeSegment(title, 'Track')}.mp3`;
+      relPath = `${artSeg}/${albSeg}/${fName}`;
+    }
+    lines.push(relPath.replace(/\\/g, '/'));
+  }
+  return lines.join('\n') + '\n';
+}
+

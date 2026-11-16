@@ -21,7 +21,7 @@ import metaStore from './metaStore.js';
 import offlineCache, { cacheUsage, localFileFor, getOfflineItemIds } from './offlineCache.js';
 import binManager from './binManager.js';
 import { attachClient, broadcast, clientCount, recentEvents } from './events.js';
-import { formatDuration, inferGenreFromText, isAudioFile, stripExtension } from './libraryParser.js';
+import { formatDuration, formatPlaylistM3u8, inferGenreFromText, isAudioFile, sanitizeSegment, stripExtension } from './libraryParser.js';
 import { groupAudiobookItems } from './bookGrouper.js';
 import audiobookStitcher, { recoverInterruptedJobs } from './audiobookStitcher.js';
 import id3Editor from './id3Editor.js';
@@ -1023,11 +1023,22 @@ app.get('/api/playlists', (req, res) => {
   res.json(db.getPlaylists(req.user.id, kind));
 });
 
-app.post('/api/playlists', (req, res) => {
-  const { name, kind } = req.body || {};
-  res.status(201).json(db.createPlaylist(req.user.id, name, {
-    kind: kind === 'music' ? 'music' : 'audiobooks'
-  }));
+app.post('/api/playlists', async (req, res) => {
+  const { name, kind, itemIds } = req.body || {};
+  const isMusic = kind === 'music';
+  const playlist = db.createPlaylist(req.user.id, name, {
+    kind: isMusic ? 'music' : 'audiobooks'
+  });
+  if (Array.isArray(itemIds) && itemIds.length > 0) {
+    db.setPlaylistItems(req.user.id, playlist.id, itemIds);
+  }
+  const full = db.getPlaylist(req.user.id, playlist.id);
+  if (isMusic && req.user.musicFolderId) {
+    googleDrive.syncPlaylistM3u(req.user, full).catch((err) => {
+      console.warn('[Playlists] Background Drive sync failed on create:', err.message);
+    });
+  }
+  res.status(201).json(full);
 });
 
 app.get('/api/playlists/:id', (req, res) => {
@@ -1045,25 +1056,88 @@ app.get('/api/playlists/:id', (req, res) => {
   });
 });
 
-app.patch('/api/playlists/:id', (req, res) => {
+app.patch('/api/playlists/:id', async (req, res) => {
   const playlist = db.getPlaylist(req.user.id, req.params.id);
   if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
   if (req.body?.itemIds) db.setPlaylistItems(req.user.id, req.params.id, req.body.itemIds);
   const updated = req.body?.name
     ? db.renamePlaylist(req.user.id, req.params.id, req.body.name)
     : db.getPlaylist(req.user.id, req.params.id);
+
+  if (updated?.kind === 'music' && req.user.musicFolderId) {
+    googleDrive.syncPlaylistM3u(req.user, updated).catch((err) => {
+      console.warn('[Playlists] Background Drive sync failed on update:', err.message);
+    });
+  }
+
   return res.json(updated);
 });
 
-app.post('/api/playlists/:id/items', (req, res) => {
+app.post('/api/playlists/:id/items', async (req, res) => {
   const playlist = db.getPlaylist(req.user.id, req.params.id);
   if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
   const itemIds = Array.isArray(req.body?.itemIds) ? req.body.itemIds : [];
-  return res.json(db.setPlaylistItems(req.user.id, req.params.id, [...playlist.itemIds, ...itemIds]));
+  const updated = db.setPlaylistItems(req.user.id, req.params.id, [...playlist.itemIds, ...itemIds]);
+  if (updated?.kind === 'music' && req.user.musicFolderId) {
+    googleDrive.syncPlaylistM3u(req.user, updated).catch((err) => {
+      console.warn('[Playlists] Background Drive sync failed on add items:', err.message);
+    });
+  }
+  return res.json(updated);
 });
 
-app.delete('/api/playlists/:id', (req, res) => {
+app.delete('/api/playlists/:id', async (req, res) => {
+  const playlist = db.getPlaylist(req.user.id, req.params.id);
+  if (playlist && playlist.kind === 'music' && req.user.musicFolderId) {
+    googleDrive.deletePlaylistM3u(req.user, playlist).catch((err) => {
+      console.warn('[Playlists] Background Drive delete failed:', err.message);
+    });
+  }
   res.json({ success: db.deletePlaylist(req.user.id, req.params.id) });
+});
+
+// Explicit Drive sync for all music playlists as .m3u8 files
+app.post('/api/playlists/sync-drive', async (req, res) => {
+  try {
+    if (!req.user.musicFolderId) {
+      return res.status(400).json({ error: 'No music folder configured. Pick one in Settings first.' });
+    }
+    const synced = await googleDrive.syncAllMusicPlaylists(req.user);
+    return res.json({ ok: true, synced, count: synced.length });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Drive sync failed.' });
+  }
+});
+
+// Explicit Drive sync for a single music playlist as .m3u8 file
+app.post('/api/playlists/:id/sync-drive', async (req, res) => {
+  try {
+    const playlist = db.getPlaylist(req.user.id, req.params.id);
+    if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+    if (playlist.kind !== 'music') return res.status(400).json({ error: 'Only music playlists are synced to Drive as .m3u8 files.' });
+    if (!req.user.musicFolderId) return res.status(400).json({ error: 'No music folder configured.' });
+
+    const result = await googleDrive.syncPlaylistM3u(req.user, playlist);
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Drive sync failed.' });
+  }
+});
+
+// Download/export raw .m3u8 file directly
+app.get(['/api/playlists/:id/export', '/api/playlists/:id/m3u8'], (req, res) => {
+  const playlist = db.getPlaylist(req.user.id, req.params.id);
+  if (!playlist) return res.status(404).send('Playlist not found');
+  const playlistKind = playlist.kind || 'music';
+  const allTracks = db.getUserItems(req.user.id, playlistKind === 'music' ? 'track' : 'audiobook');
+  const byId = new Map(allTracks.map((t) => [t.id, t]));
+  const items = (playlist.itemIds || []).map((id) => byId.get(id)).filter(Boolean);
+
+  const m3u = formatPlaylistM3u8(playlist, items);
+  const safeName = sanitizeSegment(playlist.name || 'Playlist', 'Playlist');
+  res.setHeader('Content-Type', 'audio/x-mpegurl; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(safeName)}.m3u8"`);
+  return res.send(m3u);
 });
 
 // =========================================================================
