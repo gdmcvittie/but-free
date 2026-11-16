@@ -35,7 +35,7 @@ export default function FavoritesView({
               <span className="text-xs uppercase tracking-wider text-slate-400 font-bold">COLLECTION:</span>
               <span className="text-white font-extrabold">FAVORITES</span>
             </h1>
-            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-sm bg-[#222222] text-amber-400 border border-[#383838]">
+            <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-sm bg-[#222222] text-amber-400 border border-[#383838] inline-flex items-center leading-none">
               {favoriteGames.length} {favoriteGames.length === 1 ? 'PINNED' : 'PINNED'}
             </span>
           </div>

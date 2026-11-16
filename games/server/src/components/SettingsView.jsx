@@ -180,11 +180,14 @@ export default function SettingsView({
     <div className="flex-1 flex flex-col bg-[#181818] p-4 sm:p-6 lg:p-7">
       {/* Header */}
       <div className="mb-6 pb-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <span className="text-xs uppercase tracking-wider text-slate-400 font-bold font-mono">PREFERENCES:</span>
           <h1 className="font-bold text-xl text-white tracking-tight">
             <span>WORKSTATION SETTINGS</span>
           </h1>
+          <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-sm bg-[#14283d] text-[#31a8ff] border border-[#31a8ff] inline-flex items-center leading-none">
+            CONFIG
+          </span>
         </div>
         <p className="text-xs text-slate-400 mt-1 max-w-2xl font-mono">
           Manage mounted Google Drive game storage, connection to the central Downloader server, and library preferences.
@@ -208,7 +211,7 @@ export default function SettingsView({
               <span>Google Account</span>
             </h3>
             {user && (
-              <span className="text-[9.5px] uppercase font-mono font-bold tracking-wider px-1.5 py-0.5 rounded-sm bg-[#162e20] text-emerald-400 border border-emerald-500/30">
+              <span className="text-[10px] uppercase font-mono font-bold tracking-wider px-2.5 py-1 rounded-sm bg-[#162e20] text-emerald-400 border border-emerald-500/30 inline-flex items-center leading-none">
                 Connected
               </span>
             )}
@@ -265,6 +268,13 @@ export default function SettingsView({
               <HardDrive className="w-4 h-4 text-[#31a8ff]" />
               <span>Google Drive Games Folder</span>
             </h3>
+            <span className={`text-[10px] uppercase font-mono font-bold tracking-wider px-2.5 py-1 rounded-sm border inline-flex items-center leading-none ${
+              user?.gamesFolderId
+                ? 'bg-[#162e20] text-emerald-400 border-emerald-500/30'
+                : 'bg-[#2a1e1e] text-amber-400 border-amber-500/30'
+            }`}>
+              {user?.gamesFolderId ? 'Mounted' : 'Unmounted'}
+            </span>
           </div>
 
           <p className="text-xs text-slate-400 leading-relaxed font-mono">
@@ -312,7 +322,7 @@ export default function SettingsView({
               <Server className="w-4 h-4 text-[#31a8ff]" />
               <span>Central Downloader Server</span>
             </h3>
-            <span className={`text-[9.5px] uppercase font-mono font-bold tracking-wider px-1.5 py-0.5 rounded-sm border ${
+            <span className={`text-[10px] uppercase font-mono font-bold tracking-wider px-2.5 py-1 rounded-sm border inline-flex items-center leading-none ${
               downloaderStatus.online
                 ? 'bg-[#162e20] text-emerald-400 border-emerald-500/30'
                 : 'bg-[#2a1616] text-red-400 border-red-500/30'
@@ -414,7 +424,7 @@ export default function SettingsView({
               <Shield className="w-4 h-4 text-red-400" />
               <span>Admin Server Controls</span>
             </h3>
-            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/30">
+            <span className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-sm bg-red-500/15 text-red-400 border border-red-500/30 inline-flex items-center leading-none">
               Owner
             </span>
           </div>

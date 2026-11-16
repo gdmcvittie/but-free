@@ -144,6 +144,7 @@ export default function PopularTab({ onDownloadDispatched }) {
                     <img
                       src={item.thumbnail}
                       alt=""
+                      className="w-full h-full object-cover transition-opacity duration-200"
                       loading="lazy"
                     />
                   )}

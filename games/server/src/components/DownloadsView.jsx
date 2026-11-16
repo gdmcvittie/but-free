@@ -77,7 +77,7 @@ export default function DownloadsView({ user, onOpenSettings }) {
             <h1 className="font-bold text-xl text-white tracking-tight">
               <span>CENTRAL DOWNLOADER</span>
             </h1>
-            <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-sm bg-[#14283d] text-[#31a8ff] border border-[#31a8ff]">
+            <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-sm bg-[#14283d] text-[#31a8ff] border border-[#31a8ff] inline-flex items-center leading-none">
               VPS INGEST
             </span>
           </div>

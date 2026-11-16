@@ -79,9 +79,14 @@ export default function DiscoverView({ user, onOpenSettings, onDownloadDispatche
               <Sparkles className="w-3.5 h-3.5" />
               <span>{isMobile ? 'Indie & Homebrew Games' : 'PC & Homebrew Download Hub'}</span>
             </div>
-            <h1 className="font-bold text-xl sm:text-2xl text-white tracking-tight mt-0.5">
-              Discover &amp; Download to Drive
-            </h1>
+            <div className="flex items-center gap-2.5 mt-0.5">
+              <h1 className="font-bold text-xl sm:text-2xl text-white tracking-tight">
+                Discover &amp; Download to Drive
+              </h1>
+              <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-sm bg-[#14283d] text-[#31a8ff] border border-[#31a8ff] inline-flex items-center leading-none">
+                REPOSITORIES
+              </span>
+            </div>
           </div>
         </div>
 
