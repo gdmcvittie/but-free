@@ -819,6 +819,47 @@ input[type="search"].workstation-search-input {
   box-shadow: 0 0 0 1px #31a8ff, inset 0 1px 2px rgba(0, 0, 0, 0.5) !important;
 }
 
+/* Workstation Selects and Dropdowns */
+select,
+select.workstation-select,
+.workstation-select {
+  color-scheme: dark !important;
+  background-color: #161616 !important;
+  color: #ffffff !important;
+  border: 1px solid #383838 !important;
+  border-radius: 4px !important;
+  padding: 8px 12px !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+  outline: none !important;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+select:hover,
+select.workstation-select:hover,
+.workstation-select:hover {
+  border-color: #4f4f4f !important;
+  background-color: #1b1b1b !important;
+}
+
+select:focus,
+select.workstation-select:focus,
+.workstation-select:focus {
+  border-color: #31a8ff !important;
+  box-shadow: 0 0 0 1px #31a8ff !important;
+  background-color: #141414 !important;
+}
+
+option,
+select option,
+select.workstation-select option,
+.workstation-select option {
+  background-color: #1c1c1c !important;
+  color: #ffffff !important;
+  padding: 8px 10px !important;
+}
+
 /* Chrome/Safari/Edge dark autofill fix */
 input:-webkit-autofill,
 input:-webkit-autofill:hover,

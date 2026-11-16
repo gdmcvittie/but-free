@@ -427,15 +427,24 @@ export default function SettingsView({
                   handleSaveSettings({ rssInterval: val });
                 }}
                 disabled={saving}
-                className="w-full bg-[#181818] border border-[#383838] rounded-sm px-3 py-2 text-xs text-white focus:outline-none focus:border-[#0078d4]"
+                className="workstation-select w-full"
+                style={{
+                  colorScheme: 'dark',
+                  backgroundColor: '#161616',
+                  color: '#ffffff',
+                  border: '1px solid #383838',
+                  borderRadius: '4px',
+                  padding: '8px 12px',
+                  fontSize: '12px'
+                }}
               >
-                <option value="15">Every 15 minutes</option>
-                <option value="30">Every 30 minutes (Default - Recommended)</option>
-                <option value="60">Every 1 hour</option>
-                <option value="120">Every 2 hours</option>
-                <option value="360">Every 6 hours</option>
-                <option value="720">Every 12 hours</option>
-                <option value="1440">Every 24 hours</option>
+                <option value="15" style={{ backgroundColor: '#1c1c1c', color: '#ffffff' }}>Every 15 minutes</option>
+                <option value="30" style={{ backgroundColor: '#1c1c1c', color: '#ffffff' }}>Every 30 minutes (Default - Recommended)</option>
+                <option value="60" style={{ backgroundColor: '#1c1c1c', color: '#ffffff' }}>Every 1 hour</option>
+                <option value="120" style={{ backgroundColor: '#1c1c1c', color: '#ffffff' }}>Every 2 hours</option>
+                <option value="360" style={{ backgroundColor: '#1c1c1c', color: '#ffffff' }}>Every 6 hours</option>
+                <option value="720" style={{ backgroundColor: '#1c1c1c', color: '#ffffff' }}>Every 12 hours</option>
+                <option value="1440" style={{ backgroundColor: '#1c1c1c', color: '#ffffff' }}>Every 24 hours</option>
               </select>
               <p className="text-[11px] text-slate-400 mt-1">
                 How often the background worker sweeps for new PC repacks and discovery updates.
@@ -454,13 +463,22 @@ export default function SettingsView({
                   handleSaveSettings({ rssRetentionMonths: val });
                 }}
                 disabled={saving}
-                className="w-full bg-[#181818] border border-[#383838] rounded-sm px-3 py-2 text-xs text-white focus:outline-none focus:border-[#0078d4]"
+                className="workstation-select w-full"
+                style={{
+                  colorScheme: 'dark',
+                  backgroundColor: '#161616',
+                  color: '#ffffff',
+                  border: '1px solid #383838',
+                  borderRadius: '4px',
+                  padding: '8px 12px',
+                  fontSize: '12px'
+                }}
               >
-                <option value="1">1 Month</option>
-                <option value="2">2 Months</option>
-                <option value="3">3 Months (Default - Recommended)</option>
-                <option value="6">6 Months</option>
-                <option value="12">12 Months (1 Year)</option>
+                <option value="1" style={{ backgroundColor: '#1c1c1c', color: '#ffffff' }}>1 Month</option>
+                <option value="2" style={{ backgroundColor: '#1c1c1c', color: '#ffffff' }}>2 Months</option>
+                <option value="3" style={{ backgroundColor: '#1c1c1c', color: '#ffffff' }}>3 Months (Default - Recommended)</option>
+                <option value="6" style={{ backgroundColor: '#1c1c1c', color: '#ffffff' }}>6 Months</option>
+                <option value="12" style={{ backgroundColor: '#1c1c1c', color: '#ffffff' }}>12 Months (1 Year)</option>
               </select>
               <p className="text-[11px] text-slate-400 mt-1">
                 Feed releases are accumulated across overnight updates and retained up to this cutoff.
