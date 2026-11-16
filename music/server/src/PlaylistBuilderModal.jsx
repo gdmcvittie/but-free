@@ -81,7 +81,7 @@ export default function PlaylistBuilderModal({
     if (initialPlaylist) {
       setName(initialPlaylist.name || '');
       setSelectedIds(Array.isArray(initialPlaylist.itemIds) ? [...initialPlaylist.itemIds] : []);
-      setTab(initialTab || 'artists');
+      setTab(initialTab || 'wizard');
     } else {
       setName('');
       setSelectedIds([]);
@@ -541,10 +541,10 @@ export default function PlaylistBuilderModal({
             </div>
             <div style={{ minWidth: 0 }}>
               <h2 style={{ fontSize: '1.05rem', margin: 0, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {initialPlaylist ? 'Edit Playlist' : 'Playlist Builder & Vibe Wizard'}
+                {initialPlaylist ? 'Edit Vibe Playlist' : 'Vibe Playlist Builder'}
               </h2>
               <div className="playlist-builder-subtitle" style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-                Guided vibe matching, batch selection & auto-sync to Google Drive (.m3u8) for Compás Player / HiBy R1
+                Guided vibe matching, 100% fresh discoveries & auto-sync to Google Drive (.m3u8) for Compás Player / HiBy R1
               </div>
             </div>
           </div>

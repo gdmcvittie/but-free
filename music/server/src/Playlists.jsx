@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Plus,
   Play,
@@ -11,7 +11,8 @@ import {
   Cloud,
   Download,
   Sparkles,
-  Wand2
+  Wand2,
+  Search
 } from 'lucide-react';
 import { api } from './api';
 import MediaCard from './MediaCard';
@@ -28,6 +29,7 @@ import {
 
 export default function Playlists({ kind = 'audiobooks', libraryVersion, onPlay, onNavigate, notify }) {
   const [playlists, setPlaylists] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [openId, setOpenId] = useState(null);
   const [openItems, setOpenItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -189,9 +191,15 @@ export default function Playlists({ kind = 'audiobooks', libraryVersion, onPlay,
 
   const openTotal = openItems.reduce((sum, i) => sum + (i.durationSec || 0), 0);
 
-  const handleOpenBuilder = (playlist = null, initialTab = 'wizard') => {
+  const filteredPlaylists = useMemo(() => {
+    if (!searchQuery.trim()) return playlists;
+    const q = searchQuery.toLowerCase();
+    return playlists.filter((p) => p.name?.toLowerCase().includes(q));
+  }, [playlists, searchQuery]);
+
+  const handleOpenBuilder = (playlist = null) => {
     setBuilderTarget(playlist);
-    setBuilderTab(initialTab);
+    setBuilderTab('wizard');
     setBuilderOpen(true);
   };
 
@@ -246,18 +254,8 @@ export default function Playlists({ kind = 'audiobooks', libraryVersion, onPlay,
             </button>
             <button
               type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => handleOpenBuilder(null, 'artists')}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
-              title="Browse and batch add artists, albums, genres, and songs"
-            >
-              <Sparkles size={14} />
-              Manual Builder
-            </button>
-            <button
-              type="button"
               className="btn btn-primary btn-sm"
-              onClick={() => handleOpenBuilder(null, 'wizard')}
+              onClick={() => handleOpenBuilder(null)}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -266,61 +264,62 @@ export default function Playlists({ kind = 'audiobooks', libraryVersion, onPlay,
                 background: 'linear-gradient(135deg, var(--accent, #3ddc97) 0%, #20b875 100%)',
                 color: '#000'
               }}
-              title="AI Vibe Matcher: describe a vibe, favorite bands & songs to generate a playlist"
+              title="Vibe Playlist Builder: curate matching tracks & fresh discoveries"
             >
               <Wand2 size={14} />
-              Vibe Wizard
+              Vibe Playlist Builder
             </button>
           </div>
         )}
       </div>
 
-      <form onSubmit={handleCreate} className="toolbar">
-        <div className="toolbar-search">
-          <input
-            type="text"
-            className="input-field"
-            placeholder="New playlist name"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-          />
+      {kind === 'music' ? (
+        <div className="toolbar" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <div className="toolbar-search" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, minWidth: '200px' }}>
+            <Search size={15} style={{ color: 'var(--text-muted)' }} />
+            <input
+              type="text"
+              className="input-field"
+              placeholder="Search playlists…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{ width: '100%' }}
+            />
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => handleOpenBuilder(null)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              background: 'linear-gradient(135deg, var(--accent, #3ddc97) 0%, #20b875 100%)',
+              color: '#000',
+              fontWeight: 600
+            }}
+          >
+            <Wand2 size={15} />
+            Vibe Playlist Builder
+          </button>
         </div>
-        <button type="submit" className="btn btn-primary" disabled={!newName.trim() || busy}>
-          <Plus size={15} />
-          Create
-        </button>
-        {kind === 'music' && (
-          <>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => handleOpenBuilder(null, 'wizard')}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.4rem',
-                background: 'linear-gradient(135deg, var(--accent, #3ddc97) 0%, #20b875 100%)',
-                color: '#000',
-                fontWeight: 600
-              }}
-              title="Guided wizard: match music vibe, bands, and discover missing songs"
-            >
-              <Wand2 size={14} />
-              Vibe Wizard
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => handleOpenBuilder(null, 'artists')}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
-              title="Open batch playlist builder by artist, album, genre, or song"
-            >
-              <Sparkles size={14} />
-              Builder
-            </button>
-          </>
-        )}
-      </form>
+      ) : (
+        <form onSubmit={handleCreate} className="toolbar">
+          <div className="toolbar-search">
+            <input
+              type="text"
+              className="input-field"
+              placeholder="New playlist name"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+            />
+          </div>
+          <button type="submit" className="btn btn-primary" disabled={!newName.trim() || busy}>
+            <Plus size={15} />
+            Create
+          </button>
+        </form>
+      )}
 
       {!loading && playlists.length === 0 ? (
         <div className="empty-state">
@@ -333,17 +332,24 @@ export default function Playlists({ kind = 'audiobooks', libraryVersion, onPlay,
                 type="button"
                 className="btn btn-primary"
                 onClick={() => handleOpenBuilder(null)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.45rem',
+                  fontWeight: 600,
+                  background: 'linear-gradient(135deg, var(--accent, #3ddc97) 0%, #20b875 100%)',
+                  color: '#000'
+                }}
               >
-                <Sparkles size={15} />
-                Open Fast Playlist Builder
+                <Wand2 size={15} />
+                Create Vibe Playlist
               </button>
             </p>
           )}
         </div>
       ) : (
         <div className="row-list">
-          {playlists.map((playlist) => {
+          {filteredPlaylists.map((playlist) => {
             const isOpen = openId === playlist.id;
             return (
               <div key={playlist.id}>
@@ -377,13 +383,13 @@ export default function Playlists({ kind = 'audiobooks', libraryVersion, onPlay,
                         <button
                           type="button"
                           className="icon-btn"
-                          title="Open in Playlist Builder (batch add artists, albums, genres, songs)"
+                          title="Edit in Vibe Playlist Builder"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleOpenBuilder(playlist);
                           }}
                         >
-                          <Sparkles size={13} style={{ color: 'var(--accent, #3ddc97)' }} />
+                          <Wand2 size={13} style={{ color: 'var(--accent, #3ddc97)' }} />
                         </button>
                         <button
                           type="button"
@@ -457,11 +463,11 @@ export default function Playlists({ kind = 'audiobooks', libraryVersion, onPlay,
                                 type="button"
                                 className="btn btn-secondary btn-sm"
                                 onClick={() => handleOpenBuilder(playlist)}
-                                title="Add/remove tracks in Fast Playlist Builder"
+                                title="Edit in Vibe Playlist Builder"
                                 style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
                               >
-                                <Sparkles size={13} />
-                                Edit in Builder
+                                <Wand2 size={13} style={{ color: 'var(--accent, #3ddc97)' }} />
+                                Edit in Vibe Builder
                               </button>
                               <button
                                 type="button"
