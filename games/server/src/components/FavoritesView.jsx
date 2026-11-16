@@ -28,7 +28,7 @@ export default function FavoritesView({
   return (
     <div className="flex-1 flex flex-col bg-[#181818] p-3 sm:p-5 lg:p-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-5 pb-3 border-b border-[#2b2b2b]">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-5 pb-3">
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="font-bold text-xl text-white tracking-tight flex items-center gap-2">

@@ -104,6 +104,8 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
   const canvasRef = useRef(null);
   const nostalgistRef = useRef(null);
   const containerRef = useRef(null);
+  const ejsFrameRef = useRef(null);
+  const ejsStateRestoredRef = useRef(false);
 
   const [isLoading, setIsLoading] = useState(true);
   const [loadProgress, setLoadProgress] = useState(0);
@@ -270,25 +272,59 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
   // -------------------------------------------------------------
   // Save / load states (IndexedDB + server sync)
   // -------------------------------------------------------------
+  const getEjsEmulator = useCallback(() => {
+    try {
+      return ejsFrameRef.current?.contentWindow?.EJS_emulator || null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const persistSaveBlob = useCallback(async (blob) => {
+    if (!game || !blob || blob.size === 0) return false;
+    await setLocalSaveState(user?.id, game.id, blob);
+    try {
+      await fetch(`/api/games/${game.id}/savestate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: blob
+      });
+    } catch { /* server sync is best-effort */ }
+    return true;
+  }, [game, user]);
+
   const handleSaveState = useCallback(async () => {
-    if (!nostalgistRef.current || !game) return;
+    if (!game) return;
+    if (isEjsConsole) {
+      const ejs = getEjsEmulator();
+      if (!ejs?.gameManager) {
+        showToast('Emulator not ready');
+        return;
+      }
+      try {
+        const state = ejs.gameManager.getState();
+        if (!state || !state.byteLength) {
+          showToast('Failed to save state');
+          return;
+        }
+        const saved = await persistSaveBlob(new Blob([state]));
+        showToast(saved ? 'State saved & synced' : 'Failed to save state');
+      } catch {
+        showToast('Failed to save state');
+      }
+      return;
+    }
+    if (!nostalgistRef.current) return;
     try {
       const state = await nostalgistRef.current.saveState();
       if (state && state.state) {
-        await setLocalSaveState(user?.id, game.id, state.state);
-        try {
-          await fetch(`/api/games/${game.id}/savestate`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/octet-stream' },
-            body: state.state
-          });
-        } catch { /* server sync is best-effort */ }
-        showToast('State saved & synced');
+        const saved = await persistSaveBlob(state.state);
+        showToast(saved ? 'State saved & synced' : 'Failed to save state');
       }
     } catch {
       showToast('Failed to save state');
     }
-  }, [game, user, showToast]);
+  }, [game, isEjsConsole, getEjsEmulator, persistSaveBlob, showToast]);
 
   const loadStateBlob = useCallback(async () => {
     let blob = await getLocalSaveState(user?.id, game?.id);
@@ -305,21 +341,46 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
   }, [game, user]);
 
   const handleLoadState = useCallback(async () => {
-    if (!nostalgistRef.current || !game) return;
+    if (!game) return;
     const blob = await loadStateBlob();
-    if (blob && blob.size > 0) {
+    if (!blob || blob.size === 0) {
+      showToast('No saved state found');
+      return;
+    }
+    if (isEjsConsole) {
+      const ejs = getEjsEmulator();
+      if (!ejs?.gameManager) {
+        showToast('Emulator not ready');
+        return;
+      }
       try {
-        await nostalgistRef.current.loadState(blob);
+        ejs.gameManager.loadState(new Uint8Array(await blob.arrayBuffer()));
         showToast('State loaded');
       } catch {
         showToast('Failed to load state');
       }
-    } else {
-      showToast('No saved state found');
+      return;
     }
-  }, [game, loadStateBlob, showToast]);
+    if (!nostalgistRef.current) return;
+    try {
+      await nostalgistRef.current.loadState(blob);
+      showToast('State loaded');
+    } catch {
+      showToast('Failed to load state');
+    }
+  }, [game, isEjsConsole, getEjsEmulator, loadStateBlob, showToast]);
 
   const handleTogglePause = useCallback(() => {
+    if (isEjsConsole) {
+      const ejs = getEjsEmulator();
+      if (!ejs) return;
+      try {
+        if (isPaused) ejs.play();
+        else ejs.pause();
+        setIsPaused(!isPaused);
+      } catch { /* ignore */ }
+      return;
+    }
     if (!nostalgistRef.current) return;
     try {
       if (isPaused) {
@@ -330,21 +391,30 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
         setIsPaused(true);
       }
     } catch { /* ignore */ }
-  }, [isPaused]);
+  }, [isEjsConsole, getEjsEmulator, isPaused]);
 
   const handleReset = useCallback(() => {
+    if (isEjsConsole) {
+      const ejs = getEjsEmulator();
+      if (!ejs?.gameManager) return;
+      try {
+        ejs.gameManager.restart();
+        setIsPaused(false);
+      } catch { /* ignore */ }
+      return;
+    }
     if (!nostalgistRef.current) return;
     try {
       nostalgistRef.current.restart();
       setIsPaused(false);
     } catch { /* ignore */ }
-  }, []);
+  }, [isEjsConsole, getEjsEmulator]);
 
   // -------------------------------------------------------------
   // Physical gamepad shortcuts: L1+R1+X save / L1+R1+Y load / Esc quit
   // -------------------------------------------------------------
   useEffect(() => {
-    if (isWebGame || isDownloadOnly || isEjsConsole) return;
+    if (isWebGame || isDownloadOnly) return;
     let animFrame = null;
     let lastComboTime = 0;
 
@@ -375,7 +445,7 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
 
     animFrame = requestAnimationFrame(poll);
     return () => { if (animFrame) cancelAnimationFrame(animFrame); };
-  }, [isWebGame, isDownloadOnly, isEjsConsole, hasPhysicalGamepad, handleSaveState, handleLoadState, onClose]);
+  }, [isWebGame, isDownloadOnly, hasPhysicalGamepad, handleSaveState, handleLoadState, onClose]);
 
   // -------------------------------------------------------------
   // Download-only games (PC, Switch, PS2, etc.): offer Drive download links
@@ -878,9 +948,71 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose, isWebGame, isDownloadOnly, isEjsConsole, insertCoin]);
 
+  // EmulatorJS runs in a same-origin iframe. Restore the shared save once it starts.
+  useEffect(() => {
+    if (!isEjsConsole) return undefined;
+    ejsStateRestoredRef.current = false;
+
+    const onMessage = async (event) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== 'FREEPLAY_EJS_EVENT' || event.data.event !== 'start') return;
+      setIsLoading(false);
+      if (ejsStateRestoredRef.current) return;
+      ejsStateRestoredRef.current = true;
+      try {
+        const blob = await loadStateBlob();
+        if (!blob || blob.size === 0) return;
+        const ejs = ejsFrameRef.current?.contentWindow?.EJS_emulator;
+        if (!ejs?.gameManager) return;
+        ejs.gameManager.loadState(new Uint8Array(await blob.arrayBuffer()));
+        showToast('Restored save state');
+      } catch { /* ignore */ }
+    };
+
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [isEjsConsole, loadStateBlob, showToast]);
+
   if (!game) return null;
 
   const isFav = !!game.isFavorite;
+
+  const headerBar = (className = '') => (
+    <div className={`freeplay-game-toolbar ${className}`}>
+      <div className="freeplay-game-toolbar-actions">
+        <button onClick={handleTogglePause} disabled={isLoading} className="icon-btn icon-btn-sm" title={isPaused ? 'Resume' : 'Pause'} aria-label={isPaused ? 'Resume' : 'Pause'}>
+          {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+        </button>
+        <button onClick={handleReset} disabled={isLoading} className="icon-btn icon-btn-sm" title="Reset" aria-label="Reset">
+          <RotateCcw className="w-4 h-4" />
+        </button>
+        <button onClick={handleSaveState} disabled={isLoading} className="icon-btn icon-btn-sm" title="Save State" aria-label="Save state">
+          <Save className="w-4 h-4" />
+        </button>
+        <button onClick={handleLoadState} disabled={isLoading} className="icon-btn icon-btn-sm" title="Load State" aria-label="Load state">
+          <FolderInput className="w-4 h-4" />
+        </button>
+        <button onClick={toggleFullscreen} className="icon-btn icon-btn-sm" title="Fullscreen" aria-label="Fullscreen">
+          {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+        </button>
+        {onToggleFavorite && (
+          <button
+            onClick={() => onToggleFavorite(game.id)}
+            className={`icon-btn icon-btn-sm ${isFav ? 'active' : ''}`}
+            title={isFav ? 'Remove Favorite' : 'Add Favorite'}
+            aria-label={isFav ? 'Remove favorite' : 'Add favorite'}
+          >
+            <Heart className={`w-4 h-4 ${isFav ? 'fill-amber-400' : ''}`} />
+          </button>
+        )}
+      </div>
+      <div className="freeplay-game-toolbar-exit">
+        <button onClick={onClose} className="icon-btn icon-btn-sm danger" title="Exit Game" aria-label="Exit game">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
 
   // -------------------------------------------------------------
   // WEB GAME (HTML5 iframe via embed proxy)
@@ -951,56 +1083,23 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
     const ejsUrl = `/emulatorjs/index.html?core=${encodeURIComponent(consoleNormalized)}&url=${encodeURIComponent(streamUrl)}&title=${encodeURIComponent(game.title || 'Game')}`;
 
     return (
-      <div
-        ref={containerRef}
-        className="rom-emulator-overlay fixed inset-0 bg-black flex flex-col"
-        style={{ zIndex: 99999 }}
-      >
-        {/* Top Control Bar */}
-        <div className="flex items-center justify-between px-3.5 py-2 bg-slate-950 border-b border-white/10 z-10 select-none">
-          <div className="flex items-center gap-3 min-w-0">
-            <span className={`badge-console badge-${consoleNormalized} text-xs uppercase shrink-0`}>
-              {formatConsoleName(consoleNormalized)}
-            </span>
-            <h2 className="font-heading font-bold text-sm text-white truncate max-w-xs sm:max-w-md">
-              {game.title}
-            </h2>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {onToggleFavorite && (
-              <button
-                onClick={() => onToggleFavorite(game.id)}
-                className={`icon-btn icon-btn-sm ${isFav ? 'active' : ''}`}
-                title="Favorite"
-              >
-                <Heart className={`w-4 h-4 ${isFav ? 'fill-amber-400' : ''}`} />
-              </button>
-            )}
-            <button
-              onClick={toggleFullscreen}
-              className="icon-btn icon-btn-sm"
-              title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-            >
-              {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-            </button>
-            <button
-              onClick={onClose}
-              className="icon-btn icon-btn-sm danger"
-              title="Close (Esc)"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        {/* EmulatorJS Web Frame */}
-        <div className="flex-1 w-full h-full relative bg-black">
+      <div ref={containerRef} className="freeplay-gamepad-stage rom-emulator-overlay">
+        {headerBar('freeplay-game-toolbar-overlay')}
+        <div className="freeplay-gamepad-screen relative">
           <iframe
+            ref={ejsFrameRef}
             src={ejsUrl}
             title={game.title}
-            className="w-full h-full border-0 absolute inset-0"
+            className="w-full h-full absolute inset-0"
+            frameBorder="0"
+            style={{ border: 'none', outline: 'none', background: '#000' }}
             allow="autoplay; gamepad; fullscreen; screen-wake-lock"
           />
+          {toast && (
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 px-3 py-1.5 rounded-sm bg-[#222222] text-[#31a8ff] border border-[#383838] text-xs font-mono font-semibold shadow-lg">
+              {toast}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1104,43 +1203,6 @@ export default function EmulatorModal({ game, user, onClose, onToggleFavorite })
       <div />
       <button className="retro-action-btn" {...createVirtualButtonProps('z', 'KeyZ')}>B</button>
       <div />
-    </div>
-  );
-
-  const headerBar = (className = '') => (
-    <div className={`freeplay-game-toolbar ${className}`}>
-      <div className="freeplay-game-toolbar-actions">
-        <button onClick={handleTogglePause} disabled={isLoading} className="icon-btn icon-btn-sm" title={isPaused ? 'Resume' : 'Pause'} aria-label={isPaused ? 'Resume' : 'Pause'}>
-          {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
-        </button>
-        <button onClick={handleReset} disabled={isLoading} className="icon-btn icon-btn-sm" title="Reset" aria-label="Reset">
-          <RotateCcw className="w-4 h-4" />
-        </button>
-        <button onClick={handleSaveState} disabled={isLoading} className="icon-btn icon-btn-sm" title="Save State" aria-label="Save state">
-          <Save className="w-4 h-4" />
-        </button>
-        <button onClick={handleLoadState} disabled={isLoading} className="icon-btn icon-btn-sm" title="Load State" aria-label="Load state">
-          <FolderInput className="w-4 h-4" />
-        </button>
-        <button onClick={toggleFullscreen} className="icon-btn icon-btn-sm" title="Fullscreen" aria-label="Fullscreen">
-          {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-        </button>
-        {onToggleFavorite && (
-          <button
-            onClick={() => onToggleFavorite(game.id)}
-            className={`icon-btn icon-btn-sm ${isFav ? 'active' : ''}`}
-            title={isFav ? 'Remove Favorite' : 'Add Favorite'}
-            aria-label={isFav ? 'Remove favorite' : 'Add favorite'}
-          >
-            <Heart className={`w-4 h-4 ${isFav ? 'fill-amber-400' : ''}`} />
-          </button>
-        )}
-      </div>
-      <div className="freeplay-game-toolbar-exit">
-        <button onClick={onClose} className="icon-btn icon-btn-sm danger" title="Exit Game" aria-label="Exit game">
-          <X className="w-4 h-4" />
-        </button>
-      </div>
     </div>
   );
 

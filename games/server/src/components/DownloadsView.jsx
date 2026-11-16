@@ -70,7 +70,7 @@ export default function DownloadsView({ user, onOpenSettings }) {
   return (
     <div className="flex-1 flex flex-col bg-[#181818] p-4 sm:p-6 lg:p-7">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-6 pb-3 border-b border-[#2b2b2b]">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-6 pb-3">
         <div>
           <div className="flex items-center gap-2">
             <span className="text-xs uppercase tracking-wider text-slate-400 font-bold font-mono">NODE PIPELINE:</span>

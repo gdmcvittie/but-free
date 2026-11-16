@@ -46,7 +46,7 @@ export default function LibraryView({
   return (
     <div className={`flex-1 flex flex-col bg-[#181818] ${isMobileLandscape1080 ? 'p-2 sm:p-3' : 'p-3 sm:p-5 lg:p-6'}`}>
       {/* Top Header Row (Photoshop Application / Shelf Bar) */}
-      <div className={`flex flex-col md:flex-row md:items-center justify-between gap-3 ${isMobileLandscape1080 ? 'mb-2.5' : 'mb-5 pb-3 border-b border-[#2b2b2b]'}`}>
+      <div className={`flex flex-col md:flex-row md:items-center justify-between gap-3 ${isMobileLandscape1080 ? 'mb-2.5' : 'mb-5 pb-3'}`}>
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className={`font-bold ${isMobileLandscape1080 ? 'text-base sm:text-lg' : 'text-xl'} text-white tracking-tight flex items-center gap-2`}>
