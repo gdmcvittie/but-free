@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Tv,
-  Film,
   Radio,
   Play,
   RefreshCw,
@@ -10,11 +9,10 @@ import {
   Heart as HeartSvg,
   Clock,
   Sparkles,
-  LayoutGrid,
-  Rows3,
-  Calendar,
-  Volume2
+  Volume2,
+  StopCircle
 } from 'lucide-react';
+import TvPlayer from './TvPlayer.jsx';
 
 function formatDuration(ms) {
   if (!ms || ms <= 0) return null;
@@ -36,7 +34,7 @@ function formatClock(seconds) {
 }
 
 function getItemTitle(item, channelType) {
-  if (!item) return 'Live Program';
+  if (!item) return 'Live Broadcast';
   const show = item.show || item.series;
   const season = item.season;
   const episode = item.episode;
@@ -55,7 +53,7 @@ function getItemTitle(item, channelType) {
 
   if (title) return title;
   if (item.filename) return item.filename.replace(/\.[^/.]+$/, '');
-  return 'Live Program';
+  return 'Live Broadcast';
 }
 
 function computeSchedule(channel, nowSec) {
@@ -121,38 +119,28 @@ export default function ChannelsView({
   favorites = [],
   onToggleFavorite,
   activeVideo = null,
-  channelPlaylist = null
+  videoOffset = 0,
+  onStopVideo,
+  onTimeUpdate,
+  onEnded,
+  channelPlaylist = null,
+  channelIndex = 0
 }) {
   const [channels, setChannels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
-  const [viewMode, setViewMode] = useState(() => {
-    try {
-      return localStorage.getItem('freevee_channels_view') || 'guide';
-    } catch {
-      return 'guide';
-    }
-  });
-
   const [selectedChannelId, setSelectedChannelId] = useState(null);
   const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
   const [guideCategory, setGuideCategory] = useState('all');
 
-  // Clock tick to keep progress bars and live program info accurate
+  // Live clock tick to update program progress bars in real-time
   useEffect(() => {
     const timer = setInterval(() => {
       setNowSec(Math.floor(Date.now() / 1000));
     }, 20000);
     return () => clearInterval(timer);
   }, []);
-
-  const handleViewModeChange = (mode) => {
-    setViewMode(mode);
-    try {
-      localStorage.setItem('freevee_channels_view', mode);
-    } catch {}
-  };
 
   const loadChannels = async () => {
     setLoading(true);
@@ -177,7 +165,7 @@ export default function ChannelsView({
     loadChannels();
   }, []);
 
-  // Update selected channel if channelPlaylist changes
+  // Sync selected channel with active playing channel if playing
   useEffect(() => {
     if (channelPlaylist?.id) {
       setSelectedChannelId(channelPlaylist.id);
@@ -189,31 +177,24 @@ export default function ChannelsView({
     return q ? channels.filter(c => c.name.toLowerCase().includes(q)) : channels;
   }, [channels, q]);
 
-  const featuredChannels = useMemo(
-    () => filtered.filter(c => c.channelType === 'new_episodes' || c.channelType === 'movies'),
-    [filtered]
-  );
-  const genreChannels = useMemo(() => filtered.filter(c => c.channelType === 'genre'), [filtered]);
-  const showChannels = useMemo(() => filtered.filter(c => c.channelType === 'show'), [filtered]);
-
-  // Channels for guide view according to category filter
+  // Category filtering
   const guideFilteredChannels = useMemo(() => {
     let list = filtered;
     if (guideCategory === 'featured') {
-      list = featuredChannels;
+      list = filtered.filter(c => c.channelType === 'new_episodes' || c.channelType === 'movies');
     } else if (guideCategory === 'show') {
-      list = showChannels;
+      list = filtered.filter(c => c.channelType === 'show');
     } else if (guideCategory === 'genre') {
-      list = genreChannels;
+      list = filtered.filter(c => c.channelType === 'genre');
     } else if (guideCategory === 'faves') {
       list = filtered.filter(c =>
         favorites.some(f => f.title && f.title.toLowerCase() === c.name.toLowerCase())
       );
     }
     return list;
-  }, [filtered, guideCategory, featuredChannels, showChannels, genreChannels, favorites]);
+  }, [filtered, guideCategory, favorites]);
 
-  // Selected channel for Roku-style top preview pane
+  // Selected channel for preview & EPG pane
   const selectedChannel = useMemo(() => {
     if (selectedChannelId) {
       const found = channels.find(c => c.id === selectedChannelId);
@@ -249,51 +230,25 @@ export default function ChannelsView({
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: '12px' }}>
         <RefreshCw size={22} className="spin" style={{ color: 'var(--primary)' }} />
-        <span style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Loading your channels...</span>
+        <span style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Loading Live Channel Guide...</span>
       </div>
     );
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Top Header Row with Title, Search, Refresh & View Mode Switcher */}
+      {/* Top Header Row with Title, Search & Refresh */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1 style={{ fontSize: '22px', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Radio size={20} style={{ color: 'var(--primary)' }} /> My Drive Channels
+            <Radio size={20} style={{ color: 'var(--primary)' }} /> Live Channels &amp; TV Guide
           </h1>
           <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', margin: '4px 0 0' }}>
-            {viewMode === 'guide'
-              ? 'TiVo & Roku-style live channel guide with synchronized scheduling.'
-              : 'Linear playlists from your Google Drive. Tune in and let it play continuously.'}
+            TiVo &amp; Roku-style synchronized live TV guide. Tune in and watch continuously.
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          {/* Layout Toggle: Grid vs TV Guide */}
-          <div className="category-filter-container" style={{ padding: '2px' }}>
-            <button
-              type="button"
-              className={`category-filter-btn ${viewMode === 'guide' ? 'active' : ''}`}
-              onClick={() => handleViewModeChange('guide')}
-              title="TV Guide layout (Roku / TiVo style)"
-              style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 11px' }}
-            >
-              <Rows3 size={13} />
-              <span>TV Guide</span>
-            </button>
-            <button
-              type="button"
-              className={`category-filter-btn ${viewMode === 'grid' ? 'active' : ''}`}
-              onClick={() => handleViewModeChange('grid')}
-              title="Card Grid layout"
-              style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 11px' }}
-            >
-              <LayoutGrid size={13} />
-              <span>Grid</span>
-            </button>
-          </div>
-
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <button className="action-btn" onClick={loadChannels} title="Refresh channels" style={{ padding: '7px 10px', display: 'flex' }}>
             <RefreshCw size={14} className={loading ? 'spin' : ''} />
           </button>
@@ -302,10 +257,10 @@ export default function ChannelsView({
             <Search size={14} style={{ color: 'var(--text-muted)' }} />
             <input
               type="text"
-              placeholder="Search channels..."
+              placeholder="Filter channels..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              style={{ background: 'transparent', border: 'none', outline: 'none', color: 'var(--text-primary)', fontSize: '12px', width: '150px' }}
+              style={{ background: 'transparent', border: 'none', outline: 'none', color: 'var(--text-primary)', fontSize: '12px', width: '160px' }}
             />
           </div>
         </div>
@@ -323,63 +278,74 @@ export default function ChannelsView({
         <div className="glass-panel" style={{ padding: '28px', textAlign: 'center', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
           <Tv size={34} style={{ color: 'var(--primary)' }} />
           <div style={{ fontSize: '14px', fontWeight: 600 }}>
-            No channels yet.
+            No channels built yet.
           </div>
           <div style={{ fontSize: '12.5px', maxWidth: '420px' }}>
-            Scan your Google Drive in Settings to build channels. Each TV show becomes its own channel, plus movie genre channels.
+            Scan your Google Drive in Settings to build channels. Each TV show and movie genre becomes a 24/7 continuous channel.
           </div>
         </div>
       )}
 
       {/* =========================================================================
-          VIEW MODE 1: TV GUIDE STYLE LAYOUT (Roku / TiVo Style)
+          TI-VO & ROKU STYLE TV GUIDE (Permanent Layout)
           ========================================================================= */}
-      {viewMode === 'guide' && channels.length > 0 && (
+      {channels.length > 0 && (
         <div className="guide-view-layout">
-          {/* Top Hub: Split Video / Poster Preview (Left) + Detailed EPG Info Panel (Right) */}
+          {/* Top Hub: Embedded Video Player / Preview (Left) + Detailed EPG Info (Right) */}
           {selectedChannel && (
             <div className="guide-top-hub">
-              {/* Left: Video / Poster Preview Card */}
-              <div
-                className="guide-preview-card"
-                onClick={() => handleTuneIn(selectedChannel, selectedSchedule)}
-                title={`Tune into ${selectedChannel.name}`}
-              >
-                {selectedChannel.posterUrl && (
-                  <img
-                    src={selectedChannel.posterUrl}
-                    alt={selectedChannel.name}
-                    className="guide-preview-bg"
+              {/* Left: Video Player (when playing) OR Channel Preview Card */}
+              <div className={`guide-preview-card ${!activeVideo ? 'interactive' : ''}`}>
+                {activeVideo ? (
+                  /* Video Player directly in the TV Guide preview frame */
+                  <TvPlayer
+                    currentVideo={activeVideo}
+                    offset={videoOffset}
+                    onStop={onStopVideo}
+                    onTimeUpdate={onTimeUpdate}
+                    onEnded={onEnded}
                   />
-                )}
-                <div className="guide-preview-overlay">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(0,0,0,0.75)', padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700 }}>
-                      <span className="live-dot-pulse" style={{ width: '6px', height: '6px' }} />
-                      <span style={{ color: '#f43f5e', letterSpacing: '0.5px' }}>● LIVE</span>
-                    </div>
-
-                    {isChannelPlaying(selectedChannel) && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'var(--primary-dark)', color: '#fff', padding: '3px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 700 }}>
-                        <Volume2 size={12} />
-                        <span>NOW PLAYING</span>
-                      </div>
+                ) : (
+                  /* Channel Preview Poster & Tune In Overlay */
+                  <div
+                    onClick={() => handleTuneIn(selectedChannel, selectedSchedule)}
+                    style={{ position: 'relative', width: '100%', height: '100%', cursor: 'pointer' }}
+                    title={`Click to tune into ${selectedChannel.name}`}
+                  >
+                    {selectedChannel.posterUrl && (
+                      <img
+                        src={selectedChannel.posterUrl}
+                        alt={selectedChannel.name}
+                        className="guide-preview-bg"
+                      />
                     )}
-                  </div>
+                    <div className="guide-preview-overlay">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(0,0,0,0.75)', padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700 }}>
+                          <span className="live-dot-pulse" style={{ width: '6px', height: '6px' }} />
+                          <span style={{ color: '#f43f5e', letterSpacing: '0.5px' }}>● LIVE</span>
+                        </div>
 
-                  <div className="guide-preview-play-btn">
-                    <Play size={24} fill="#fff" style={{ marginLeft: '3px' }} />
-                  </div>
+                        <div style={{ fontSize: '11px', color: '#ccc', background: 'rgba(0,0,0,0.6)', padding: '2px 8px', borderRadius: '4px' }}>
+                          CLICK TO TUNE IN
+                        </div>
+                      </div>
 
-                  <div>
-                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary)', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
-                      {selectedChannel.channelType === 'show' ? 'TV Show Channel' : selectedChannel.channelType === 'genre' ? 'Movie Genre' : 'Featured Channel'}
-                    </div>
-                    <div style={{ fontSize: '15px', fontWeight: 800, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {selectedChannel.name}
+                      <div className="guide-preview-play-btn">
+                        <Play size={24} fill="#fff" style={{ marginLeft: '3px' }} />
+                      </div>
+
+                      <div>
+                        <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--primary)', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+                          {selectedChannel.channelType === 'show' ? 'TV Show Channel' : selectedChannel.channelType === 'genre' ? 'Movie Genre' : 'Featured Channel'}
+                        </div>
+                        <div style={{ fontSize: '16px', fontWeight: 800, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {selectedChannel.name}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Right: Roku-style Detailed EPG Info Panel */}
@@ -388,9 +354,13 @@ export default function ChannelsView({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {/* Provider & Type header */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.5px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-                      GOOGLE DRIVE · {selectedChannel.channelType === 'show' ? 'TV SERIES' : 'MOVIES'}
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span className="live-dot-pulse" style={{ width: '6px', height: '6px' }} />
+                      <span style={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.5px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                        GOOGLE DRIVE · {selectedChannel.channelType === 'show' ? 'TV SERIES' : 'MOVIES'}
+                      </span>
+                    </div>
+
                     <button
                       type="button"
                       onClick={(e) => {
@@ -446,7 +416,7 @@ export default function ChannelsView({
                           style={{
                             width: `${selectedSchedule.progressPct}%`,
                             height: '100%',
-                            background: 'var(--primary-dark)',
+                            background: isChannelPlaying(selectedChannel) ? '#10b981' : 'var(--primary-dark)',
                             borderRadius: '3px',
                             transition: 'width 0.4s ease'
                           }}
@@ -471,18 +441,30 @@ export default function ChannelsView({
 
                 {/* Bottom Action Row */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '14px' }}>
-                  <button
-                    type="button"
-                    className="action-btn primary"
-                    onClick={() => handleTuneIn(selectedChannel, selectedSchedule)}
-                    style={{ flex: 1, padding: '9px 16px', fontSize: '13px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-                  >
-                    <Play size={15} fill="#fff" />
-                    <span>Tune In Now</span>
-                  </button>
+                  {activeVideo && isChannelPlaying(selectedChannel) ? (
+                    <button
+                      type="button"
+                      className="action-btn"
+                      onClick={onStopVideo}
+                      style={{ flex: 1, padding: '9px 16px', fontSize: '13px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: 'var(--accent)', borderColor: 'rgba(244, 63, 94, 0.4)' }}
+                    >
+                      <StopCircle size={15} />
+                      <span>Stop Playing</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="action-btn primary"
+                      onClick={() => handleTuneIn(selectedChannel, selectedSchedule)}
+                      style={{ flex: 1, padding: '9px 16px', fontSize: '13px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                    >
+                      <Play size={15} fill="#fff" />
+                      <span>Tune In Now</span>
+                    </button>
+                  )}
 
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'right' }}>
-                    {selectedChannel.playlist?.length || 0} episodes in rotation
+                    {selectedChannel.playlist?.length || 0} items in rotation
                   </div>
                 </div>
               </div>
@@ -534,6 +516,16 @@ export default function ChannelsView({
               </div>
             </div>
 
+            {/* Column Headers Row */}
+            <div className="guide-column-headers">
+              <div className="guide-col-num" style={{ textAlign: 'center' }}>#</div>
+              <div style={{ textAlign: 'center' }}>LOGO</div>
+              <div>CHANNEL</div>
+              <div>ON NOW</div>
+              <div className="guide-col-next">UP NEXT</div>
+              <div style={{ textAlign: 'right' }}>ACTIONS</div>
+            </div>
+
             {/* Channel Guide Rows */}
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               {guideFilteredChannels.map((channel, index) => {
@@ -547,28 +539,29 @@ export default function ChannelsView({
                 return (
                   <div
                     key={channel.id}
-                    className={`guide-channel-row ${isSelected ? 'selected' : ''}`}
+                    className={`guide-channel-row ${isSelected ? 'selected' : ''} ${playing ? 'playing' : ''}`}
                     onClick={() => setSelectedChannelId(channel.id)}
                     onDoubleClick={() => handleTuneIn(channel, schedule)}
                     title={`Click to select, double-click to tune into ${channel.name}`}
                   >
                     {/* Channel Number */}
-                    <div style={{ fontSize: '12px', fontWeight: 800, color: isSelected ? 'var(--primary)' : 'var(--text-muted)', textAlign: 'center' }}>
+                    <div className="guide-row-num" style={{ fontSize: '12px', fontWeight: 800, color: isSelected ? 'var(--primary)' : 'var(--text-muted)', textAlign: 'center' }}>
                       {(index + 1).toString().padStart(2, '0')}
                     </div>
 
                     {/* Logo / Thumbnail */}
                     <div
                       style={{
-                        width: '54px',
-                        height: '32px',
+                        width: '52px',
+                        height: '30px',
                         borderRadius: '3px',
-                        background: '#222230',
+                        background: '#20202c',
                         overflow: 'hidden',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        position: 'relative'
+                        position: 'relative',
+                        flexShrink: 0
                       }}
                     >
                       {channel.posterUrl ? (
@@ -580,14 +573,14 @@ export default function ChannelsView({
                           onError={(e) => { e.target.style.display = 'none'; }}
                         />
                       ) : (
-                        <Tv size={16} style={{ color: 'var(--text-muted)' }} />
+                        <Tv size={15} style={{ color: 'var(--text-muted)' }} />
                       )}
                       {playing && (
                         <div
                           style={{
                             position: 'absolute',
                             inset: 0,
-                            background: 'rgba(124, 58, 237, 0.75)',
+                            background: 'rgba(16, 185, 129, 0.8)',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center'
@@ -615,15 +608,15 @@ export default function ChannelsView({
                     {/* On Now Program Info */}
                     <div style={{ minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span className="live-dot-pulse" style={{ width: '5px', height: '5px', flexShrink: 0 }} />
+                        <span className="live-dot-pulse" style={{ width: '5px', height: '5px', flexShrink: 0, background: playing ? '#10b981' : '#f43f5e' }} />
                         <span style={{ fontSize: '12.5px', fontWeight: 600, color: '#f3f4f6', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {schedule ? getItemTitle(schedule.currentItem, channel.channelType) : 'On Air'}
+                          {schedule ? getItemTitle(schedule.currentItem, channel.channelType) : 'Live Broadcast'}
                         </span>
                       </div>
                       {schedule && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
-                          <div style={{ width: '80px', height: '3px', background: '#252536', borderRadius: '2px', overflow: 'hidden' }}>
-                            <div style={{ width: `${schedule.progressPct}%`, height: '100%', background: 'var(--primary)' }} />
+                          <div style={{ width: '70px', height: '3px', background: '#252536', borderRadius: '2px', overflow: 'hidden', flexShrink: 0 }}>
+                            <div style={{ width: `${schedule.progressPct}%`, height: '100%', background: playing ? '#10b981' : 'var(--primary)' }} />
                           </div>
                           <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
                             {schedule.remainingMin}m left
@@ -648,7 +641,7 @@ export default function ChannelsView({
                       )}
                     </div>
 
-                    {/* Actions: Tune In & Favorite */}
+                    {/* Actions: Favorite & Tune In */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
                       <button
                         type="button"
@@ -684,11 +677,19 @@ export default function ChannelsView({
                           e.stopPropagation();
                           handleTuneIn(channel, schedule);
                         }}
-                        style={{ padding: '5px 10px', fontSize: '11.5px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '4px' }}
+                        style={{
+                          padding: '5px 10px',
+                          fontSize: '11.5px',
+                          fontWeight: 700,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          background: playing ? '#10b981' : undefined
+                        }}
                         title="Tune in"
                       >
                         <Play size={12} fill="#fff" />
-                        <span>Tune In</span>
+                        <span>{playing ? 'Playing' : 'Tune In'}</span>
                       </button>
                     </div>
                   </div>
@@ -697,203 +698,13 @@ export default function ChannelsView({
 
               {guideFilteredChannels.length === 0 && (
                 <div style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--text-secondary)', fontSize: '13px' }}>
-                  No channels found in this category.
+                  No channels match your filter.
                 </div>
               )}
             </div>
           </div>
         </div>
       )}
-
-      {/* =========================================================================
-          VIEW MODE 2: CARD GRID LAYOUT (Original)
-          ========================================================================= */}
-      {viewMode === 'grid' && (
-        <>
-          {/* Featured Channels - New Episodes + All Movies */}
-          {featuredChannels.length > 0 && (
-            <div>
-              {!q && (
-                <h2 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Sparkles size={18} style={{ color: '#f59e0b' }} /> Featured
-                </h2>
-              )}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '16px' }}>
-                {featuredChannels.map(ch => (
-                  <ChannelCard key={ch.id} channel={ch} onPlay={onPlayChannel} favorites={favorites} onToggleFavorite={onToggleFavorite} featured />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Genre Channels */}
-          {genreChannels.length > 0 && (
-            <div>
-              {!q && (
-                <h2 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Film size={18} style={{ color: '#22d3ee' }} /> Movie Genres ({genreChannels.length})
-                </h2>
-              )}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '16px' }}>
-                {genreChannels.map(ch => (
-                  <ChannelCard key={ch.id} channel={ch} onPlay={onPlayChannel} favorites={favorites} onToggleFavorite={onToggleFavorite} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* TV Show Channels */}
-          {showChannels.length > 0 && (
-            <div>
-              {!q && (
-                <h2 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <Tv size={18} style={{ color: 'var(--primary)' }} /> TV Shows ({showChannels.length})
-                </h2>
-              )}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '16px' }}>
-                {showChannels.map(ch => (
-                  <ChannelCard key={ch.id} channel={ch} onPlay={onPlayChannel} favorites={favorites} onToggleFavorite={onToggleFavorite} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {!error && filtered.length === 0 && channels.length > 0 && (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-secondary)', fontSize: '13px' }}>
-              No channels match "{search}".
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-function ChannelCard({ channel, onPlay, favorites, onToggleFavorite, featured = false }) {
-  const isMovie = channel.channelType === 'movies' || channel.channelType === 'genre';
-  const isGenre = channel.channelType === 'genre';
-  const isNewEpisodes = channel.channelType === 'new_episodes';
-  const fav = favorites.some(f => f.title && f.title.toLowerCase() === channel.name.toLowerCase());
-
-  const meta = (() => {
-    const dur = formatDuration(channel.totalDuration) ? ` · ${formatDuration(channel.totalDuration)}` : '';
-    if (isNewEpisodes) return `${channel.episodeCount || 0} episodes${dur}`;
-    if (channel.channelType === 'movies') return `${channel.movieCount || 0} movies${dur}`;
-    if (isGenre) return `${channel.movieCount || 0} movies${dur}`;
-    return `${channel.episodeCount || 0} episodes${dur}`;
-  })();
-
-  return (
-    <div
-      className="glass-panel"
-      style={{
-        padding: '8px',
-        borderRadius: '8px',
-        cursor: 'pointer',
-        border: '1px solid var(--border-color)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '8px',
-        transition: 'all 0.2s ease',
-        position: 'relative',
-        overflow: 'hidden',
-        ...(featured ? { background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, var(--bg-card, rgba(20,20,28,1)) 60%)' } : {})
-      }}
-      onClick={() => onPlay && onPlay(channel)}
-    >
-      {/* Heart Toggle */}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          if (onToggleFavorite) onToggleFavorite({ title: channel.name, type: isMovie ? 'movie' : 'tv', image: channel.posterUrl });
-        }}
-        title={fav ? 'Remove from favorites' : 'Add to favorites'}
-        style={{
-          position: 'absolute',
-          top: '12px',
-          right: '12px',
-          zIndex: 10,
-          background: 'rgba(0, 0, 0, 0.65)',
-          border: '1px solid rgba(255, 255, 255, 0.15)',
-          borderRadius: '50%',
-          width: '28px',
-          height: '28px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          color: fav ? 'var(--accent)' : 'rgba(255,255,255,0.7)',
-          transition: 'all 0.2s ease'
-        }}
-      >
-        <HeartSvg size={14} fill={fav ? 'var(--accent)' : 'none'} />
-      </button>
-
-      {/* Poster / Placeholder */}
-      <div
-        style={{
-          width: '100%',
-          aspectRatio: '2/3',
-          borderRadius: '4px',
-          background: isNewEpisodes
-            ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.2) 0%, rgba(20, 20, 28, 0.8) 100%)'
-            : isGenre
-            ? 'linear-gradient(135deg, rgba(34, 211, 238, 0.18) 0%, rgba(20, 20, 28, 0.8) 100%)'
-            : isMovie
-            ? 'linear-gradient(135deg, rgba(34, 211, 238, 0.18) 0%, rgba(20, 20, 28, 0.8) 100%)'
-            : 'linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(20, 20, 28, 0.8) 100%)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: isNewEpisodes ? '#f59e0b' : isMovie ? '#22d3ee' : 'var(--primary)',
-          overflow: 'hidden',
-          position: 'relative'
-        }}
-      >
-        {channel.posterUrl ? (
-          <img
-            src={channel.posterUrl}
-            alt={channel.name}
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            loading="lazy"
-            onError={(e) => { e.target.style.display = 'none'; }}
-          />
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '12px', textAlign: 'center' }}>
-            {isNewEpisodes ? <Clock size={36} /> : isMovie ? <Film size={36} /> : <Tv size={36} />}
-            <span style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600 }}>{channel.name}</span>
-          </div>
-        )}
-
-        {/* Play overlay on hover */}
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background: 'rgba(0,0,0,0.45)',
-            opacity: 0,
-            transition: 'opacity 0.2s ease',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderRadius: '4px'
-          }}
-          className="channel-play-overlay"
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--primary-dark)', color: '#fff', padding: '8px 16px', borderRadius: '24px', fontWeight: 700, fontSize: '13px' }}>
-            <Play size={14} fill="#fff" /> Tune In
-          </div>
-        </div>
-      </div>
-
-      <div style={{ padding: '0 4px 4px' }}>
-        <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {channel.name}
-        </div>
-        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <Radio size={10} /> {meta}
-        </div>
-      </div>
     </div>
   );
 }

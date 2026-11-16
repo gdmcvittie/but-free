@@ -490,8 +490,8 @@ function CloudAppContent() {
 
         {/* Main Content Area */}
         <main className="main-content-scroll">
-          {/* Active Player (Sticky docked card when playing) */}
-          {activeVideo && (
+          {/* Active Player (Sticky docked card when playing on any tab EXCEPT channels) */}
+          {activeVideo && activeTab !== 'channels' && (
             <div className="docked-player-card">
               <TvPlayer
                 currentVideo={activeVideo}
@@ -552,7 +552,12 @@ function CloudAppContent() {
               favorites={favorites}
               onToggleFavorite={handleToggleFavorite}
               activeVideo={activeVideo}
+              videoOffset={videoOffset}
+              onStopVideo={() => { stopTorrentStream(activeVideo); setChannelPlaylist(null); setChannelIndex(0); setActiveVideo(null); }}
+              onTimeUpdate={handleTimeUpdate}
+              onEnded={handlePlayNext}
               channelPlaylist={channelPlaylist}
+              channelIndex={channelIndex}
             />
           )}
 
