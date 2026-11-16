@@ -10,7 +10,7 @@ import dotenv from 'dotenv';
 import * as Database from './server/database.js';
 import { GoogleAuth } from './server/googleAuth.js';
 import { GoogleDrive, cleanGameTitle, searchInternetGameArt, COVERS_DIR } from './server/googleDrive.js';
-import { sanitizeFolderName, MAX_PC_REMOTE_TORRENT_BYTES, PC_REMOTE_TORRENT_LIMIT_MSG, parseSizeStringToBytes } from './server/rssDiscovery.js';
+import { sanitizeFolderName, MAX_PC_REMOTE_TORRENT_BYTES, PC_REMOTE_TORRENT_LIMIT_MSG, parseSizeStringToBytes, fetchFeed, FITGIRL_FEED_URL } from './server/rssDiscovery.js';
 import { DownloaderClient, GameDownloaderClient } from './server/downloaderClient.js';
 import { registerDiscoverRoutes } from './server/discoverRoutes.js';
 import { registerLibraryRoutes } from './server/libraryRoutes.js';
@@ -850,8 +850,42 @@ app.get('/api/settings', (req, res) => {
 app.post('/api/settings', (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
   Database.updateUserSettings(req.user.id, req.body || {});
+  req.user.settings = { ...(req.user.settings || {}), ...(req.body || {}) };
   res.json({ success: true, settings: req.user.settings });
 });
+
+// -------------------------------------------------------------
+// RSS Feed Background Sweeper: keeps FitGirl / PC feed up to date,
+// persisting releases across overnight updates and pruning items older than X months.
+// -------------------------------------------------------------
+let lastRssSweep = 0;
+async function sweepRssFeeds() {
+  try {
+    const allUsers = Database.getAllUsers();
+    let minIntervalMinutes = 30;
+    let maxRetentionMonths = 3;
+
+    for (const u of allUsers) {
+      if (u.settings?.rssInterval) {
+        minIntervalMinutes = Math.min(minIntervalMinutes, Math.max(5, parseInt(u.settings.rssInterval, 10) || 30));
+      }
+      if (u.settings?.rssRetentionMonths) {
+        maxRetentionMonths = Math.max(maxRetentionMonths, Math.max(1, parseInt(u.settings.rssRetentionMonths, 10) || 3));
+      }
+    }
+
+    const intervalMs = minIntervalMinutes * 60 * 1000;
+    if (Date.now() - lastRssSweep >= intervalMs) {
+      lastRssSweep = Date.now();
+      await fetchFeed(FITGIRL_FEED_URL, { retentionMonths: maxRetentionMonths, forceRefresh: true });
+    }
+  } catch (err) {
+    console.warn('[RSS Worker] Background sweep error:', err.message);
+  }
+}
+
+setInterval(sweepRssFeeds, 60 * 1000);
+setTimeout(sweepRssFeeds, 30 * 1000);
 
 // -------------------------------------------------------------
 // Admin controls are restricted to the server-configured ADMIN_EMAIL.

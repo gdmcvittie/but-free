@@ -472,6 +472,23 @@ export default function RssFeedsView({
     }
   };
 
+  const handleUpdateRetention = async (months) => {
+    try {
+      const res = await fetch('/api/wishlist/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ retentionMonths: months })
+      });
+      const data = await res.json();
+      if (res.ok && data.settings) {
+        setWishlistSettings(data.settings);
+        toast.success(`Feed items retention set to ${months} month${months > 1 ? 's' : ''}`);
+      }
+    } catch (_) {
+      toast.error('Failed to update retention period');
+    }
+  };
+
   const handleToggleAutoMonitoring = async (enabled) => {
     try {
       const res = await fetch('/api/wishlist/settings', {
@@ -1284,6 +1301,30 @@ export default function RssFeedsView({
                   <option value="360">6 hours</option>
                   <option value="720">12 hours</option>
                   <option value="1440">24 hours</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Retention:</span>
+                <select
+                  value={wishlistSettings.retentionMonths || 3}
+                  onChange={(e) => handleUpdateRetention(parseInt(e.target.value, 10))}
+                  style={{
+                    background: 'rgba(0, 0, 0, 0.4)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '8px',
+                    padding: '6px 10px',
+                    color: 'var(--text-primary)',
+                    fontSize: '12px',
+                    outline: 'none',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="1">1 month</option>
+                  <option value="2">2 months</option>
+                  <option value="3">3 months (Default)</option>
+                  <option value="6">6 months</option>
+                  <option value="12">12 months (1 year)</option>
                 </select>
               </div>
 

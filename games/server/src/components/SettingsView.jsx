@@ -14,7 +14,8 @@ import {
   Smartphone,
   Download,
   Shield,
-  Power
+  Power,
+  Rss
 } from 'lucide-react';
 import { fetchJson } from '../utils/api';
 
@@ -26,6 +27,8 @@ export default function SettingsView({
 }) {
   const [organizeByConsole, setOrganizeByConsole] = useState(true);
   const [autoScan, setAutoScan] = useState(true);
+  const [rssInterval, setRssInterval] = useState(30);
+  const [rssRetentionMonths, setRssRetentionMonths] = useState(3);
   const [saving, setSaving] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [statusMessage, setStatusMessage] = useState(null);
@@ -42,6 +45,8 @@ export default function SettingsView({
     if (user?.settings) {
       if (user.settings.organizeByConsole !== undefined) setOrganizeByConsole(user.settings.organizeByConsole);
       if (user.settings.autoScan !== undefined) setAutoScan(user.settings.autoScan);
+      if (user.settings.rssInterval !== undefined) setRssInterval(user.settings.rssInterval);
+      if (user.settings.rssRetentionMonths !== undefined) setRssRetentionMonths(user.settings.rssRetentionMonths);
     }
   }, [user]);
 
@@ -72,7 +77,9 @@ export default function SettingsView({
 
     const payload = {
       organizeByConsole: updates.organizeByConsole !== undefined ? updates.organizeByConsole : organizeByConsole,
-      autoScan: updates.autoScan !== undefined ? updates.autoScan : autoScan
+      autoScan: updates.autoScan !== undefined ? updates.autoScan : autoScan,
+      rssInterval: updates.rssInterval !== undefined ? updates.rssInterval : rssInterval,
+      rssRetentionMonths: updates.rssRetentionMonths !== undefined ? updates.rssRetentionMonths : rssRetentionMonths
     };
 
     try {
@@ -394,6 +401,70 @@ export default function SettingsView({
                 }}
                 className="w-4 h-4 accent-[#0078d4] rounded-sm cursor-pointer"
               />
+            </div>
+          </div>
+        </div>
+
+        {/* Card 5: RSS & Discover Feeds */}
+        <div className="glass-panel p-5 rounded-sm border border-[#383838] bg-[#222222] space-y-4">
+          <div className="flex items-center justify-between pb-2.5 border-b border-[#2e2e2e]">
+            <h3 className="font-bold text-sm text-white flex items-center gap-2">
+              <Rss className="w-4 h-4 text-pink-400" />
+              <span>RSS & Discover Feeds</span>
+            </h3>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-semibold text-white block mb-1.5">
+                Feed Check Frequency
+              </label>
+              <select
+                value={rssInterval}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10);
+                  setRssInterval(val);
+                  handleSaveSettings({ rssInterval: val });
+                }}
+                disabled={saving}
+                className="w-full bg-[#181818] border border-[#383838] rounded-sm px-3 py-2 text-xs text-white focus:outline-none focus:border-[#0078d4]"
+              >
+                <option value="15">Every 15 minutes</option>
+                <option value="30">Every 30 minutes (Default - Recommended)</option>
+                <option value="60">Every 1 hour</option>
+                <option value="120">Every 2 hours</option>
+                <option value="360">Every 6 hours</option>
+                <option value="720">Every 12 hours</option>
+                <option value="1440">Every 24 hours</option>
+              </select>
+              <p className="text-[11px] text-slate-400 mt-1">
+                How often the background worker sweeps for new PC repacks and discovery updates.
+              </p>
+            </div>
+
+            <div className="pt-3 border-t border-[#2e2e2e]">
+              <label className="text-xs font-semibold text-white block mb-1.5">
+                Feed Retention Period
+              </label>
+              <select
+                value={rssRetentionMonths}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10);
+                  setRssRetentionMonths(val);
+                  handleSaveSettings({ rssRetentionMonths: val });
+                }}
+                disabled={saving}
+                className="w-full bg-[#181818] border border-[#383838] rounded-sm px-3 py-2 text-xs text-white focus:outline-none focus:border-[#0078d4]"
+              >
+                <option value="1">1 Month</option>
+                <option value="2">2 Months</option>
+                <option value="3">3 Months (Default - Recommended)</option>
+                <option value="6">6 Months</option>
+                <option value="12">12 Months (1 Year)</option>
+              </select>
+              <p className="text-[11px] text-slate-400 mt-1">
+                Feed releases are accumulated across overnight updates and retained up to this cutoff.
+              </p>
             </div>
           </div>
         </div>

@@ -124,8 +124,10 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
   app.get('/api/pc/feed', async (req, res) => {
     if (!requireUser(req, res)) return;
     const feedUrl = (req.query.url || '').trim() || FITGIRL_FEED_URL;
+    const forceRefresh = req.query.refresh === 'true' || req.query.force === 'true';
+    const retentionMonths = parseInt(req.query.retentionMonths || req.user?.settings?.rssRetentionMonths, 10) || 3;
     try {
-      const feed = await fetchFeed(feedUrl);
+      const feed = await fetchFeed(feedUrl, { retentionMonths, forceRefresh });
       res.json({ success: true, feed });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });

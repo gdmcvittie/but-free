@@ -16,11 +16,13 @@ export default function FitgirlTab({ onDownloadDispatched }) {
 
   const [status, setStatus] = useState(null);
 
-  const loadFeed = useCallback(async (url) => {
+  const loadFeed = useCallback(async (url, force = false) => {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchJson(`/api/pc/feed?url=${encodeURIComponent(url)}`);
+      const sep = url.includes('?') ? '&' : '?';
+      const forceQuery = force ? `${sep}refresh=true` : '';
+      const data = await fetchJson(`/api/pc/feed?url=${encodeURIComponent(url)}${forceQuery}`);
       setFeed(data.feed);
     } catch (err) {
       setError(err.message || 'Failed to load feed');
@@ -64,7 +66,7 @@ export default function FitgirlTab({ onDownloadDispatched }) {
           <button type="submit" className="btn btn-primary">Search</button>
         </form>
         <button
-          onClick={() => loadFeed(activeFeedUrl)}
+          onClick={() => loadFeed(activeFeedUrl, true)}
           disabled={loading}
           className="btn btn-secondary whitespace-nowrap"
           title="Refresh feed"

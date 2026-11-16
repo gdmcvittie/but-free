@@ -9,13 +9,44 @@
 // =============================================================================
 
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+const FEED_CACHE_FILE = path.join(DATA_DIR, 'pc_feed_cache.json');
+
 const UA_BROWSER = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
 export const FITGIRL_FEED_URL = 'https://fitgirl-repacks.site/feed/';
+
+function loadFeedCache() {
+  try {
+    if (fs.existsSync(FEED_CACHE_FILE)) {
+      const raw = fs.readFileSync(FEED_CACHE_FILE, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') return parsed;
+    }
+  } catch (err) {
+    console.warn('[RSS Discovery] Failed to read feed cache:', err.message);
+  }
+  return { items: [], lastFetched: 0, title: 'FitGirl Repacks', description: '', link: FITGIRL_FEED_URL };
+}
+
+function saveFeedCache(cache) {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    fs.writeFileSync(FEED_CACHE_FILE, JSON.stringify(cache, null, 2), 'utf8');
+  } catch (err) {
+    console.warn('[RSS Discovery] Failed to save feed cache:', err.message);
+  }
+}
 
 // -------------------------------------------------------------
 // Small shared utilities
@@ -601,26 +632,82 @@ export function isFitgirlUpdateTitle(title) {
 // Feed fetch + parse (RSS or Atom). Returns { feed, items }
 // -------------------------------------------------------------
 
-export async function fetchFeed(feedUrl) {
-  if (!feedUrl) throw new Error('Feed URL is required');
+export async function fetchFeed(feedUrl, options = {}) {
+  if (!feedUrl) feedUrl = FITGIRL_FEED_URL;
+  const isMainFeed = !feedUrl.includes('?s=') && !feedUrl.includes('&s=');
+  const forceRefresh = options.forceRefresh === true || options.force === true;
+  const retentionMonths = Math.max(1, parseInt(options.retentionMonths, 10) || 3);
+  const cache = loadFeedCache();
+  const now = Date.now();
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 14000);
-
-  const response = await fetch(feedUrl, {
-    signal: controller.signal,
-    headers: {
-      'User-Agent': UA_BROWSER,
-      'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, text/html, */*'
-    }
-  });
-  clearTimeout(timeout);
-
-  if (!response.ok) {
-    throw new Error(`Remote feed server responded with HTTP ${response.status}`);
+  // If main feed and cached recently (< 10 min) without forceRefresh, return pruned cached items
+  if (isMainFeed && !forceRefresh && cache.items && cache.items.length > 0 && (now - (cache.lastFetched || 0) < 10 * 60 * 1000)) {
+    const cutoffMs = now - (retentionMonths * 30 * 24 * 60 * 60 * 1000);
+    const validItems = cache.items.filter(item => {
+      let t = item.pubDate ? new Date(item.pubDate).getTime() : 0;
+      if (isNaN(t) || t <= 0) t = item.firstSeenAt ? new Date(item.firstSeenAt).getTime() : now;
+      return t >= cutoffMs;
+    });
+    return {
+      title: cache.title || 'PC Games Feed',
+      description: cache.description || '',
+      link: cache.link || feedUrl,
+      feedUrl,
+      itemsCount: validItems.length,
+      items: validItems,
+      cached: true
+    };
   }
 
-  const xmlString = await response.text();
+  let xmlString = null;
+  let fetchError = null;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 14000);
+
+    const response = await fetch(feedUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': UA_BROWSER,
+        'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, text/html, */*'
+      }
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      throw new Error(`Remote feed server responded with HTTP ${response.status}`);
+    }
+    xmlString = await response.text();
+  } catch (err) {
+    fetchError = err;
+    console.warn('[RSS Discovery] Feed fetch error:', err.message);
+  }
+
+  // If fetch failed but we have cached items for main feed, return cached
+  if (!xmlString) {
+    if (cache.items && cache.items.length > 0) {
+      const cutoffMs = now - (retentionMonths * 30 * 24 * 60 * 60 * 1000);
+      const validItems = cache.items.filter(item => {
+        let t = item.pubDate ? new Date(item.pubDate).getTime() : 0;
+        if (isNaN(t) || t <= 0) t = item.firstSeenAt ? new Date(item.firstSeenAt).getTime() : now;
+        return t >= cutoffMs;
+      });
+      return {
+        title: cache.title || 'PC Games Feed',
+        description: cache.description || '',
+        link: cache.link || feedUrl,
+        feedUrl,
+        itemsCount: validItems.length,
+        items: validItems,
+        cached: true,
+        stale: true,
+        fetchError: fetchError?.message
+      };
+    }
+    throw fetchError || new Error('Failed to fetch feed XML');
+  }
+
   const isAtom = xmlString.includes('<feed') || xmlString.includes('<entry');
 
   const feedTitle = getXmlTag(xmlString, 'title') || 'PC Games Feed';
@@ -634,10 +721,10 @@ export async function fetchFeed(feedUrl) {
 
   const itemTag = isAtom ? 'entry' : 'item';
   const itemRegex = new RegExp(`<${itemTag}[^>]*>([\\s\\S]*?)<\\/${itemTag}>`, 'gi');
-  const items = [];
+  const fetchedItems = [];
   let match;
 
-  while ((match = itemRegex.exec(xmlString)) !== null && items.length < 60) {
+  while ((match = itemRegex.exec(xmlString)) !== null && fetchedItems.length < 100) {
     const itemXml = match[1];
     const title = getXmlTag(itemXml, 'title') || 'Untitled Release';
 
@@ -673,12 +760,13 @@ export async function fetchFeed(feedUrl) {
     const rawSizeStr = extractSizeFromText(rawContent || rawDesc || title);
     const sizeBytes = rawSizeStr ? parseSizeStringToBytes(rawSizeStr) : null;
 
-    items.push({
+    fetchedItems.push({
       id: 'pcrss_' + crypto.createHash('md5').update(link || title).digest('hex').substring(0, 14),
       title,
       cleanTitle: cleanPcGameTitle(title),
       link,
       pubDate,
+      firstSeenAt: Date.now(),
       author,
       excerpt: cleanExcerpt,
       size: rawSizeStr,
@@ -694,13 +782,66 @@ export async function fetchFeed(feedUrl) {
     });
   }
 
+  // Merge newly fetched items with existing stored items to prevent overnight drops
+  const itemMap = new Map();
+  const existingStored = Array.isArray(cache.items) ? cache.items : [];
+  for (const item of existingStored) {
+    if (!item || !item.id) continue;
+    itemMap.set(item.id, item);
+  }
+
+  for (const item of fetchedItems) {
+    if (!item || !item.id) continue;
+    const prev = itemMap.get(item.id);
+    if (prev) {
+      itemMap.set(item.id, {
+        ...prev,
+        ...item,
+        firstSeenAt: prev.firstSeenAt || Date.now()
+      });
+    } else {
+      itemMap.set(item.id, {
+        ...item,
+        firstSeenAt: Date.now()
+      });
+    }
+  }
+
+  // Retention filter: prune items older than retentionMonths
+  const cutoffMs = now - (retentionMonths * 30 * 24 * 60 * 60 * 1000);
+  const validAccumulated = [];
+  for (const it of itemMap.values()) {
+    let t = it.pubDate ? new Date(it.pubDate).getTime() : 0;
+    if (isNaN(t) || t <= 0) t = it.firstSeenAt ? new Date(it.firstSeenAt).getTime() : now;
+    if (t >= cutoffMs) {
+      validAccumulated.push(it);
+    }
+  }
+
+  validAccumulated.sort((a, b) => {
+    const timeA = a.pubDate ? new Date(a.pubDate).getTime() : (a.firstSeenAt || 0);
+    const timeB = b.pubDate ? new Date(b.pubDate).getTime() : (b.firstSeenAt || 0);
+    return timeB - timeA;
+  });
+
+  // Save the updated cumulative cache
+  cache.items = validAccumulated;
+  cache.lastFetched = Date.now();
+  cache.title = feedTitle;
+  cache.description = feedDesc;
+  cache.link = feedLink;
+  saveFeedCache(cache);
+
+  // If this was a search query URL, return the matching fetched items
+  const returnedItems = isMainFeed ? validAccumulated : fetchedItems;
+
   return {
     title: feedTitle,
     description: feedDesc,
     link: feedLink,
     feedUrl,
-    itemsCount: items.length,
-    items
+    itemsCount: returnedItems.length,
+    items: returnedItems
   };
 }
 

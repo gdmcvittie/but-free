@@ -172,6 +172,7 @@ export default function CloudSettingsModal({ isOpen, onClose, user, folders, onU
   const [newFeedType, setNewFeedType] = useState('tv');
   const [isSavingRss, setIsSavingRss] = useState(false);
   const [wishlistInterval, setWishlistInterval] = useState(30);
+  const [retentionMonths, setRetentionMonths] = useState(3);
   const [wishlistEnabled, setWishlistEnabled] = useState(true);
   const [isSavingWishlistSettings, setIsSavingWishlistSettings] = useState(false);
 
@@ -182,12 +183,13 @@ export default function CloudSettingsModal({ isOpen, onClose, user, folders, onU
         const data = await res.json();
         if (data.feeds) setRssFeeds(data.feeds);
         if (data.intervalMinutes) setWishlistInterval(data.intervalMinutes);
+        if (data.retentionMonths !== undefined) setRetentionMonths(data.retentionMonths);
         if (data.wishlistEnabled !== undefined) setWishlistEnabled(data.wishlistEnabled);
       }
     } catch (_) {}
   };
 
-  const handleSaveWishlistConfig = async (newInterval, newEnabled) => {
+  const handleSaveWishlistConfig = async (newInterval, newEnabled, newRetention) => {
     setIsSavingWishlistSettings(true);
     try {
       const res = await fetch('/api/settings/rss', {
@@ -195,12 +197,14 @@ export default function CloudSettingsModal({ isOpen, onClose, user, folders, onU
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           intervalMinutes: newInterval !== undefined ? newInterval : wishlistInterval,
+          retentionMonths: newRetention !== undefined ? newRetention : retentionMonths,
           wishlistEnabled: newEnabled !== undefined ? newEnabled : wishlistEnabled
         })
       });
       if (res.ok) {
         const data = await res.json();
         if (data.intervalMinutes) setWishlistInterval(data.intervalMinutes);
+        if (data.retentionMonths !== undefined) setRetentionMonths(data.retentionMonths);
         if (data.wishlistEnabled !== undefined) setWishlistEnabled(data.wishlistEnabled);
         toast.success('Wish List monitoring settings updated');
       } else {
@@ -952,7 +956,7 @@ export default function CloudSettingsModal({ isOpen, onClose, user, folders, onU
                       onChange={(e) => {
                         const val = parseInt(e.target.value, 10);
                         setWishlistInterval(val);
-                        handleSaveWishlistConfig(val, undefined);
+                        handleSaveWishlistConfig(val, undefined, undefined);
                       }}
                       disabled={isSavingWishlistSettings}
                       style={{
@@ -976,8 +980,39 @@ export default function CloudSettingsModal({ isOpen, onClose, user, folders, onU
                     </select>
                   </div>
 
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                      Feed Retention Period
+                    </label>
+                    <select
+                      value={retentionMonths}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        setRetentionMonths(val);
+                        handleSaveWishlistConfig(undefined, undefined, val);
+                      }}
+                      disabled={isSavingWishlistSettings}
+                      style={{
+                        width: '100%',
+                        background: 'rgba(0,0,0,0.4)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: '8px',
+                        padding: '9px 12px',
+                        color: 'var(--text-primary)',
+                        fontSize: '12.5px',
+                        outline: 'none'
+                      }}
+                    >
+                      <option value="1">1 Month</option>
+                      <option value="2">2 Months</option>
+                      <option value="3">3 Months (Default - Recommended)</option>
+                      <option value="6">6 Months</option>
+                      <option value="12">12 Months (1 Year)</option>
+                    </select>
+                  </div>
+
                   <div style={{ fontSize: '11.5px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                    💡 <strong>Smart Grab:</strong> New episodes are tracked to prevent duplicate downloads. Once queued, videos are automatically converted into direct-streaming MP4s and organized into your configured Drive folders.
+                    💡 <strong>Smart Grab:</strong> New episodes are tracked to prevent duplicate downloads. Feed items are preserved across overnight updates and retained up to your configured retention period.
                   </div>
                 </div>
               </div>

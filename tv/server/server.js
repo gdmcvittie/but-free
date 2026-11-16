@@ -7423,6 +7423,37 @@ let rssCache = {
   fetching: null
 };
 
+const RSS_GLOBAL_CACHE_FILE = path.join(DATA_DIR, 'rss_items_cache.json');
+
+function loadPersistedRssItems(userId = null) {
+  try {
+    if (userId) {
+      const userCached = getUserFile(userId, 'rss_items_cache.json', []);
+      if (Array.isArray(userCached) && userCached.length > 0) return userCached;
+    }
+    if (fs.existsSync(RSS_GLOBAL_CACHE_FILE)) {
+      const raw = fs.readFileSync(RSS_GLOBAL_CACHE_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (err) {
+    console.warn('[RSS Cache] Failed to load persisted RSS cache:', err.message);
+  }
+  return [];
+}
+
+function savePersistedRssItems(userId = null, items = []) {
+  try {
+    if (userId) {
+      saveUserFile(userId, 'rss_items_cache.json', items);
+    }
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(RSS_GLOBAL_CACHE_FILE, JSON.stringify(items, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('[RSS Cache] Failed to save persisted RSS cache:', err.message);
+  }
+}
+
 function decodeXmlEntities(str) {
   if (!str) return '';
   return str
@@ -7700,8 +7731,14 @@ async function fetchRssXml(targetUrl, timeoutMs = 12000) {
   });
 }
 
-async function fetchAllRssFeeds(customFeeds = null, force = false) {
+async function fetchAllRssFeeds(customFeeds = null, force = false, options = {}) {
+  const userId = options.userId || null;
   const now = Date.now();
+  let existingItems = loadPersistedRssItems(userId);
+  if (existingItems.length > 0 && rssCache.items.length === 0) {
+    rssCache.items = existingItems;
+  }
+
   if (!force && rssCache.items.length > 0 && now - rssCache.lastFetched < 10 * 60 * 1000) {
     return rssCache.items;
   }
@@ -7713,7 +7750,7 @@ async function fetchAllRssFeeds(customFeeds = null, force = false) {
 
   rssCache.fetching = (async () => {
     try {
-      const allItems = [];
+      const newlyFetched = [];
       await Promise.all(
         feeds.filter(f => f.enabled !== false).map(async (feed) => {
           // Build list of candidate URLs (configured URL first, then known mirrors)
@@ -7735,17 +7772,67 @@ async function fetchAllRssFeeds(customFeeds = null, force = false) {
           }
 
           if (fetchedItems.length > 0) {
-            allItems.push(...fetchedItems);
+            newlyFetched.push(...fetchedItems);
           }
         })
       );
 
+      // Merge newly fetched items with existing stored items to prevent overnight drops
+      const itemMap = new Map();
+      const baseItems = existingItems.length > 0 ? existingItems : (rssCache.items || []);
+      for (const item of baseItems) {
+        if (!item || !item.id) continue;
+        itemMap.set(item.id, item);
+      }
+
+      for (const item of newlyFetched) {
+        if (!item || !item.id) continue;
+        const prev = itemMap.get(item.id);
+        if (prev) {
+          itemMap.set(item.id, {
+            ...prev,
+            ...item,
+            firstSeenAt: prev.firstSeenAt || Date.now()
+          });
+        } else {
+          itemMap.set(item.id, {
+            ...item,
+            firstSeenAt: Date.now()
+          });
+        }
+      }
+
+      // Retention filter: prune items older than retentionMonths (default 3 months)
+      let retentionMonths = 3;
+      if (options.retentionMonths !== undefined) {
+        retentionMonths = Math.max(1, parseInt(options.retentionMonths, 10) || 3);
+      } else if (userId) {
+        const wishlist = getUserWishlist(userId);
+        retentionMonths = Math.max(1, parseInt(wishlist.settings?.retentionMonths, 10) || 3);
+      }
+      const cutoffMs = Date.now() - (retentionMonths * 30 * 24 * 60 * 60 * 1000);
+
+      const allItems = [];
+      for (const it of itemMap.values()) {
+        let itTime = 0;
+        if (it.pubDate) {
+          itTime = new Date(it.pubDate).getTime();
+        }
+        if (isNaN(itTime) || itTime <= 0) {
+          itTime = it.firstSeenAt ? new Date(it.firstSeenAt).getTime() : Date.now();
+        }
+        if (itTime >= cutoffMs) {
+          allItems.push(it);
+        }
+      }
+
       allItems.sort((a, b) => {
-        const timeA = a.pubDate ? new Date(a.pubDate).getTime() : 0;
-        const timeB = b.pubDate ? new Date(b.pubDate).getTime() : 0;
+        const timeA = a.pubDate ? new Date(a.pubDate).getTime() : (a.firstSeenAt || 0);
+        const timeB = b.pubDate ? new Date(b.pubDate).getTime() : (b.firstSeenAt || 0);
         return timeB - timeA;
       });
 
+      savePersistedRssItems(userId, allItems);
       rssCache.items = allItems;
       rssCache.lastFetched = Date.now();
       return allItems;
@@ -7761,9 +7848,11 @@ app.get('/api/rss-feeds', authenticate, async (req, res) => {
   const force = req.query.refresh === 'true' || req.query.force === 'true';
   const typeFilter = req.query.type;
   const feeds = getUserFile(req.user.id, 'rss_feeds.json', DEFAULT_RSS_FEEDS);
+  const wishlist = getUserWishlist(req.user.id);
+  const retentionMonths = wishlist.settings?.retentionMonths || 3;
 
   try {
-    const items = await fetchAllRssFeeds(feeds, force);
+    const items = await fetchAllRssFeeds(feeds, force, { userId: req.user.id, retentionMonths });
     let filtered = items;
     if (typeFilter && typeFilter !== 'all') {
       filtered = items.filter(it => it.type === typeFilter);
@@ -7782,8 +7871,10 @@ app.get('/api/rss-feeds', authenticate, async (req, res) => {
 
 app.post('/api/rss-feeds/refresh', authenticate, async (req, res) => {
   const feeds = getUserFile(req.user.id, 'rss_feeds.json', DEFAULT_RSS_FEEDS);
+  const wishlist = getUserWishlist(req.user.id);
+  const retentionMonths = wishlist.settings?.retentionMonths || 3;
   try {
-    const items = await fetchAllRssFeeds(feeds, true);
+    const items = await fetchAllRssFeeds(feeds, true, { userId: req.user.id, retentionMonths });
     res.json({
       success: true,
       items,
@@ -7977,12 +8068,13 @@ app.get('/api/settings/rss', authenticate, requireAdmin, (req, res) => {
     success: true,
     feeds,
     intervalMinutes: wishlist.settings?.intervalMinutes || 30,
+    retentionMonths: wishlist.settings?.retentionMonths || 3,
     wishlistEnabled: wishlist.settings?.enabled !== false
   });
 });
 
 app.post('/api/settings/rss', authenticate, requireAdmin, (req, res) => {
-  const { feeds, intervalMinutes, wishlistEnabled } = req.body;
+  const { feeds, intervalMinutes, retentionMonths, wishlistEnabled } = req.body;
   if (feeds !== undefined) {
     if (!Array.isArray(feeds)) {
       return res.status(400).json({ error: 'feeds must be an array' });
@@ -7990,10 +8082,13 @@ app.post('/api/settings/rss', authenticate, requireAdmin, (req, res) => {
     saveUserFile(req.user.id, 'rss_feeds.json', feeds);
     rssCache.lastFetched = 0;
   }
-  if (intervalMinutes !== undefined || wishlistEnabled !== undefined) {
+  if (intervalMinutes !== undefined || retentionMonths !== undefined || wishlistEnabled !== undefined) {
     const wishlist = getUserWishlist(req.user.id);
     if (intervalMinutes !== undefined) {
       wishlist.settings.intervalMinutes = Math.max(5, parseInt(intervalMinutes, 10) || 30);
+    }
+    if (retentionMonths !== undefined) {
+      wishlist.settings.retentionMonths = Math.max(1, parseInt(retentionMonths, 10) || 3);
     }
     if (wishlistEnabled !== undefined) {
       wishlist.settings.enabled = !!wishlistEnabled;
@@ -8006,6 +8101,7 @@ app.post('/api/settings/rss', authenticate, requireAdmin, (req, res) => {
     success: true,
     feeds: updatedFeeds,
     intervalMinutes: updatedWishlist.settings?.intervalMinutes || 30,
+    retentionMonths: updatedWishlist.settings?.retentionMonths || 3,
     wishlistEnabled: updatedWishlist.settings?.enabled !== false
   });
 });
@@ -8015,6 +8111,7 @@ app.post('/api/settings/rss', authenticate, requireAdmin, (req, res) => {
 // -------------------------------------------------------------
 const DEFAULT_WISHLIST_SETTINGS = {
   intervalMinutes: 30,
+  retentionMonths: 3,
   enabled: true,
   lastCheckedAt: null,
   nextCheckAt: null,
@@ -8207,7 +8304,8 @@ async function checkUserWishlist(userId, force = false) {
 
     // Fetch latest RSS items
     const userFeeds = getUserFile(userId, 'rss_feeds.json', DEFAULT_RSS_FEEDS);
-    const rssItems = await fetchAllRssFeeds(userFeeds, force);
+    const retentionMonths = wishlist.settings?.retentionMonths || 3;
+    const rssItems = await fetchAllRssFeeds(userFeeds, force, { userId, retentionMonths });
     const userLibrary = getUserFile(userId, 'library.json', {});
 
     const newDownloads = [];
@@ -8468,11 +8566,14 @@ app.delete('/api/wishlist/:id', authenticate, (req, res) => {
 });
 
 app.post('/api/wishlist/settings', authenticate, (req, res) => {
-  const { intervalMinutes, enabled } = req.body;
+  const { intervalMinutes, retentionMonths, enabled } = req.body;
   const wishlist = getUserWishlist(req.user.id);
 
   if (intervalMinutes !== undefined) {
     wishlist.settings.intervalMinutes = Math.max(5, parseInt(intervalMinutes, 10) || 30);
+  }
+  if (retentionMonths !== undefined) {
+    wishlist.settings.retentionMonths = Math.max(1, parseInt(retentionMonths, 10) || 3);
   }
   if (enabled !== undefined) {
     wishlist.settings.enabled = !!enabled;
