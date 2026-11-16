@@ -1,6 +1,27 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Tv, Settings, RefreshCw, AlertCircle, X, Play, PlayCircle, Download, Film, Sparkles, User, Layers, HardDrive, Search, LogOut, Heart, Radio, UploadCloud, Rss, Menu } from 'lucide-react';
+import {
+  Tv,
+  Settings,
+  RefreshCw,
+  AlertCircle,
+  X,
+  Play,
+  PlayCircle,
+  Download,
+  Film,
+  Sparkles,
+  User,
+  Layers,
+  HardDrive,
+  Search,
+  LogOut,
+  Heart,
+  Radio,
+  UploadCloud,
+  Rss
+} from 'lucide-react';
 import { ToastProvider, useToast } from './components/Toast.jsx';
+import Sidebar from './components/Sidebar.jsx';
 import LoginScreen from './components/LoginScreen.jsx';
 import CloudSettingsModal from './components/CloudSettingsModal.jsx';
 import CloudLoaderModal from './components/CloudLoaderModal.jsx';
@@ -25,7 +46,7 @@ function CloudAppContent() {
     folders: null,
     error: null
   });
-  const [activeTab, setActiveTab] = useState('whatson'); // 'whatson' | 'services' | 'ondemand' | 'faves' | 'channels'
+  const [activeTab, setActiveTab] = useState('whatson'); // 'whatson' | 'channels' | 'services' | 'ondemand' | 'faves' | 'feeds'
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDownloadsOpen, setIsDownloadsOpen] = useState(false);
   const [activeDownloadsCount, setActiveDownloadsCount] = useState(0);
@@ -37,7 +58,7 @@ function CloudAppContent() {
   const [channelPlaylist, setChannelPlaylist] = useState(null);
   const [channelIndex, setChannelIndex] = useState(0);
   const [headerSearch, setHeaderSearch] = useState('');
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const notifiedJobsRef = useRef(new Set());
   const initialDownloadsLoadedRef = useRef(false);
   const lastLibraryUpdateRef = useRef(0);
@@ -79,31 +100,7 @@ function CloudAppContent() {
     toast.success(`Ready to Watch: "${name}"`, { duration: 6000 });
   };
 
-  // Close mobile drawer on desktop resize
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth >= 768 && isMobileMenuOpen) {
-        setIsMobileMenuOpen(false);
-      }
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [isMobileMenuOpen]);
-
-  // Lock body scroll when mobile drawer is open
-  useEffect(() => {
-    if (isMobileMenuOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [isMobileMenuOpen]);
-
   const handleNavTab = (tabId) => {
-    if (isMobileMenuOpen) setIsMobileMenuOpen(false);
     if (tabId === 'loader') {
       setIsDownloadsOpen(true);
     } else {
@@ -115,7 +112,6 @@ function CloudAppContent() {
     if (e) e.preventDefault();
     const q = headerSearch.trim();
     if (!q) return;
-    if (isMobileMenuOpen) setIsMobileMenuOpen(false);
     handleStreamFind(q, 'unified');
   };
 
@@ -139,66 +135,48 @@ function CloudAppContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ item })
       });
-      const data = await res.json();
-      if (res.ok && data.favorites) {
-        setFavorites(data.favorites);
-        if (data.isFavorite) {
-          toast.success(`"${item.title}" added to Favorites`);
-        } else {
-          toast.info(`"${item.title}" removed from Favorites`);
-        }
-      }
-    } catch (err) {
-      toast.error('Could not update favorites');
-    }
-  };
-
-  const checkDriveStatus = async () => {
-    try {
-      const res = await fetch('/auth/drive-status');
       if (res.ok) {
         const data = await res.json();
-        if (data.authenticated && (data.revoked || !data.valid)) {
-          toast.warning(
-            'Google Drive connection expired or revoked. Click to reconnect.',
-            15000,
-            () => {
-              setIsSettingsOpen(true);
-            }
-          );
+        setFavorites(Array.isArray(data.favorites) ? data.favorites : []);
+        if (data.isFavorite) {
+          toast.success(`Added "${item.title}" to Favorites`);
+        } else {
+          toast.info(`Removed "${item.title}" from Favorites`);
         }
       }
     } catch (err) {
-      console.warn('[App] Could not verify Google Drive token status:', err);
+      console.error('[Favorites] Toggle failed:', err);
     }
   };
 
   const checkAuth = async () => {
-    const params = new URLSearchParams(window.location.search);
-    const authError = params.get('auth_error');
-    try {
-      const data = await fetchCurrentUser();
-      if (data && data.authenticated) {
-        setAuthState({
-          loading: false,
-          authenticated: true,
-          user: data.user || null,
-          folders: data.folders || null,
-          error: null
-        });
-      } else {
-        setAuthState((prev) => ({
-          ...prev,
-          loading: false,
-          authenticated: false,
-          error: authError || data?.error || null
-        }));
-      }
-    } catch (_) {
-      setAuthState((prev) => ({ ...prev, loading: false, authenticated: false, error: authError || null }));
+    setAuthState(prev => ({ ...prev, loading: true }));
+    const result = await fetchCurrentUser();
+    setAuthState({
+      loading: false,
+      authenticated: result.authenticated,
+      user: result.user,
+      folders: result.folders,
+      error: result.error
+    });
+
+    if (result.authenticated) {
+      // Warm start: paints the stored snapshot before the network fetch begins
+      loadLibrary();
+      loadFavorites();
     }
-    loadLibrary();
-    loadFavorites();
+  };
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await loadLibrary();
+      toast.success('Library refreshed from Google Drive');
+    } catch (_) {
+      toast.error('Could not refresh library');
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const loadLibrary = async () => {
@@ -392,7 +370,7 @@ function CloudAppContent() {
 
   if (authState.loading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#09090b' }}>
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#121214' }}>
         <RefreshCw size={36} className="spin" style={{ color: 'var(--primary)' }} />
       </div>
     );
@@ -403,412 +381,217 @@ function CloudAppContent() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg-darker)', color: 'var(--text-primary)' }}>
-      {/* Top Navbar */}
-      <header className="app-header">
-        <div className="header-inner">
-          {/* Line 1: Branding on Left, Google User Badge & Settings on Right */}
-          <div className="header-top-row">
-            <div className="header-brand" onClick={() => { setActiveTab('whatson'); if (isMobileMenuOpen) setIsMobileMenuOpen(false); }}>
-              <div className="brand-icon">
-                <Tv size={20} color="#fff" />
-              </div>
-              <div className="brand-title">
-                FREE<span style={{ color: 'var(--primary)' }}>VEE</span>
-              </div>
-            </div>
-
-            <div className="header-user-actions">
-              <button
-                className="action-btn desktop-only"
-                onClick={() => setIsSettingsOpen(true)}
-                title="Settings"
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '7px 8px', borderRadius: '8px' }}
-              >
-                <Settings size={15} />
-              </button>
-
-              <div
-                className="user-badge desktop-only"
-                onClick={() => setIsSettingsOpen(true)}
-              >
-                {authState.user?.picture ? (
-                  <img src={authState.user.picture} alt={authState.user.name} style={{ width: '24px', height: '24px', borderRadius: '50%' }} />
-                ) : (
-                  <User size={16} />
-                )}
-                <span style={{ fontSize: '12px', fontWeight: 600 }}>{authState.user?.name?.split(' ')[0] || 'User'}</span>
-              </div>
-
-              {/* Hamburger Button for Mobile */}
-              <button
-                className="hamburger-btn"
-                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                aria-label="Toggle navigation menu"
-                aria-expanded={isMobileMenuOpen}
-              >
-                {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
-                {activeDownloadsCount > 0 && !isMobileMenuOpen && (
-                  <span className="hamburger-badge">{activeDownloadsCount}</span>
-                )}
-              </button>
-            </div>
-          </div>
-
-          {/* Line 2: Full Width Menu */}
-          <nav className="header-nav">
-            {[
-              { id: 'services', label: 'Services', icon: <Layers size={14} /> },
-              { id: 'channels', label: 'Channels', icon: <Radio size={14} /> },
-              { id: 'faves', label: 'Faves', icon: <Heart size={14} fill={activeTab === 'faves' ? '#000' : 'none'} /> },
-              { id: 'ondemand', label: 'Drive', icon: <HardDrive size={14} /> },
-              { id: 'feeds', label: 'Feeds', icon: <Rss size={14} /> },
-              { id: 'loader', label: 'Loader', icon: <UploadCloud size={14} />, badge: activeDownloadsCount }
-            ].map(tab => (
-              <button
-                key={tab.id}
-                className={`nav-item ${activeTab === tab.id ? 'active' : ''}`}
-                onClick={() => {
-                  if (tab.id === 'loader') {
-                    setIsDownloadsOpen(true);
-                  } else {
-                    setActiveTab(tab.id);
-                  }
-                }}
-              >
-                {tab.icon}
-                {tab.label}
-                {tab.badge > 0 && (
-                  <span
-                    style={{
-                      marginLeft: '4px',
-                      background: 'var(--primary)',
-                      color: '#000',
-                      borderRadius: '10px',
-                      padding: '0 5px',
-                      fontSize: '10px',
-                      fontWeight: 800,
-                      lineHeight: '14px'
-                    }}
-                  >
-                    {tab.badge}
-                  </span>
-                )}
-              </button>
-            ))}
-          </nav>
-
-          {/* Line 3: Search Bar */}
-          <div className="header-search-row">
-            <form onSubmit={handleSearchSubmit} className="header-search-box">
-              <Search size={15} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-              <input
-                type="text"
-                placeholder="Search movies, shows, streams..."
-                value={headerSearch}
-                onChange={(e) => setHeaderSearch(e.target.value)}
-              />
-              {headerSearch && (
-                <button
-                  type="button"
-                  onClick={() => setHeaderSearch('')}
-                  style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '2px' }}
-                >
-                  <X size={14} />
-                </button>
-              )}
-            </form>
-          </div>
-        </div>
-      </header>
-
-      {/* Mobile Drawer Backdrop & Menu */}
-      <div
-        className={`mobile-drawer-overlay ${isMobileMenuOpen ? 'open' : ''}`}
-        onClick={() => setIsMobileMenuOpen(false)}
+    <div className="app-layout">
+      {/* Unified Desktop Sidebar & Mobile Navigation */}
+      <Sidebar
+        currentView={activeTab}
+        setCurrentView={handleNavTab}
+        user={authState.user}
+        folders={authState.folders}
+        activeDownloadsCount={activeDownloadsCount}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenLoader={() => setIsDownloadsOpen(true)}
+        onOpenSearch={() => {
+          const input = document.querySelector('.topbar-search-box input');
+          if (input) input.focus();
+          else setActiveSearch({ query: '', scope: 'unified' });
+        }}
       />
 
-      <aside className={`mobile-drawer ${isMobileMenuOpen ? 'open' : ''}`} aria-hidden={!isMobileMenuOpen}>
-        {/* Drawer Header */}
-        <div className="mobile-drawer-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div className="brand-icon" style={{ width: '32px', height: '32px', borderRadius: '8px' }}>
-              <Tv size={17} color="#fff" />
-            </div>
-            <div className="brand-title" style={{ fontSize: '16px' }}>
-              FREE<span style={{ color: 'var(--primary)' }}>VEE</span>
-            </div>
-          </div>
-          <button
-            onClick={() => setIsMobileMenuOpen(false)}
-            style={{
-              background: 'rgba(255,255,255,0.06)',
-              border: '1px solid var(--border-color)',
-              color: 'var(--text-secondary)',
-              borderRadius: '8px',
-              padding: '6px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}
-            aria-label="Close menu"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        {/* User Card if Authenticated */}
-        {authState.user && (
-          <div
-            onClick={() => {
-              setIsMobileMenuOpen(false);
-              setIsSettingsOpen(true);
-            }}
-            style={{
-              margin: '12px 14px 6px',
-              padding: '12px',
-              borderRadius: '12px',
-              background: 'rgba(255, 255, 255, 0.03)',
-              border: '1px solid var(--border-color)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              cursor: 'pointer'
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-              {authState.user.picture ? (
-                <img src={authState.user.picture} alt={authState.user.name} style={{ width: '36px', height: '36px', borderRadius: '50%', border: '2px solid var(--primary)', flexShrink: 0 }} />
-              ) : (
-                <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'rgba(139,92,246,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--primary)', flexShrink: 0 }}>
-                  <User size={18} />
-                </div>
-              )}
-              <div style={{ minWidth: 0, overflow: 'hidden' }}>
-                <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{authState.user.name || 'User'}</div>
-                <div style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{authState.user.email}</div>
-              </div>
-            </div>
-            <Settings size={16} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-          </div>
-        )}
-
-        {/* Navigation Links */}
-        <nav className="mobile-drawer-nav">
-          <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)', padding: '6px 8px 4px' }}>
-            Navigation
-          </div>
-          {[
-            { id: 'whatson', label: "What's On", icon: <Tv size={17} /> },
-            { id: 'services', label: 'Services', icon: <Layers size={17} /> },
-            { id: 'channels', label: 'Channels', icon: <Radio size={17} /> },
-            { id: 'faves', label: 'Favorites', icon: <Heart size={17} fill={activeTab === 'faves' ? 'var(--primary)' : 'none'} /> },
-            { id: 'ondemand', label: 'Drive Library', icon: <HardDrive size={17} /> },
-            { id: 'feeds', label: 'RSS Releases', icon: <Rss size={17} /> },
-            { id: 'loader', label: 'Cloud Loader', icon: <UploadCloud size={17} />, badge: activeDownloadsCount }
-          ].map(tab => {
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                className={`mobile-nav-item ${isActive ? 'active' : ''}`}
-                onClick={() => handleNavTab(tab.id)}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <span className="mobile-nav-icon">{tab.icon}</span>
-                  <span>{tab.label}</span>
-                </div>
-                {tab.badge > 0 && (
-                  <span
-                    style={{
-                      background: 'var(--primary)',
-                      color: '#000',
-                      borderRadius: '10px',
-                      padding: '1px 7px',
-                      fontSize: '11px',
-                      fontWeight: 800
-                    }}
-                  >
-                    {tab.badge}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </nav>
-
-        {/* Drawer Footer Actions */}
-        <div className="mobile-drawer-footer">
-          <button
-            className="action-btn"
-            onClick={() => {
-              setIsMobileMenuOpen(false);
-              setIsSettingsOpen(true);
-            }}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              padding: '10px 14px',
-              fontSize: '13px',
-              fontWeight: 600,
-              width: '100%',
-              borderRadius: '8px'
-            }}
-          >
-            <Settings size={15} />
-            Cloud Settings
-          </button>
-
-          <button
-            className="action-btn"
-            onClick={() => {
-              setIsMobileMenuOpen(false);
-              logoutUser();
-            }}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '8px',
-              padding: '10px 14px',
-              fontSize: '13px',
-              fontWeight: 600,
-              width: '100%',
-              borderRadius: '8px',
-              color: '#f87171',
-              borderColor: 'rgba(244, 63, 94, 0.25)',
-              background: 'rgba(244, 63, 94, 0.08)'
-            }}
-          >
-            <LogOut size={15} />
-            Log Out
-          </button>
-        </div>
-      </aside>
-
-      {/* Main Content Area */}
-      <main style={{ flex: 1, padding: '24px', maxWidth: '1440px', width: '100%', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-        {/* Active Player (Sticky when playing) */}
-        {activeVideo && (
-          <div
-            style={{
-              position: 'sticky',
-              top: '64px',
-              zIndex: 80,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '10px',
-              background: 'rgba(9, 9, 11, 0.94)',
-              backdropFilter: 'blur(16px)',
-              padding: '14px',
-              borderRadius: '16px',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-              boxShadow: '0 20px 48px rgba(0, 0, 0, 0.85)',
-              marginBottom: '12px'
-            }}
-          >
-            <TvPlayer
-              currentVideo={activeVideo}
-              offset={videoOffset}
-              onStop={() => { stopTorrentStream(activeVideo); setChannelPlaylist(null); setChannelIndex(0); setActiveVideo(null); }}
-              onTimeUpdate={handleTimeUpdate}
-              onEnded={handlePlayNext}
+      <div className="main-content-wrapper">
+        {/* Main Desktop Topbar */}
+        <header className="main-topbar desktop-only">
+          <form onSubmit={handleSearchSubmit} className="topbar-search-box">
+            <Search size={15} style={{ color: '#888', flexShrink: 0 }} />
+            <input
+              type="text"
+              placeholder="Search movies, shows, streams, torrents..."
+              value={headerSearch}
+              onChange={(e) => setHeaderSearch(e.target.value)}
             />
-            <div style={{ padding: '4px 6px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ minWidth: 0, flex: 1, marginRight: '16px' }}>
-                <div style={{ fontSize: '10.5px', color: activeVideo.isLive ? '#f87171' : 'var(--primary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  {activeVideo.isLive && <span className="live-dot-pulse" style={{ width: '6px', height: '6px' }} />}
-                  {activeVideo.isLive ? `LIVE STREAM · ${activeVideo.provider || 'FREE TV'}` : (channelPlaylist ? `CHANNEL · ${channelPlaylist.name}` : 'NOW PLAYING')}
-                </div>
-                <h2 style={{ fontSize: '16px', fontWeight: 700, margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {activeVideo.currentProgram?.title && activeVideo.currentProgram.title !== activeVideo.title
-                    ? `${activeVideo.title} — ${activeVideo.currentProgram.title}`
-                    : (activeVideo.title || activeVideo.filename)}
-                </h2>
-                {channelPlaylist && (
-                  <div style={{ fontSize: '10.5px', color: 'var(--text-secondary)' }}>
-                    {(channelIndex + 1)} / {channelPlaylist.items.length} · playing next automatically
-                  </div>
-                )}
-                {activeVideo.currentProgram?.description ? (
-                  <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {activeVideo.currentProgram.description}
-                  </div>
-                ) : activeVideo.show ? (
-                  <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>{activeVideo.show} (Season {activeVideo.season}, Episode {activeVideo.episode})</div>
-                ) : null}
-              </div>
+            {headerSearch && (
               <button
-                className="action-btn"
-                onClick={() => { stopTorrentStream(activeVideo); setChannelPlaylist(null); setChannelIndex(0); setActiveVideo(null); }}
-                style={{ padding: '6px 14px', fontSize: '12px', color: 'var(--accent)', borderColor: 'rgba(244, 63, 94, 0.3)', flexShrink: 0 }}
+                type="button"
+                onClick={() => setHeaderSearch('')}
+                className="topbar-search-clear"
+                title="Clear search"
               >
-                Close Player
+                <X size={14} />
               </button>
+            )}
+          </form>
+
+          <div className="topbar-actions">
+            <div
+              className="topbar-status-pill"
+              onClick={() => setActiveTab('channels')}
+              title="Browse 24/7 Live Channels"
+            >
+              <span className="live-dot-pulse" />
+              <span>FREE TV LIVE</span>
             </div>
+
+            <button
+              type="button"
+              className="topbar-action-btn"
+              onClick={() => setIsDownloadsOpen(true)}
+              title="Cloud Loader & Downloads"
+            >
+              <UploadCloud size={16} />
+              <span>Downloads</span>
+              {activeDownloadsCount > 0 && (
+                <span className="topbar-badge">{activeDownloadsCount}</span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              className="topbar-action-btn"
+              onClick={handleManualRefresh}
+              disabled={isRefreshing}
+              title="Refresh Google Drive Library"
+            >
+              <RefreshCw size={15} className={isRefreshing ? 'spin' : ''} />
+            </button>
+
+            <button
+              type="button"
+              className="topbar-action-btn icon-only"
+              onClick={() => setIsSettingsOpen(true)}
+              title="Cloud Settings"
+            >
+              <Settings size={16} />
+            </button>
           </div>
-        )}
+        </header>
 
-        {/* View Routing */}
-        {activeTab === 'whatson' && (
-          <WhatsOnView
-            continueWatching={library.continueWatching || []}
-            onPlayOnDemand={handlePlayVideo}
-            onFind={handleStreamFind}
-            favorites={favorites}
-            onToggleFavorite={handleToggleFavorite}
-          />
-        )}
+        {/* Mobile Search Input Row */}
+        <div className="mobile-search-row">
+          <form onSubmit={handleSearchSubmit} className="topbar-search-box" style={{ maxWidth: '100%' }}>
+            <Search size={15} style={{ color: '#888', flexShrink: 0 }} />
+            <input
+              type="text"
+              placeholder="Search movies, shows, streams..."
+              value={headerSearch}
+              onChange={(e) => setHeaderSearch(e.target.value)}
+            />
+            {headerSearch && (
+              <button
+                type="button"
+                onClick={() => setHeaderSearch('')}
+                className="topbar-search-clear"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </form>
+        </div>
 
-        {activeTab === 'services' && (
-          <ServicesView
-            onPlayVideo={handlePlayVideo}
-            onFind={handleStreamFind}
-            favorites={favorites}
-            onToggleFavorite={handleToggleFavorite}
-          />
-        )}
+        {/* Main Content Area */}
+        <main className="main-content-scroll">
+          {/* Active Player (Sticky docked card when playing) */}
+          {activeVideo && (
+            <div className="docked-player-card">
+              <TvPlayer
+                currentVideo={activeVideo}
+                offset={videoOffset}
+                onStop={() => { stopTorrentStream(activeVideo); setChannelPlaylist(null); setChannelIndex(0); setActiveVideo(null); }}
+                onTimeUpdate={handleTimeUpdate}
+                onEnded={handlePlayNext}
+              />
+              <div className="docked-player-footer">
+                <div style={{ minWidth: 0, flex: 1, marginRight: '16px' }}>
+                  <div className="docked-player-badge">
+                    {activeVideo.isLive && <span className="live-dot-pulse" style={{ width: '6px', height: '6px' }} />}
+                    {activeVideo.isLive ? `LIVE STREAM · ${activeVideo.provider || 'FREE TV'}` : (channelPlaylist ? `CHANNEL · ${channelPlaylist.name}` : 'NOW PLAYING')}
+                  </div>
+                  <h2 className="docked-player-title">
+                    {activeVideo.currentProgram?.title && activeVideo.currentProgram.title !== activeVideo.title
+                      ? `${activeVideo.title} — ${activeVideo.currentProgram.title}`
+                      : (activeVideo.title || activeVideo.filename)}
+                  </h2>
+                  {channelPlaylist && (
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                      {(channelIndex + 1)} / {channelPlaylist.items.length} · playing next automatically
+                    </div>
+                  )}
+                  {activeVideo.currentProgram?.description ? (
+                    <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {activeVideo.currentProgram.description}
+                    </div>
+                  ) : activeVideo.show ? (
+                    <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)' }}>{activeVideo.show} (Season {activeVideo.season}, Episode {activeVideo.episode})</div>
+                  ) : null}
+                </div>
+                <button
+                  className="action-btn"
+                  onClick={() => { stopTorrentStream(activeVideo); setChannelPlaylist(null); setChannelIndex(0); setActiveVideo(null); }}
+                  style={{ padding: '6px 14px', fontSize: '12px', color: 'var(--accent)', borderColor: 'rgba(244, 63, 94, 0.3)', flexShrink: 0 }}
+                >
+                  Close Player
+                </button>
+              </div>
+            </div>
+          )}
 
-        {activeTab === 'faves' && (
-          <FavoritesView
-            favorites={favorites}
-            onToggleFavorite={handleToggleFavorite}
-            onFind={handleStreamFind}
-            onPlayVideo={handlePlayVideo}
-          />
-        )}
+          {/* View Routing */}
+          {activeTab === 'whatson' && (
+            <WhatsOnView
+              continueWatching={library.continueWatching || []}
+              onPlayOnDemand={handlePlayVideo}
+              onFind={handleStreamFind}
+              favorites={favorites}
+              onToggleFavorite={handleToggleFavorite}
+            />
+          )}
 
-        {activeTab === 'ondemand' && (
-          <OnDemandBrowse
-            library={library}
-            onPlayVideo={handlePlayVideo}
-            onOpenSettings={() => setIsSettingsOpen(true)}
-            favorites={favorites}
-            onToggleFavorite={handleToggleFavorite}
-          />
-        )}
+          {activeTab === 'channels' && (
+            <ChannelsView
+              onPlayChannel={handlePlayChannel}
+              favorites={favorites}
+              onToggleFavorite={handleToggleFavorite}
+            />
+          )}
 
-        {activeTab === 'channels' && (
-          <ChannelsView
-            onPlayChannel={handlePlayChannel}
-            favorites={favorites}
-            onToggleFavorite={handleToggleFavorite}
-          />
-        )}
+          {activeTab === 'services' && (
+            <ServicesView
+              onPlayVideo={handlePlayVideo}
+              onFind={handleStreamFind}
+              favorites={favorites}
+              onToggleFavorite={handleToggleFavorite}
+            />
+          )}
 
-        {activeTab === 'feeds' && (
-          <RssFeedsView
-            folders={authState.folders}
-            onOpenSettings={() => setIsSettingsOpen(true)}
-            onOpenLoader={() => setIsDownloadsOpen(true)}
-            onJobAdded={checkActiveDownloads}
-            onPlayVideo={handlePlayVideo}
-          />
-        )}
-      </main>
+          {activeTab === 'faves' && (
+            <FavoritesView
+              favorites={favorites}
+              onToggleFavorite={handleToggleFavorite}
+              onFind={handleStreamFind}
+              onPlayVideo={handlePlayVideo}
+            />
+          )}
+
+          {activeTab === 'ondemand' && (
+            <OnDemandBrowse
+              library={library}
+              onPlayVideo={handlePlayVideo}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+              favorites={favorites}
+              onToggleFavorite={handleToggleFavorite}
+            />
+          )}
+
+          {activeTab === 'feeds' && (
+            <RssFeedsView
+              folders={authState.folders}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+              onOpenLoader={() => setIsDownloadsOpen(true)}
+              onJobAdded={checkActiveDownloads}
+              onPlayVideo={handlePlayVideo}
+            />
+          )}
+        </main>
+      </div>
 
       {/* Stream Search Modal */}
       {activeSearch && (
@@ -822,31 +605,6 @@ function CloudAppContent() {
           onOpenDownloads={() => setIsDownloadsOpen(true)}
         />
       )}
-
-      {/* Mobile Portrait Footer Nav (icon-only) — complements the hamburger drawer */}
-      <nav className="mobile-footer-nav" aria-label="Primary navigation">
-        {[
-          { id: 'whatson', label: "What's On", icon: <Tv size={20} /> },
-          { id: 'services', label: 'Services', icon: <Layers size={20} /> },
-          { id: 'channels', label: 'Channels', icon: <Radio size={20} /> },
-          { id: 'faves', label: 'Faves', icon: <Heart size={20} fill={activeTab === 'faves' ? 'currentColor' : 'none'} /> },
-          { id: 'ondemand', label: 'Drive', icon: <HardDrive size={20} /> }
-        ].map(tab => {
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              className={`mobile-footer-nav-item ${isActive ? 'active' : ''}`}
-              onClick={() => handleNavTab(tab.id)}
-              title={tab.label}
-              aria-label={tab.label}
-              aria-current={isActive ? 'page' : undefined}
-            >
-              {tab.icon}
-            </button>
-          );
-        })}
-      </nav>
 
       <InstallBanner />
 
@@ -878,8 +636,6 @@ function CloudAppContent() {
         }}
         onScanComplete={(newLib) => {
           setLibrary(newLib);
-          // A scan changes the catalogue, so the stored ETag no longer
-          // describes it. Dropping it forces a full conditional fetch next time.
           libraryCacheRef.current.etag = null;
           saveLibraryOffline(newLib, null);
         }}
