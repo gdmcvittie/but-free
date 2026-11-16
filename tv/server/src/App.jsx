@@ -280,15 +280,16 @@ function CloudAppContent() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handlePlayChannel = (channel) => {
+  const handlePlayChannel = (channel, startIndex = 0, offset = 0) => {
     const playlist = (channel.playlist || []).slice();
     if (playlist.length === 0) return;
-    if (!playlist[0].path) return;
+    const idx = (typeof startIndex === 'number' && startIndex >= 0 && startIndex < playlist.length) ? startIndex : 0;
+    if (!playlist[idx]?.path) return;
     stopTorrentStream(activeVideo);
     setChannelPlaylist({ id: channel.id, name: channel.name, items: playlist });
-    setChannelIndex(0);
-    setActiveVideo(playlist[0]);
-    setVideoOffset(0);
+    setChannelIndex(idx);
+    setActiveVideo(playlist[idx]);
+    setVideoOffset(offset || 0);
     setActiveSearch(null);
     setIsSettingsOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -550,6 +551,8 @@ function CloudAppContent() {
               onPlayChannel={handlePlayChannel}
               favorites={favorites}
               onToggleFavorite={handleToggleFavorite}
+              activeVideo={activeVideo}
+              channelPlaylist={channelPlaylist}
             />
           )}
 

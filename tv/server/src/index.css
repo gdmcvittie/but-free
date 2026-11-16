@@ -593,6 +593,186 @@ body {
 }
 
 /* =========================================================================
+   Roku / TiVo Style TV Guide View
+   ========================================================================= */
+
+.guide-view-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.guide-top-hub {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 16px;
+  align-items: stretch;
+}
+
+@media (max-width: 900px) {
+  .guide-top-hub {
+    grid-template-columns: 1fr;
+  }
+}
+
+.guide-preview-card {
+  position: relative;
+  background: #181820;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+}
+
+.guide-preview-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.4;
+  filter: blur(2px);
+  transform: scale(1.04);
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.guide-preview-card:hover .guide-preview-bg {
+  transform: scale(1.08);
+  opacity: 0.52;
+}
+
+.guide-preview-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(16, 16, 22, 0.3) 0%, rgba(16, 16, 22, 0.88) 100%);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 16px;
+  z-index: 2;
+}
+
+.guide-preview-play-btn {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: var(--primary-dark);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 24px rgba(139, 92, 246, 0.55);
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s ease;
+  margin: auto;
+}
+
+.guide-preview-card:hover .guide-preview-play-btn {
+  transform: scale(1.12);
+  background: #9061f9;
+}
+
+.guide-info-card {
+  background: #181822;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  position: relative;
+  overflow: hidden;
+}
+
+.guide-info-accent-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--primary-dark);
+}
+
+.guide-table-container {
+  background: #16161e;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.guide-table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #1c1c26;
+  border-bottom: 1px solid var(--border-color);
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.guide-channel-row {
+  display: grid;
+  grid-template-columns: 46px 64px 220px 1.4fr 1fr 100px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #232330;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  position: relative;
+}
+
+.guide-channel-row:last-child {
+  border-bottom: none;
+}
+
+.guide-channel-row:hover {
+  background: #20202c;
+}
+
+.guide-channel-row.selected {
+  background: #242434;
+}
+
+.guide-channel-row.selected::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--primary-dark);
+}
+
+@media (max-width: 900px) {
+  .guide-channel-row {
+    grid-template-columns: 36px 54px 160px 1fr 80px;
+  }
+  .guide-row-up-next {
+    display: none !important;
+  }
+}
+
+@media (max-width: 600px) {
+  .guide-channel-row {
+    grid-template-columns: 30px 48px 1fr auto;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+  .guide-row-up-next,
+  .guide-row-meta-sub {
+    display: none !important;
+  }
+}
+
+/* =========================================================================
    Modals & Settings (Solid Pro Dark Styling)
    ========================================================================= */
 
