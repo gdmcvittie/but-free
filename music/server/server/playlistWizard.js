@@ -133,11 +133,14 @@ export async function generateVibePlaylist(user, options = {}) {
     favoriteSongs = [],
     targetCount = 50,
     discoverNew = false,
-    discoverCount = 5
+    discoverCount = 5,
+    freshOnly = false,
+    allNew = false
   } = options;
 
+  const isFreshOnly = Boolean(freshOnly || allNew);
   const countTarget = Math.max(5, Math.min(100, parseInt(targetCount, 10) || 50));
-  const newSongsLimit = Math.max(1, Math.min(25, parseInt(discoverCount, 10) || 5));
+  const newSongsLimit = Math.max(1, Math.min(100, parseInt(discoverCount, 10) || 5));
 
   // Normalize inputs
   const targetBands = (Array.isArray(artists) ? artists : String(artists || '').split(','))
@@ -161,73 +164,89 @@ export async function generateVibePlaylist(user, options = {}) {
     }
   }
 
-  // 1. Analyze user's existing music library
+  // 1. Analyze user's existing music library (skip if 100% fresh/all-new songs requested)
+  const matchedTracks = [];
   const libraryTracks = db.getUserItems(user.id, 'track') || [];
   const scoredTracks = [];
 
-  for (const track of libraryTracks) {
-    const score = scoreTrack(track, { targetBands, targetSongs, vibeTokens, genreAliasesSet });
-    // Require a minimum affinity score
-    if (score >= 15) {
-      scoredTracks.push({ track, score });
+  if (!isFreshOnly) {
+    for (const track of libraryTracks) {
+      const score = scoreTrack(track, { targetBands, targetSongs, vibeTokens, genreAliasesSet });
+      // Require a minimum affinity score
+      if (score >= 15) {
+        scoredTracks.push({ track, score });
+      }
     }
-  }
 
-  // Sort by score descending
-  scoredTracks.sort((a, b) => b.score - a.score);
+    // Sort by score descending
+    scoredTracks.sort((a, b) => b.score - a.score);
 
-  // Determine library count quota vs discovery
-  const libraryTarget = discoverNew ? Math.max(0, countTarget - newSongsLimit) : countTarget;
+    // Determine library count quota vs discovery
+    const libraryTarget = discoverNew ? Math.max(0, countTarget - newSongsLimit) : countTarget;
 
-  // Pick library tracks with artist diversity cap (max 3-4 songs per artist)
-  const artistCounts = new Map();
-  const matchedTracks = [];
-  const MAX_PER_ARTIST = libraryTracks.length > 30 ? 3 : 5;
+    // Pick library tracks with artist diversity cap (max 3-4 songs per artist)
+    const artistCounts = new Map();
+    const MAX_PER_ARTIST = libraryTracks.length > 30 ? 3 : 5;
 
-  for (const { track } of scoredTracks) {
-    const art = clean(track.artist || 'Unknown');
-    const cur = artistCounts.get(art) || 0;
-    if (cur < MAX_PER_ARTIST || scoredTracks.length < libraryTarget) {
-      artistCounts.set(art, cur + 1);
-      matchedTracks.push(track);
-      if (matchedTracks.length >= libraryTarget) break;
-    }
-  }
-
-  // If we couldn't reach the library target with strict threshold, relax scoring
-  if (matchedTracks.length < libraryTarget && scoredTracks.length > matchedTracks.length) {
     for (const { track } of scoredTracks) {
-      if (!matchedTracks.some((t) => t.id === track.id)) {
+      const art = clean(track.artist || 'Unknown');
+      const cur = artistCounts.get(art) || 0;
+      if (cur < MAX_PER_ARTIST || scoredTracks.length < libraryTarget) {
+        artistCounts.set(art, cur + 1);
         matchedTracks.push(track);
         if (matchedTracks.length >= libraryTarget) break;
       }
     }
+
+    // If we couldn't reach the library target with strict threshold, relax scoring
+    if (matchedTracks.length < libraryTarget && scoredTracks.length > matchedTracks.length) {
+      for (const { track } of scoredTracks) {
+        if (!matchedTracks.some((t) => t.id === track.id)) {
+          matchedTracks.push(track);
+          if (matchedTracks.length >= libraryTarget) break;
+        }
+      }
+    }
   }
 
-  // 2. Discover missing songs not in the library (if enabled)
+  // 2. Discover missing songs not in the library (if enabled or 100% fresh mode)
   let discoveredSongs = [];
-  const neededDiscoverCount = discoverNew
-    ? Math.min(newSongsLimit, Math.max(1, countTarget - matchedTracks.length))
-    : 0;
+  const neededDiscoverCount = isFreshOnly
+    ? countTarget
+    : (discoverNew ? Math.min(newSongsLimit, Math.max(1, countTarget - matchedTracks.length)) : 0);
 
-  if (discoverNew && neededDiscoverCount > 0 && user.musicFolderId) {
+  if ((discoverNew || isFreshOnly) && neededDiscoverCount > 0 && user.musicFolderId) {
     try {
       const searchQueries = [];
 
-      // Add target artists top songs
-      for (const b of targetBands.slice(0, 2)) {
+      // Add target artists top songs and variations
+      for (const b of targetBands.slice(0, 3)) {
         searchQueries.push(`${b} top songs`);
+        searchQueries.push(`${b} official audio`);
+        if (isFreshOnly) {
+          searchQueries.push(`${b} popular tracks`);
+          searchQueries.push(`${b} similar artists`);
+        }
       }
       // Add favorite songs
       for (const s of targetSongs.slice(0, 2)) {
         searchQueries.push(`${s} song`);
+        if (isFreshOnly) {
+          searchQueries.push(`${s} audio`);
+        }
       }
-      // Add focused vibe / genre query (clean keywords only, not long comma strings)
+      // Add focused vibe / genre queries
       if (vibeTokens.length > 0) {
         const primaryVibe = vibeTokens.slice(0, 2).join(' ');
         searchQueries.push(`${primaryVibe} songs`);
+        if (isFreshOnly) {
+          searchQueries.push(`${primaryVibe} hits`);
+          if (vibeTokens.length >= 3) {
+            searchQueries.push(`${vibeTokens[0]} ${vibeTokens[2]} songs`);
+          }
+        }
       }
-      if (targetBands.length > 0) {
+      if (targetBands.length > 0 && searchQueries.length < 4) {
         searchQueries.push(`${targetBands[0]} similar artists`);
       }
 
@@ -243,10 +262,11 @@ export async function generateVibePlaylist(user, options = {}) {
       const seenVideoIds = new Set();
       const hasNonLatinInput = /[^\u0000-\u024F\u1E00-\u1EFF]/.test(vibe + ' ' + targetBands.join(' '));
 
-      // Search YouTube Music in parallel (limit to top 4 queries)
-      const topQueries = searchQueries.slice(0, 4);
+      // Search YouTube Music in parallel (up to 8 queries in fresh mode, 4 otherwise)
+      const maxQueries = isFreshOnly ? 8 : 4;
+      const topQueries = searchQueries.slice(0, maxQueries);
       const searchResults = await Promise.allSettled(
-        topQueries.map((q) => youtubeMusic.search(q).catch(() => ({ songs: [] })))
+        topQueries.map((q) => youtubeMusic.search(q).catch(() => ({ songs: [], artists: [] })))
       );
 
       for (const res of searchResults) {
@@ -302,14 +322,60 @@ export async function generateVibePlaylist(user, options = {}) {
         if (candidateSongs.length >= neededDiscoverCount) break;
       }
 
+      // If more songs are needed in fresh mode, browse top discovered artists
+      if (candidateSongs.length < neededDiscoverCount) {
+        const artistChannels = [];
+        for (const res of searchResults) {
+          if (res.status === 'fulfilled' && Array.isArray(res.value?.artists)) {
+            for (const a of res.value.artists) {
+              if (a?.channelId && !artistChannels.includes(a.channelId)) {
+                artistChannels.push(a.channelId);
+              }
+            }
+          }
+        }
+        for (const channelId of artistChannels.slice(0, 3)) {
+          try {
+            const page = await youtubeMusic.artistBrowse(channelId);
+            for (const s of (page?.songs || [])) {
+              if (!s?.videoId || seenVideoIds.has(s.videoId)) continue;
+              seenVideoIds.add(s.videoId);
+
+              if (!hasNonLatinInput && /[^\u0000-\u024F\u1E00-\u1EFF\s\d.,!?'"()&/–—-]/.test((s.title || '') + ' ' + (s.artist || ''))) {
+                continue;
+              }
+              if (s.durationSec && (s.durationSec < 45 || s.durationSec > 900)) continue;
+
+              const titleKey = clean(s.title);
+              const artistKey = clean(s.artist);
+              const fullKey = titleKey + '::' + artistKey;
+              if (existingTitles.has(fullKey) || existingVideoIds.has(s.videoId)) continue;
+
+              candidateSongs.push({
+                videoId: s.videoId,
+                title: s.title,
+                artist: s.artist || targetBands[0] || 'Unknown Artist',
+                album: s.album || 'Vibe Discovery',
+                durationSec: s.durationSec || 210,
+                thumbnail: s.thumbnail || null,
+                newDiscovery: true
+              });
+
+              if (candidateSongs.length >= neededDiscoverCount) break;
+            }
+          } catch { /* best effort */ }
+          if (candidateSongs.length >= neededDiscoverCount) break;
+        }
+      }
+
       discoveredSongs = candidateSongs.slice(0, neededDiscoverCount);
     } catch (err) {
       console.warn('[PlaylistWizard] Song discovery failed:', err.message);
     }
   }
 
-  // If discovery yielded fewer tracks than needed, backfill from library if available
-  if (matchedTracks.length + discoveredSongs.length < countTarget && scoredTracks.length > matchedTracks.length) {
+  // If not fresh-only and discovery yielded fewer tracks than needed, backfill from library
+  if (!isFreshOnly && matchedTracks.length + discoveredSongs.length < countTarget && scoredTracks.length > matchedTracks.length) {
     for (const { track } of scoredTracks) {
       if (!matchedTracks.some((t) => t.id === track.id)) {
         matchedTracks.push(track);
@@ -318,7 +384,8 @@ export async function generateVibePlaylist(user, options = {}) {
     }
   }
 
-  const playlistName = suggestPlaylistName(vibe, targetBands, targetSongs);
+  const baseName = suggestPlaylistName(vibe, targetBands, targetSongs);
+  const playlistName = isFreshOnly ? `${baseName} · Fresh Mix` : baseName;
 
   return {
     ok: true,
@@ -328,10 +395,10 @@ export async function generateVibePlaylist(user, options = {}) {
     stats: {
       libraryMatched: matchedTracks.length,
       discoveredCount: discoveredSongs.length,
-      totalCount: matchedTracks.length + discoveredSongs.length
+      totalCount: matchedTracks.length + discoveredSongs.length,
+      freshOnly: isFreshOnly
     }
   };
-}
 }
 
 export default {

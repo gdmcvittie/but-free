@@ -5034,4 +5034,189 @@ img {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Playlist Builder Modal (Responsive & Mobile-Friendly)              */
+/* ------------------------------------------------------------------ */
+
+.playlist-builder-modal {
+  width: 95vw;
+  max-width: 1080px;
+  height: 88vh;
+  max-height: 920px;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
+  background: var(--bg-panel, #18181b);
+}
+
+.playlist-builder-split {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.playlist-builder-left {
+  flex: 1 1 60%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border-color);
+}
+
+.playlist-builder-right {
+  flex: 1 1 40%;
+  min-width: 280px;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.playlist-builder-mobile-toggle {
+  display: none;
+}
+
+.playlist-builder-mobile-bar {
+  display: none;
+}
+
+/* Mobile Screens (<= 768px) */
+@media (max-width: 768px) {
+  .modal-backdrop:has(.playlist-builder-modal) {
+    padding: 0;
+  }
+
+  .playlist-builder-modal {
+    width: 100vw !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-width: 100vw !important;
+    max-height: 100vh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+    border: none !important;
+  }
+
+  .playlist-builder-header {
+    padding: 0.75rem 1rem !important;
+  }
+
+  .playlist-builder-subtitle {
+    display: none !important;
+  }
+
+  .playlist-builder-namebar {
+    padding: 0.65rem 0.85rem !important;
+    gap: 0.5rem !important;
+  }
+
+  .playlist-builder-mobile-toggle {
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid var(--border-color);
+    background: rgba(0, 0, 0, 0.35);
+    padding: 0.35rem 0.65rem;
+    gap: 0.45rem;
+  }
+
+  .playlist-builder-mobile-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    padding: 0.55rem 0.5rem;
+    font-size: 0.84rem;
+    font-weight: 600;
+    border-radius: var(--radius-sm, 6px);
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  .playlist-builder-mobile-btn.active {
+    background: rgba(61, 220, 151, 0.15);
+    color: var(--accent, #3ddc97);
+    border-color: rgba(61, 220, 151, 0.3);
+  }
+
+  .playlist-builder-split {
+    flex-direction: column;
+  }
+
+  .playlist-builder-split.mobile-view-builder .playlist-builder-left {
+    display: flex !important;
+    flex: 1 1 100%;
+    width: 100%;
+    border-right: none;
+  }
+  .playlist-builder-split.mobile-view-builder .playlist-builder-right {
+    display: none !important;
+  }
+
+  .playlist-builder-split.mobile-view-queue .playlist-builder-left {
+    display: none !important;
+  }
+  .playlist-builder-split.mobile-view-queue .playlist-builder-right {
+    display: flex !important;
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .playlist-builder-tabs-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .playlist-builder-tabs-container::-webkit-scrollbar {
+    display: none;
+  }
+
+  .playlist-builder-tabs-container .stitcher-mode-tabs {
+    flex-wrap: nowrap !important;
+    width: max-content;
+  }
+
+  .playlist-builder-mobile-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 0.85rem;
+    background: rgba(61, 220, 151, 0.08);
+    border-top: 1px solid rgba(61, 220, 151, 0.2);
+    font-size: 0.8rem;
+  }
+
+  .playlist-builder-footer {
+    padding: 0.75rem 0.85rem !important;
+    gap: 0.5rem !important;
+    flex-wrap: wrap;
+  }
+
+  .playlist-builder-footer-info {
+    display: none !important;
+  }
+
+  .playlist-builder-footer-actions {
+    width: 100%;
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .playlist-builder-footer-actions .btn {
+    flex: 1;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+
 

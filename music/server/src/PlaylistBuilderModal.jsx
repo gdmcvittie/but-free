@@ -66,11 +66,13 @@ export default function PlaylistBuilderModal({
   const [wizardSongs, setWizardSongs] = useState('');
   const [wizardTargetCount, setWizardTargetCount] = useState(50);
   const [wizardDiscoverNew, setWizardDiscoverNew] = useState(false);
+  const [wizardFreshOnly, setWizardFreshOnly] = useState(false);
   const [wizardDiscoverCount, setWizardDiscoverCount] = useState(5);
   const [wizardGenerating, setWizardGenerating] = useState(false);
   const [wizardSummary, setWizardSummary] = useState(null);
   const [discoveredTracksMap, setDiscoveredTracksMap] = useState(new Map());
   const [matchedTracksMap, setMatchedTracksMap] = useState(new Map());
+  const [mobileTab, setMobileTab] = useState('builder'); // 'builder' | 'queue'
 
   // Initialize or reset when modal opens or playlist changes
   useEffect(() => {
@@ -370,8 +372,10 @@ export default function PlaylistBuilderModal({
         artists: wizardArtists.split(',').map((s) => s.trim()).filter(Boolean),
         favoriteSongs: wizardSongs.split(',').map((s) => s.trim()).filter(Boolean),
         targetCount: wizardTargetCount,
-        discoverNew: wizardDiscoverNew,
-        discoverCount: wizardDiscoverCount
+        discoverNew: wizardDiscoverNew || wizardFreshOnly,
+        discoverCount: wizardFreshOnly ? wizardTargetCount : wizardDiscoverCount,
+        freshOnly: wizardFreshOnly,
+        allNew: wizardFreshOnly
       });
 
       if (!res.ok) throw new Error(res.error || 'Failed to generate playlist');
@@ -418,9 +422,15 @@ export default function PlaylistBuilderModal({
         playlistName: res.playlistName
       });
 
+      if (window.innerWidth <= 768) {
+        setMobileTab('queue');
+      }
+
       notify?.(
-        'Vibe Playlist Generated',
-        `Curated ${matchedIds.length} tracks from library${discoveredIds.length ? ` and queued ${discoveredIds.length} new songs to download on save!` : '.'}`
+        wizardFreshOnly ? '100% Fresh Playlist Curated' : 'Vibe Playlist Generated',
+        wizardFreshOnly
+          ? `Queued ${discoveredIds.length} fresh new tracks to download upon save!`
+          : `Curated ${matchedIds.length} tracks from library${discoveredIds.length ? ` and queued ${discoveredIds.length} new songs to download on save!` : '.'}`
       );
     } catch (err) {
       notify?.('Wizard error', err.message, true);
@@ -501,30 +511,19 @@ export default function PlaylistBuilderModal({
   return (
     <div className="modal-backdrop" onClick={onClose} style={{ zIndex: 10000 }}>
       <div
-        className="modal-container"
+        className="modal-container playlist-builder-modal"
         onClick={(e) => e.stopPropagation()}
-        style={{
-          width: '95vw',
-          maxWidth: '1080px',
-          height: '88vh',
-          maxHeight: '920px',
-          display: 'flex',
-          flexDirection: 'column',
-          padding: 0,
-          overflow: 'hidden',
-          boxShadow: '0 24px 60px rgba(0, 0, 0, 0.7)'
-        }}
       >
         {/* Header */}
         <div
-          className="modal-header"
+          className="modal-header playlist-builder-header"
           style={{
             padding: '1rem 1.25rem',
             borderBottom: '1px solid var(--border-color)',
             background: 'var(--bg-panel, #18181b)'
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', minWidth: 0 }}>
             <div
               style={{
                 width: '32px',
@@ -534,60 +533,62 @@ export default function PlaylistBuilderModal({
                 color: 'var(--accent, #3ddc97)',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center'
+                justifyContent: 'center',
+                flexShrink: 0
               }}
             >
               <Wand2 size={18} />
             </div>
-            <div>
-              <h2 style={{ fontSize: '1.1rem', margin: 0, lineHeight: 1.2 }}>
+            <div style={{ minWidth: 0 }}>
+              <h2 style={{ fontSize: '1.05rem', margin: 0, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {initialPlaylist ? 'Edit Playlist' : 'Playlist Builder & Vibe Wizard'}
               </h2>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              <div className="playlist-builder-subtitle" style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
                 Guided vibe matching, batch selection & auto-sync to Google Drive (.m3u8) for Compás Player / HiBy R1
               </div>
             </div>
           </div>
-          <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Close">
+          <button type="button" className="modal-close-btn" onClick={onClose} aria-label="Close" style={{ flexShrink: 0 }}>
             <X size={18} />
           </button>
         </div>
 
         {/* Name Bar */}
         <div
+          className="playlist-builder-namebar"
           style={{
             padding: '0.75rem 1.25rem',
             background: 'rgba(255, 255, 255, 0.02)',
             borderBottom: '1px solid var(--border-color)',
             display: 'flex',
             alignItems: 'center',
-            gap: '1rem',
+            gap: '0.75rem',
             flexWrap: 'wrap'
           }}
         >
-          <div style={{ flex: 1, minWidth: '220px' }}>
+          <div style={{ flex: '1 1 200px', minWidth: '180px' }}>
             <input
               type="text"
               className="input-field"
               placeholder="Playlist name (e.g. 90s Grunge Nirvana Mix, Summer Beats)"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              style={{ width: '100%', fontSize: '0.92rem', padding: '0.5rem 0.8rem' }}
+              style={{ width: '100%', fontSize: '0.9rem', padding: '0.45rem 0.75rem' }}
               autoFocus={!initialPlaylist && tab !== 'wizard'}
             />
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
             <span
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '0.35rem',
-                padding: '0.3rem 0.65rem',
+                padding: '0.25rem 0.6rem',
                 borderRadius: '999px',
                 background: 'rgba(61, 220, 151, 0.1)',
                 border: '1px solid rgba(61, 220, 151, 0.25)',
                 color: 'var(--accent, #3ddc97)',
-                fontSize: '0.75rem',
+                fontSize: '0.72rem',
                 fontWeight: 600
               }}
             >
@@ -600,27 +601,39 @@ export default function PlaylistBuilderModal({
                 download={`${name || 'playlist'}.m3u8`}
                 className="btn btn-secondary btn-sm"
                 title="Download raw .m3u8 file"
-                style={{ padding: '0.4rem 0.65rem' }}
+                style={{ padding: '0.35rem 0.6rem', fontSize: '0.72rem' }}
               >
-                <Download size={13} />
+                <Download size={12} />
                 Export .m3u8
               </a>
             )}
           </div>
         </div>
 
-        {/* Main Body (Split View) */}
-        <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
-          {/* Left Column: Browser / Wizard */}
-          <div
-            style={{
-              flex: '1 1 60%',
-              minWidth: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              borderRight: '1px solid var(--border-color)'
-            }}
+        {/* Mobile View Switcher (Visible on mobile screens only) */}
+        <div className="playlist-builder-mobile-toggle">
+          <button
+            type="button"
+            className={`playlist-builder-mobile-btn ${mobileTab === 'builder' ? 'active' : ''}`}
+            onClick={() => setMobileTab('builder')}
           >
+            <Wand2 size={15} />
+            <span>Builder & Library</span>
+          </button>
+          <button
+            type="button"
+            className={`playlist-builder-mobile-btn ${mobileTab === 'queue' ? 'active' : ''}`}
+            onClick={() => setMobileTab('queue')}
+          >
+            <ListMusic size={15} />
+            <span>Queue ({selectedIds.length})</span>
+          </button>
+        </div>
+
+        {/* Main Body (Split View on Desktop, Toggled on Mobile) */}
+        <div className={`playlist-builder-split ${mobileTab === 'builder' ? 'mobile-view-builder' : 'mobile-view-queue'}`}>
+          {/* Left Column: Browser / Wizard */}
+          <div className="playlist-builder-left">
             {/* Tabs & Search Toolbar */}
             <div
               style={{
@@ -634,48 +647,50 @@ export default function PlaylistBuilderModal({
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
                 {/* Tabs */}
-                <div className="stitcher-mode-tabs" style={{ margin: 0 }}>
-                  <button
-                    type="button"
-                    className={`stitcher-mode-btn ${tab === 'wizard' ? 'active' : ''}`}
-                    onClick={() => { setTab('wizard'); setSearch(''); }}
-                    style={tab === 'wizard' ? { color: '#000', background: 'var(--accent, #3ddc97)', fontWeight: 600 } : { color: 'var(--accent, #3ddc97)' }}
-                  >
-                    <Wand2 size={13} />
-                    Vibe Wizard
-                  </button>
-                  <button
-                    type="button"
-                    className={`stitcher-mode-btn ${tab === 'artists' ? 'active' : ''}`}
-                    onClick={() => { setTab('artists'); setSearch(''); }}
-                  >
-                    <User size={13} />
-                    Artists ({artistGroups.length})
-                  </button>
-                  <button
-                    type="button"
-                    className={`stitcher-mode-btn ${tab === 'albums' ? 'active' : ''}`}
-                    onClick={() => { setTab('albums'); setSearch(''); }}
-                  >
-                    <Disc size={13} />
-                    Albums ({albumGroups.length})
-                  </button>
-                  <button
-                    type="button"
-                    className={`stitcher-mode-btn ${tab === 'genres' ? 'active' : ''}`}
-                    onClick={() => { setTab('genres'); setSearch(''); }}
-                  >
-                    <Tag size={13} />
-                    Genres ({genreGroups.length})
-                  </button>
-                  <button
-                    type="button"
-                    className={`stitcher-mode-btn ${tab === 'songs' ? 'active' : ''}`}
-                    onClick={() => { setTab('songs'); setSearch(''); }}
-                  >
-                    <Music size={13} />
-                    Songs ({libraryItems.length})
-                  </button>
+                <div className="playlist-builder-tabs-container" style={{ margin: 0, maxWidth: '100%' }}>
+                  <div className="stitcher-mode-tabs" style={{ margin: 0 }}>
+                    <button
+                      type="button"
+                      className={`stitcher-mode-btn ${tab === 'wizard' ? 'active' : ''}`}
+                      onClick={() => { setTab('wizard'); setSearch(''); }}
+                      style={tab === 'wizard' ? { color: '#000', background: 'var(--accent, #3ddc97)', fontWeight: 600 } : { color: 'var(--accent, #3ddc97)' }}
+                    >
+                      <Wand2 size={13} />
+                      Vibe Wizard
+                    </button>
+                    <button
+                      type="button"
+                      className={`stitcher-mode-btn ${tab === 'artists' ? 'active' : ''}`}
+                      onClick={() => { setTab('artists'); setSearch(''); }}
+                    >
+                      <User size={13} />
+                      Artists ({artistGroups.length})
+                    </button>
+                    <button
+                      type="button"
+                      className={`stitcher-mode-btn ${tab === 'albums' ? 'active' : ''}`}
+                      onClick={() => { setTab('albums'); setSearch(''); }}
+                    >
+                      <Disc size={13} />
+                      Albums ({albumGroups.length})
+                    </button>
+                    <button
+                      type="button"
+                      className={`stitcher-mode-btn ${tab === 'genres' ? 'active' : ''}`}
+                      onClick={() => { setTab('genres'); setSearch(''); }}
+                    >
+                      <Tag size={13} />
+                      Genres ({genreGroups.length})
+                    </button>
+                    <button
+                      type="button"
+                      className={`stitcher-mode-btn ${tab === 'songs' ? 'active' : ''}`}
+                      onClick={() => { setTab('songs'); setSearch(''); }}
+                    >
+                      <Music size={13} />
+                      Songs ({libraryItems.length})
+                    </button>
+                  </div>
                 </div>
 
                 {/* Batch Select / Deselect for active filter (only when not in wizard) */}
@@ -923,32 +938,70 @@ export default function PlaylistBuilderModal({
                         paddingTop: '0.75rem',
                         display: 'flex',
                         flexDirection: 'column',
-                        gap: '0.5rem'
+                        gap: '0.65rem'
                       }}
                     >
-                      <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.65rem', cursor: 'pointer' }}>
+                      {/* 100% Fresh Option (Download ALL new songs) */}
+                      <label
+                        style={{
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: '0.65rem',
+                          cursor: 'pointer',
+                          background: wizardFreshOnly ? 'rgba(61, 220, 151, 0.08)' : 'rgba(255, 255, 255, 0.02)',
+                          padding: '0.55rem 0.75rem',
+                          borderRadius: '6px',
+                          border: wizardFreshOnly ? '1px solid var(--accent, #3ddc97)' : '1px solid rgba(255, 255, 255, 0.05)',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
                         <input
                           type="checkbox"
-                          checked={wizardDiscoverNew}
-                          onChange={(e) => setWizardDiscoverNew(e.target.checked)}
+                          checked={wizardFreshOnly}
+                          onChange={(e) => {
+                            const val = e.target.checked;
+                            setWizardFreshOnly(val);
+                            if (val) setWizardDiscoverNew(true);
+                          }}
                           style={{ marginTop: '3px', cursor: 'pointer' }}
                         />
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-bright, #fff)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                            <Download size={13} style={{ color: 'var(--accent, #3ddc97)' }} />
-                            Find & download songs not in your library
+                          <div style={{ fontSize: '0.85rem', fontWeight: 600, color: wizardFreshOnly ? 'var(--accent, #3ddc97)' : 'var(--text-bright, #fff)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <Sparkles size={13} style={{ color: 'var(--accent, #3ddc97)' }} />
+                            100% Fresh: Download ALL new songs (no library tracks)
                           </div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                            Searches YouTube Music for matching tracks you don&apos;t own yet, downloads them to your Google Drive music folder & adds them to your library and this playlist.
+                          <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px', lineHeight: 1.35 }}>
+                            Discovers {wizardTargetCount} brand-new matching tracks not in your library, downloads them to Google Drive and builds a completely fresh playlist.
                           </div>
                         </div>
                       </label>
 
-                      {wizardDiscoverNew && (
-                        <div style={{ paddingLeft: '1.75rem', display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.78rem' }}>
+                      {/* Mixed Discovery Option (Only when not 100% fresh) */}
+                      {!wizardFreshOnly && (
+                        <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.65rem', cursor: 'pointer', padding: '0.2rem 0.25rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={wizardDiscoverNew}
+                            onChange={(e) => setWizardDiscoverNew(e.target.checked)}
+                            style={{ marginTop: '3px', cursor: 'pointer' }}
+                          />
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-bright, #fff)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <Download size={13} style={{ color: 'var(--accent, #3ddc97)' }} />
+                              Find & download missing songs to mix with library
+                            </div>
+                            <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '2px', lineHeight: 1.35 }}>
+                              Scans your existing library and supplements with new matching tracks from YouTube Music.
+                            </div>
+                          </div>
+                        </label>
+                      )}
+
+                      {wizardDiscoverNew && !wizardFreshOnly && (
+                        <div style={{ paddingLeft: '1.75rem', display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.78rem', flexWrap: 'wrap' }}>
                           <span style={{ color: 'var(--text-muted)' }}>New songs to discover:</span>
                           <div style={{ display: 'flex', gap: '0.35rem' }}>
-                            {[3, 5, 8, 10].map((num) => (
+                            {[3, 5, 8, 10, 15, 20].map((num) => (
                               <button
                                 key={num}
                                 type="button"
@@ -1454,19 +1507,25 @@ export default function PlaylistBuilderModal({
                 </div>
               )}
             </div>
+
+            {/* Mobile Queue Helper Bar (visible on mobile only) */}
+            <div className="playlist-builder-mobile-bar">
+              <span style={{ color: 'var(--text-muted)' }}>
+                {selectedIds.length === 0 ? 'Queue is empty' : `${selectedIds.length} tracks selected`}
+              </span>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setMobileTab('queue')}
+                style={{ padding: '0.35rem 0.75rem', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.78rem' }}
+              >
+                <ListMusic size={13} /> View Queue ({selectedIds.length}) →
+              </button>
+            </div>
           </div>
 
           {/* Right Column: Selected Playlist Queue & Reorder Tray */}
-          <div
-            style={{
-              flex: '1 1 40%',
-              minWidth: '280px',
-              maxWidth: '440px',
-              display: 'flex',
-              flexDirection: 'column',
-              background: 'rgba(0, 0, 0, 0.25)'
-            }}
-          >
+          <div className="playlist-builder-right">
             {/* Queue Header & Actions */}
             <div
               style={{
@@ -1477,6 +1536,15 @@ export default function PlaylistBuilderModal({
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <button
+                    type="button"
+                    className="icon-btn playlist-builder-mobile-toggle"
+                    onClick={() => setMobileTab('builder')}
+                    title="Back to Builder"
+                    style={{ padding: '4px', marginRight: '2px', display: 'flex', alignItems: 'center' }}
+                  >
+                    <ChevronRight size={16} style={{ transform: 'rotate(180deg)' }} />
+                  </button>
                   <ListMusic size={16} style={{ color: 'var(--accent, #3ddc97)' }} />
                   <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Playlist Queue</span>
                 </div>
@@ -1641,6 +1709,7 @@ export default function PlaylistBuilderModal({
 
         {/* Modal Footer / Save Bar */}
         <div
+          className="playlist-builder-footer"
           style={{
             padding: '0.85rem 1.25rem',
             borderTop: '1px solid var(--border-color)',
@@ -1651,7 +1720,7 @@ export default function PlaylistBuilderModal({
             gap: '1rem'
           }}
         >
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+          <div className="playlist-builder-footer-info" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
             {syncStatus ? (
               <span style={{ color: 'var(--accent, #3ddc97)' }}>{syncStatus}</span>
             ) : (
@@ -1663,7 +1732,7 @@ export default function PlaylistBuilderModal({
             )}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+          <div className="playlist-builder-footer-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
             <button
               type="button"
               className="btn btn-secondary"
