@@ -49,7 +49,7 @@ function formatTimeAgo(ts) {
   return `${Math.floor(diffHours / 24)}d ago`;
 }
 
-export default function CloudLoaderModal({ isOpen, onClose, folders, onJobAdded, onNavigateToFeeds }) {
+export default function CloudLoaderModal({ isOpen, onClose, folders, onJobAdded, onNavigateToRss }) {
   const toast = useToast();
   const [downloads, setDownloads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -101,7 +101,7 @@ export default function CloudLoaderModal({ isOpen, onClose, folders, onJobAdded,
         setDownloads(Array.isArray(data.downloads) ? data.downloads : []);
       }
     } catch (err) {
-      console.warn('[Cloud Loader] Failed to poll downloads:', err.message);
+      console.warn('[Downloads] Failed to poll downloads:', err.message);
     } finally {
       if (!silent) setLoading(false);
     }
@@ -299,17 +299,17 @@ export default function CloudLoaderModal({ isOpen, onClose, folders, onJobAdded,
             </div>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <h2 style={{ fontSize: '17px', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>Cloud Loader</h2>
+                <h2 style={{ fontSize: '17px', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>Downloads</h2>
               </div>
             </div>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {onNavigateToFeeds && (
+            {onNavigateToRss && (
               <button
                 className="action-btn"
-                onClick={onNavigateToFeeds}
-                title="Browse RSS Feeds"
+                onClick={onNavigateToRss}
+                title="Browse new releases in What's On"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -324,7 +324,7 @@ export default function CloudLoaderModal({ isOpen, onClose, folders, onJobAdded,
                 }}
               >
                 <Rss size={13} />
-                <span>RSS Feeds</span>
+                <span>New Releases</span>
               </button>
             )}
 
@@ -765,11 +765,11 @@ export default function CloudLoaderModal({ isOpen, onClose, folders, onJobAdded,
                   gap: '10px'
                 }}
               >
-                <div>No active downloads right now. Paste a magnet link above or browse new releases from RSS feeds!</div>
-                {onNavigateToFeeds && (
+                <div>No active downloads right now. Paste a magnet link above or browse new releases in What's On!</div>
+                {onNavigateToRss && (
                   <button
                     className="action-btn"
-                    onClick={onNavigateToFeeds}
+                    onClick={onNavigateToRss}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -785,7 +785,7 @@ export default function CloudLoaderModal({ isOpen, onClose, folders, onJobAdded,
                     }}
                   >
                     <Rss size={13} />
-                    <span>Browse TV & Movie Feeds</span>
+                    <span>Browse New Releases</span>
                   </button>
                 )}
               </div>

@@ -509,7 +509,7 @@ export default function PlaylistBuilderModal({
   if (!isOpen) return null;
 
   return (
-    <div className="modal-backdrop" onClick={onClose} style={{ zIndex: 10000 }}>
+    <div className="modal-backdrop playlist-builder-backdrop" onClick={onClose} style={{ zIndex: 10000 }}>
       <div
         className="modal-container playlist-builder-modal"
         onClick={(e) => e.stopPropagation()}
@@ -636,6 +636,7 @@ export default function PlaylistBuilderModal({
           <div className="playlist-builder-left">
             {/* Tabs & Search Toolbar */}
             <div
+              className="playlist-builder-toolbar"
               style={{
                 padding: '0.65rem 1rem',
                 borderBottom: '1px solid var(--border-color)',
@@ -754,7 +755,16 @@ export default function PlaylistBuilderModal({
             </div>
 
             {/* List / Grid / Wizard Content */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '0.65rem' }}>
+            <div
+              className="playlist-builder-content"
+              style={{
+                flex: '1 1 0%',
+                minHeight: 0,
+                overflowY: 'auto',
+                WebkitOverflowScrolling: 'touch',
+                padding: '0.65rem'
+              }}
+            >
               {loading && tab !== 'wizard' ? (
                 <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
                   Loading library…
@@ -763,7 +773,7 @@ export default function PlaylistBuilderModal({
 
               {/* TAB 0: VIBE WIZARD */}
               {tab === 'wizard' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem', padding: '0.5rem 0.25rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem', padding: '0.5rem 0.25rem 3.5rem' }}>
                   {/* Banner */}
                   <div
                     style={{
@@ -910,7 +920,7 @@ export default function PlaylistBuilderModal({
                         <span style={{ fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-bright, #fff)' }}>Target playlist size:</span>
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '6px' }}>({wizardTargetCount} tracks)</span>
                       </div>
-                      <div style={{ display: 'flex', gap: '0.35rem' }}>
+                      <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
                         {[20, 35, 50, 75, 100].map((num) => (
                           <button
                             key={num}
@@ -1000,7 +1010,7 @@ export default function PlaylistBuilderModal({
                       {wizardDiscoverNew && !wizardFreshOnly && (
                         <div style={{ paddingLeft: '1.75rem', display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.78rem', flexWrap: 'wrap' }}>
                           <span style={{ color: 'var(--text-muted)' }}>New songs to discover:</span>
-                          <div style={{ display: 'flex', gap: '0.35rem' }}>
+                          <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
                             {[3, 5, 8, 10, 15, 20].map((num) => (
                               <button
                                 key={num}
@@ -1595,7 +1605,16 @@ export default function PlaylistBuilderModal({
             </div>
 
             {/* Queue Items List */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '0.5rem' }}>
+            <div
+              className="playlist-builder-queue-content"
+              style={{
+                flex: '1 1 0%',
+                minHeight: 0,
+                overflowY: 'auto',
+                WebkitOverflowScrolling: 'touch',
+                padding: '0.5rem 0.5rem 3.5rem'
+              }}
+            >
               {selectedItems.length === 0 ? (
                 <div
                   style={{

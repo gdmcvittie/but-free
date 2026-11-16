@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  Rss,
   Film,
   Tv,
   Search,
@@ -8,11 +7,8 @@ import {
   Check,
   RefreshCw,
   Clock,
-  HardDrive,
   Copy,
-  ExternalLink,
   Info,
-  ChevronUp,
   SlidersHorizontal,
   Sparkles,
   AlertCircle,
@@ -22,16 +18,15 @@ import {
   Trash2,
   Edit3,
   CheckCircle2,
-  Bookmark,
   History,
-  Layers,
   Calendar,
-  Eye,
   Play
 } from 'lucide-react';
 import { useToast } from './Toast.jsx';
 
 export default function RssFeedsView({
+  view,
+  fixedType = null,
   folders,
   onOpenSettings,
   onOpenLoader,
@@ -40,8 +35,8 @@ export default function RssFeedsView({
 }) {
   const toast = useToast();
 
-  // Navigation Subview: 'releases' | 'comingsoon' | 'wishlist'
-  const [subView, setSubView] = useState('releases');
+  // Controlled by What's On: 'releases' | 'comingsoon' | 'wishlist' | null (renders nothing)
+  // For 'releases', fixedType pins the media type: 'tv' | 'movie'.
 
   // RSS Releases State
   const [items, setItems] = useState([]);
@@ -50,7 +45,6 @@ export default function RssFeedsView({
   const [refreshing, setRefreshing] = useState(false);
   const [lastFetched, setLastFetched] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState('all'); // 'all' | 'tv' | 'movie'
   const [qualityFilter, setQualityFilter] = useState('all'); // 'all' | '2160p' | '1080p' | '720p'
   const [selectedFeedId, setSelectedFeedId] = useState('all');
   const [selectedItem, setSelectedItem] = useState(null);
@@ -109,6 +103,7 @@ export default function RssFeedsView({
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (data.success) {
+        feedsLoadedRef.current = true;
         setItems(data.items || []);
         setFeeds(data.feeds || []);
         if (data.lastFetched) setLastFetched(data.lastFetched);
@@ -132,6 +127,7 @@ export default function RssFeedsView({
       if (res.ok) {
         const data = await res.json();
         if (data.success && Array.isArray(data.items)) {
+          comingSoonLoadedRef.current = true;
           setComingSoonItems(data.items);
           if (data.lastUpdated) setComingSoonLastUpdated(data.lastUpdated);
         }
@@ -153,6 +149,7 @@ export default function RssFeedsView({
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
+          wishlistLoadedRef.current = true;
           setWishlistItems(data.items || []);
           if (data.settings) setWishlistSettings(data.settings);
           if (data.history) setWishlistHistory(data.history || []);
@@ -165,11 +162,31 @@ export default function RssFeedsView({
     }
   };
 
+  // Each dataset loads lazily the first time its view is shown. The component
+  // stays mounted across What's On tab switches, so data is fetched once and
+  // kept while the user moves between tabs.
+  const feedsLoadedRef = useRef(false);
+  const comingSoonLoadedRef = useRef(false);
+  const wishlistLoadedRef = useRef(false);
+
   useEffect(() => {
-    fetchRssFeeds();
-    fetchComingSoon();
-    fetchWishlist();
-  }, []);
+    if (view === 'releases') {
+      if (!feedsLoadedRef.current) fetchRssFeeds();
+      // Needed for the "in Wish List" badges on release cards
+      if (!wishlistLoadedRef.current) fetchWishlist();
+    } else if (view === 'comingsoon') {
+      if (!comingSoonLoadedRef.current) fetchComingSoon();
+      // Needed for the "in Wish List" badges on upcoming cards
+      if (!wishlistLoadedRef.current) fetchWishlist();
+    } else if (view === 'wishlist') {
+      if (!wishlistLoadedRef.current) fetchWishlist();
+    }
+  }, [view]);
+
+  // Reset pagination when switching between TV RSS and Movies RSS
+  useEffect(() => {
+    setVisibleCount(30);
+  }, [fixedType]);
 
   const getItemKey = (item) => {
     if (!item) return '';
@@ -521,19 +538,9 @@ export default function RssFeedsView({
   // -------------------------------------------------------------
   // Counts and Filtering
   // -------------------------------------------------------------
-  const counts = useMemo(() => {
-    let tv = 0;
-    let movie = 0;
-    items.forEach(it => {
-      if (it.type === 'tv') tv++;
-      else if (it.type === 'movie') movie++;
-    });
-    return { all: items.length, tv, movie };
-  }, [items]);
-
   const filteredItems = useMemo(() => {
     return items.filter(it => {
-      if (typeFilter !== 'all' && it.type !== typeFilter) return false;
+      if (fixedType && it.type !== fixedType) return false;
       if (selectedFeedId !== 'all' && it.feedId !== selectedFeedId && it.feedName !== selectedFeedId) {
         return false;
       }
@@ -554,7 +561,7 @@ export default function RssFeedsView({
       }
       return true;
     });
-  }, [items, typeFilter, selectedFeedId, qualityFilter, searchQuery]);
+  }, [items, fixedType, selectedFeedId, qualityFilter, searchQuery]);
 
   const filteredComingSoon = useMemo(() => {
     return comingSoonItems.filter(item => {
@@ -601,236 +608,15 @@ export default function RssFeedsView({
     });
   };
 
+  if (!view) return null;
+
   return (
     <div className="rss-feeds-view" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Sub-Navigation: Releases vs Coming Soon vs Wish List */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '12px',
-          background: 'rgba(255, 255, 255, 0.02)',
-          border: '1px solid var(--border-color)',
-          borderRadius: '16px',
-          padding: '16px 20px',
-          backdropFilter: 'blur(12px)'
-        }}
-      >
-        {/* View Switcher Pills */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(0, 0, 0, 0.35)', padding: '5px', borderRadius: '12px', flexWrap: 'wrap' }}>
-          <button
-            onClick={() => setSubView('releases')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '8px 16px',
-              fontSize: '13px',
-              fontWeight: 700,
-              borderRadius: '9px',
-              border: 'none',
-              cursor: 'pointer',
-              background: subView === 'releases' ? 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)' : 'transparent',
-              color: subView === 'releases' ? '#fff' : 'var(--text-secondary)',
-              boxShadow: subView === 'releases' ? '0 4px 12px rgba(245, 158, 11, 0.3)' : 'none',
-              transition: 'all 0.18s ease'
-            }}
-          >
-            <Rss size={15} />
-            <span>Latest Releases</span>
-            <span
-              style={{
-                fontSize: '11px',
-                padding: '1px 6px',
-                borderRadius: '8px',
-                background: subView === 'releases' ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.08)',
-                color: subView === 'releases' ? '#fff' : 'var(--text-muted)'
-              }}
-            >
-              {counts.all}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setSubView('comingsoon')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '8px 16px',
-              fontSize: '13px',
-              fontWeight: 700,
-              borderRadius: '9px',
-              border: 'none',
-              cursor: 'pointer',
-              background: subView === 'comingsoon' ? 'linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%)' : 'transparent',
-              color: subView === 'comingsoon' ? '#fff' : 'var(--text-secondary)',
-              boxShadow: subView === 'comingsoon' ? '0 4px 12px rgba(6, 182, 212, 0.3)' : 'none',
-              transition: 'all 0.18s ease'
-            }}
-          >
-            <Calendar size={15} />
-            <span>Coming Soon</span>
-            <span
-              style={{
-                fontSize: '11px',
-                padding: '1px 6px',
-                borderRadius: '8px',
-                background: subView === 'comingsoon' ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.08)',
-                color: subView === 'comingsoon' ? '#fff' : 'var(--text-muted)'
-              }}
-            >
-              {comingSoonItems.length}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setSubView('wishlist')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '8px 18px',
-              fontSize: '13px',
-              fontWeight: 700,
-              borderRadius: '9px',
-              border: 'none',
-              cursor: 'pointer',
-              background: subView === 'wishlist' ? 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)' : 'transparent',
-              color: subView === 'wishlist' ? '#fff' : 'var(--text-secondary)',
-              boxShadow: subView === 'wishlist' ? '0 4px 12px rgba(168, 85, 247, 0.3)' : 'none',
-              transition: 'all 0.18s ease'
-            }}
-          >
-            <Sparkles size={15} />
-            <span>Wish List</span>
-            <span
-              style={{
-                fontSize: '11px',
-                padding: '1px 6px',
-                borderRadius: '8px',
-                background: subView === 'wishlist' ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.08)',
-                color: subView === 'wishlist' ? '#fff' : 'var(--text-muted)'
-              }}
-            >
-              {wishlistItems.length}
-            </span>
-          </button>
-        </div>
-
-        {/* Global Toolbar Buttons */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          {subView === 'wishlist' ? (
-            <>
-              <button
-                className="action-btn"
-                onClick={handleCheckWishlistNow}
-                disabled={wishlistChecking}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  fontSize: '12px',
-                  padding: '8px 14px',
-                  borderRadius: '9px',
-                  background: 'rgba(168, 85, 247, 0.15)',
-                  color: '#d8b4fe',
-                  border: '1px solid rgba(168, 85, 247, 0.3)'
-                }}
-              >
-                <RefreshCw size={14} className={wishlistChecking ? 'spin' : ''} />
-                <span>{wishlistChecking ? 'Checking Feeds...' : 'Check Feeds Now'}</span>
-              </button>
-
-              <button
-                className="action-btn primary"
-                onClick={() => openAddModal()}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  fontSize: '12.5px',
-                  padding: '8px 16px',
-                  borderRadius: '9px',
-                  fontWeight: 700
-                }}
-              >
-                <Plus size={15} />
-                <span>Add Show / Movie</span>
-              </button>
-            </>
-          ) : subView === 'comingsoon' ? (
-            <button
-              className="action-btn"
-              onClick={() => fetchComingSoon(true)}
-              disabled={comingSoonLoading}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                fontSize: '12px',
-                padding: '8px 14px',
-                borderRadius: '9px',
-                background: 'rgba(6, 182, 212, 0.12)',
-                color: '#67e8f9',
-                border: '1px solid rgba(6, 182, 212, 0.3)'
-              }}
-            >
-              <RefreshCw size={14} className={comingSoonLoading ? 'spin' : ''} />
-              <span>{comingSoonLoading ? 'Updating...' : 'Refresh Upcoming'}</span>
-            </button>
-          ) : (
-            <>
-              {onOpenLoader && (
-                <button
-                  className="action-btn"
-                  onClick={onOpenLoader}
-                  title="Open Cloud Loader Queue"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    fontSize: '12px',
-                    padding: '8px 14px',
-                    borderRadius: '9px',
-                    background: 'rgba(59, 130, 246, 0.12)',
-                    color: '#60a5fa',
-                    border: '1px solid rgba(59, 130, 246, 0.3)'
-                  }}
-                >
-                  <UploadCloud size={14} />
-                  <span>View Loader Queue</span>
-                </button>
-              )}
-
-              <button
-                className="action-btn"
-                onClick={() => fetchRssFeeds(true)}
-                disabled={refreshing || loading}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  fontSize: '12px',
-                  padding: '8px 14px',
-                  borderRadius: '9px',
-                  background: 'rgba(255, 255, 255, 0.06)'
-                }}
-              >
-                <RefreshCw size={14} className={refreshing ? 'spin' : ''} />
-                <span>{refreshing ? 'Updating Feeds...' : 'Refresh Feeds'}</span>
-              </button>
-            </>
-          )}
-        </div>
-      </div>
 
       {/* ========================================================= */}
       {/* VIEW: COMING SOON / UPCOMING DISCOVERY                    */}
       {/* ========================================================= */}
-      {subView === 'comingsoon' && (
+      {view === 'comingsoon' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {/* Header Banner */}
           <div
@@ -873,12 +659,33 @@ export default function RssFeedsView({
               </div>
             </div>
 
-            {comingSoonLastUpdated && (
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <Clock size={12} />
-                <span>Updated {formatRelativeTime(comingSoonLastUpdated)}</span>
-              </div>
-            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              {comingSoonLastUpdated && (
+                <div style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <Clock size={12} />
+                  <span>Updated {formatRelativeTime(comingSoonLastUpdated)}</span>
+                </div>
+              )}
+              <button
+                className="action-btn"
+                onClick={() => fetchComingSoon(true)}
+                disabled={comingSoonLoading}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '12px',
+                  padding: '8px 14px',
+                  borderRadius: '9px',
+                  background: 'rgba(6, 182, 212, 0.12)',
+                  color: '#67e8f9',
+                  border: '1px solid rgba(6, 182, 212, 0.3)'
+                }}
+              >
+                <RefreshCw size={14} className={comingSoonLoading ? 'spin' : ''} />
+                <span>{comingSoonLoading ? 'Updating...' : 'Refresh Upcoming'}</span>
+              </button>
+            </div>
           </div>
 
           {/* Search & Filter Bar */}
@@ -1218,7 +1025,7 @@ export default function RssFeedsView({
       {/* ========================================================= */}
       {/* VIEW: WISH LIST                                           */}
       {/* ========================================================= */}
-      {subView === 'wishlist' && (
+      {view === 'wishlist' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {/* Wish List Status & Automation Banner */}
           <div
@@ -1339,6 +1146,43 @@ export default function RssFeedsView({
                 }}
               >
                 {wishlistSettings.enabled ? 'Pause Auto-Check' : 'Resume Auto-Check'}
+              </button>
+
+              <button
+                className="action-btn"
+                onClick={handleCheckWishlistNow}
+                disabled={wishlistChecking}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '12px',
+                  padding: '8px 14px',
+                  borderRadius: '9px',
+                  background: 'rgba(168, 85, 247, 0.15)',
+                  color: '#d8b4fe',
+                  border: '1px solid rgba(168, 85, 247, 0.3)'
+                }}
+              >
+                <RefreshCw size={14} className={wishlistChecking ? 'spin' : ''} />
+                <span>{wishlistChecking ? 'Checking Feeds...' : 'Check Feeds Now'}</span>
+              </button>
+
+              <button
+                className="action-btn primary"
+                onClick={() => openAddModal()}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '12.5px',
+                  padding: '8px 16px',
+                  borderRadius: '9px',
+                  fontWeight: 700
+                }}
+              >
+                <Plus size={15} />
+                <span>Add Show / Movie</span>
               </button>
             </div>
           </div>
@@ -1719,62 +1563,72 @@ export default function RssFeedsView({
       {/* ========================================================= */}
       {/* VIEW: RELEASES BROWSER                                    */}
       {/* ========================================================= */}
-      {subView === 'releases' && (
+      {view === 'releases' && (
         <>
-          {/* Top Banner / Header Row */}
+          {/* Compact Header Row */}
           <div
             style={{
               display: 'flex',
               justifyContent: 'space-between',
-              alignItems: 'flex-start',
+              alignItems: 'center',
               flexWrap: 'wrap',
-              gap: '16px',
-              background: 'rgba(255, 255, 255, 0.02)',
-              border: '1px solid var(--border-color)',
-              borderRadius: '16px',
-              padding: '20px 24px',
-              backdropFilter: 'blur(12px)'
+              gap: '12px',
+              borderBottom: '1px solid var(--border-color)',
+              paddingBottom: '12px'
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-              <div
+            <div>
+              <h2 style={{ fontSize: '18px', fontWeight: 800, margin: 0, letterSpacing: '-0.3px', color: 'var(--text-primary)' }}>
+                {fixedType === 'tv' ? 'TV RSS Releases' : 'Movie RSS Releases'}
+              </h2>
+              <p style={{ margin: '4px 0 0', fontSize: '12.5px', color: 'var(--text-secondary)' }}>
+                {fixedType === 'tv'
+                  ? 'Latest TV show episodes from your feeds'
+                  : 'Latest movie releases from your feeds'}
+                {' '}&bull; 1-click add to Wish List or queue to Drive
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              {onOpenLoader && (
+                <button
+                  className="action-btn"
+                  onClick={onOpenLoader}
+                  title="Open Downloads queue"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontSize: '12px',
+                    padding: '8px 14px',
+                    borderRadius: '9px',
+                    background: 'rgba(59, 130, 246, 0.12)',
+                    color: '#60a5fa',
+                    border: '1px solid rgba(59, 130, 246, 0.3)'
+                  }}
+                >
+                  <UploadCloud size={14} />
+                  <span>Downloads Queue</span>
+                </button>
+              )}
+
+              <button
+                className="action-btn"
+                onClick={() => fetchRssFeeds(true)}
+                disabled={refreshing || loading}
                 style={{
-                  width: '44px',
-                  height: '44px',
-                  borderRadius: '12px',
-                  background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#fff',
-                  boxShadow: '0 6px 16px rgba(245, 158, 11, 0.3)'
+                  gap: '6px',
+                  fontSize: '12px',
+                  padding: '8px 14px',
+                  borderRadius: '9px',
+                  background: 'rgba(255, 255, 255, 0.06)'
                 }}
               >
-                <Rss size={24} />
-              </div>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <h1 style={{ fontSize: '20px', fontWeight: 800, margin: 0, letterSpacing: '-0.3px' }}>
-                    RSS Releases
-                  </h1>
-                  <span
-                    style={{
-                      background: 'rgba(245, 158, 11, 0.15)',
-                      color: '#fbbf24',
-                      border: '1px solid rgba(245, 158, 11, 0.3)',
-                      fontSize: '11px',
-                      fontWeight: 700,
-                      padding: '2px 8px',
-                      borderRadius: '12px'
-                    }}
-                  >
-                    {counts.all} items
-                  </span>
-                </div>
-                <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                  Browse the latest TV show episodes and movie releases &bull; 1-click add to Wish List or queue to Drive
-                </p>
-              </div>
+                <RefreshCw size={14} className={refreshing ? 'spin' : ''} />
+                <span>{refreshing ? 'Updating Feeds...' : 'Refresh Feeds'}</span>
+              </button>
             </div>
           </div>
 
@@ -1791,68 +1645,6 @@ export default function RssFeedsView({
             }}
           >
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'space-between', alignItems: 'center' }}>
-              {/* Type Filter Pills */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(0, 0, 0, 0.3)', padding: '4px', borderRadius: '10px' }}>
-                <button
-                  onClick={() => { setTypeFilter('all'); setVisibleCount(30); }}
-                  style={{
-                    padding: '6px 14px',
-                    fontSize: '12.5px',
-                    fontWeight: 600,
-                    borderRadius: '8px',
-                    border: 'none',
-                    cursor: 'pointer',
-                    background: typeFilter === 'all' ? 'var(--primary)' : 'transparent',
-                    color: typeFilter === 'all' ? '#000' : 'var(--text-secondary)',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  All Releases ({counts.all})
-                </button>
-
-                <button
-                  onClick={() => { setTypeFilter('tv'); setVisibleCount(30); }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '6px 14px',
-                    fontSize: '12.5px',
-                    fontWeight: 600,
-                    borderRadius: '8px',
-                    border: 'none',
-                    cursor: 'pointer',
-                    background: typeFilter === 'tv' ? 'var(--primary)' : 'transparent',
-                    color: typeFilter === 'tv' ? '#000' : 'var(--text-secondary)',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  <Tv size={14} />
-                  TV Shows ({counts.tv})
-                </button>
-
-                <button
-                  onClick={() => { setTypeFilter('movie'); setVisibleCount(30); }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '6px 14px',
-                    fontSize: '12.5px',
-                    fontWeight: 600,
-                    borderRadius: '8px',
-                    border: 'none',
-                    cursor: 'pointer',
-                    background: typeFilter === 'movie' ? 'var(--primary)' : 'transparent',
-                    color: typeFilter === 'movie' ? '#000' : 'var(--text-secondary)',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  <Film size={14} />
-                  Movies ({counts.movie})
-                </button>
-              </div>
-
               {/* Search Box */}
               <div style={{ position: 'relative', minWidth: '220px', flex: 1, maxWidth: '380px' }}>
                 <Search size={15} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
@@ -1980,7 +1772,7 @@ export default function RssFeedsView({
               {searchQuery && (
                 <button
                   className="action-btn"
-                  onClick={() => { setSearchQuery(''); setTypeFilter('all'); setQualityFilter('all'); }}
+                  onClick={() => { setSearchQuery(''); setQualityFilter('all'); }}
                   style={{ padding: '6px 16px', fontSize: '12px' }}
                 >
                   Clear Filters

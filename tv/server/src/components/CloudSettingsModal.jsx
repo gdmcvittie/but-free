@@ -1025,7 +1025,7 @@ export default function CloudSettingsModal({ isOpen, onClose, user, folders, onU
                     </div>
                     <div>
                       <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>Configured RSS Feeds</div>
-                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Torrents from these feeds appear in the Feeds view and can be queued directly into Drive.</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Torrents from these feeds appear in the TV RSS and Movies RSS tabs under What's On, and can be queued directly into Drive.</div>
                     </div>
                   </div>
                 </div>

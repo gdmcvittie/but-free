@@ -30,7 +30,6 @@ import WhatsOnView from './components/WhatsOnView.jsx';
 import OnDemandBrowse from './components/OnDemandBrowse.jsx';
 import FavoritesView from './components/FavoritesView.jsx';
 import ChannelsView from './components/ChannelsView.jsx';
-import RssFeedsView from './components/RssFeedsView.jsx';
 import TvPlayer from './components/TvPlayer.jsx';
 import SearchResults from './components/SearchResults.jsx';
 import InstallBanner from './components/InstallBanner.jsx';
@@ -46,7 +45,8 @@ function CloudAppContent() {
     folders: null,
     error: null
   });
-  const [activeTab, setActiveTab] = useState('whatson'); // 'whatson' | 'channels' | 'services' | 'ondemand' | 'faves' | 'feeds'
+  const [activeTab, setActiveTab] = useState('whatson'); // 'whatson' | 'channels' | 'services' | 'ondemand' | 'faves'
+  const [whatsOnTab, setWhatsOnTab] = useState('all'); // What's On sub-tab: 'all' | 'tv' | 'movies' | 'tvrss' | 'moviesrss' | 'comingsoon' | 'wishlist'
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDownloadsOpen, setIsDownloadsOpen] = useState(false);
   const [activeDownloadsCount, setActiveDownloadsCount] = useState(0);
@@ -436,7 +436,7 @@ function CloudAppContent() {
               type="button"
               className="topbar-action-btn"
               onClick={() => setIsDownloadsOpen(true)}
-              title="Cloud Loader & Downloads"
+              title="Downloads"
             >
               <UploadCloud size={16} />
               <span>Downloads</span>
@@ -543,6 +543,12 @@ function CloudAppContent() {
               onFind={handleStreamFind}
               favorites={favorites}
               onToggleFavorite={handleToggleFavorite}
+              tab={whatsOnTab}
+              onTabChange={setWhatsOnTab}
+              folders={authState.folders}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+              onOpenLoader={() => setIsDownloadsOpen(true)}
+              onJobAdded={checkActiveDownloads}
             />
           )}
 
@@ -588,16 +594,6 @@ function CloudAppContent() {
               onToggleFavorite={handleToggleFavorite}
             />
           )}
-
-          {activeTab === 'feeds' && (
-            <RssFeedsView
-              folders={authState.folders}
-              onOpenSettings={() => setIsSettingsOpen(true)}
-              onOpenLoader={() => setIsDownloadsOpen(true)}
-              onJobAdded={checkActiveDownloads}
-              onPlayVideo={handlePlayVideo}
-            />
-          )}
         </main>
       </div>
 
@@ -616,7 +612,7 @@ function CloudAppContent() {
 
       <InstallBanner />
 
-      {/* Cloud Loader / Downloads Modal */}
+      {/* Downloads Modal */}
       <CloudLoaderModal
         isOpen={isDownloadsOpen}
         onClose={() => {
@@ -627,9 +623,10 @@ function CloudAppContent() {
         onJobAdded={() => {
           checkActiveDownloads();
         }}
-        onNavigateToFeeds={() => {
+        onNavigateToRss={() => {
           setIsDownloadsOpen(false);
-          setActiveTab('feeds');
+          setActiveTab('whatson');
+          setWhatsOnTab('tvrss');
         }}
       />
 

@@ -527,7 +527,7 @@ export default function ChannelsView({
             </div>
 
             {/* Channel Guide Rows */}
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <div className="guide-table-rows" style={{ display: 'flex', flexDirection: 'column' }}>
               {guideFilteredChannels.map((channel, index) => {
                 const schedule = computeSchedule(channel, nowSec);
                 const isSelected = selectedChannel?.id === channel.id;

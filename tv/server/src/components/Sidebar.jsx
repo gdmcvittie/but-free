@@ -5,7 +5,6 @@ import {
   Layers,
   HardDrive,
   Heart,
-  Rss,
   UploadCloud,
   Settings as SettingsIcon,
   Search
@@ -28,8 +27,7 @@ export default function Sidebar({
     { id: 'services', label: 'Services', icon: Layers },
     { id: 'ondemand', label: 'Drive Library', icon: HardDrive },
     { id: 'faves', label: 'Favorites', icon: Heart },
-    { id: 'feeds', label: 'RSS Releases', icon: Rss },
-    { id: 'loader', label: 'Cloud Loader', icon: UploadCloud, badge: activeDownloadsCount },
+    { id: 'loader', label: 'Downloads', icon: UploadCloud, badge: activeDownloadsCount },
     { id: 'settings', label: 'Settings', icon: SettingsIcon },
   ];
 
@@ -39,7 +37,6 @@ export default function Sidebar({
     { id: 'services', label: 'Services', icon: Layers },
     { id: 'ondemand', label: 'Drive', icon: HardDrive },
     { id: 'faves', label: 'Faves', icon: Heart },
-    { id: 'feeds', label: 'Feeds', icon: Rss },
   ];
 
   const handleNavClick = (id) => {
@@ -84,7 +81,7 @@ export default function Sidebar({
             type="button"
             className="mobile-header-icon-btn"
             onClick={onOpenLoader}
-            title="Cloud Loader"
+            title="Downloads"
             style={{ position: 'relative' }}
           >
             <UploadCloud size={18} />

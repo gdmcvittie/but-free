@@ -706,10 +706,11 @@ body {
   background: #16161e;
   border: 1px solid var(--border-color);
   border-radius: 6px;
-  overflow: hidden;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 
+/* Stays pinned below the sticky topbar while the channel rows scroll underneath.
+   (The container must not use overflow: hidden — that would trap position: sticky.) */
 .guide-table-header {
   display: flex;
   align-items: center;
@@ -719,6 +720,16 @@ body {
   border-bottom: 1px solid var(--border-color);
   flex-wrap: wrap;
   gap: 10px;
+  position: sticky;
+  top: 54px; /* same offset the docked player card uses under the topbar */
+  z-index: 45; /* above guide content, below the topbar (z-index 50) */
+  border-radius: 5px 5px 0 0;
+}
+
+/* Carries the bottom rounded-corner clipping that used to live on the container */
+.guide-table-rows {
+  overflow: hidden;
+  border-radius: 0 0 5px 5px;
 }
 
 .guide-column-headers {
@@ -897,6 +908,47 @@ body {
   color: #ffffff;
 }
 
+/* What's On sub-view tabs (All / TV / Movies / TV RSS / Movies RSS / Coming Soon / Wish List) */
+.whats-on-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #1a1a22;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 4px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.whats-on-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.whats-on-tab {
+  flex: 0 0 auto;
+  padding: 7px 14px;
+  font-size: 12.5px;
+  font-weight: 700;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-secondary);
+  transition: var(--transition-smooth);
+  white-space: nowrap;
+}
+
+.whats-on-tab:hover {
+  color: var(--text-primary);
+}
+
+.whats-on-tab.active {
+  background: var(--primary-dark);
+  color: #ffffff;
+}
+
 /* =========================================================================
    Mobile Navigation & Responsive Styles (< 768px)
    ========================================================================= */
@@ -1039,6 +1091,10 @@ body {
     padding: 10px !important;
     border-radius: 0 !important;
     margin-bottom: 8px !important;
+  }
+
+  .guide-table-header {
+    top: 0;
   }
 
   .mobile-bottom-nav {
