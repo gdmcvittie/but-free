@@ -121,10 +121,9 @@ export default function Sidebar({
             </div>
             <div className="sidebar-brand-meta">
               <span className="sidebar-brand-title">FREEVEE</span>
-              <span className="sidebar-brand-subtitle">TELEVISION</span>
+              <span className="sidebar-brand-subtitle">TV</span>
             </div>
           </div>
-          <span className="sidebar-cloud-badge">PRO</span>
         </div>
 
         {/* Navigation Items */}
