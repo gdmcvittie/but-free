@@ -80,7 +80,6 @@ export default function Sidebar({
               <span className="sidebar-brand-subtitle">ARCADE</span>
             </div>
           </div>
-          <span className="sidebar-cloud-badge">PRO</span>
         </div>
 
         {/* Navigation Items */}
