@@ -9,7 +9,7 @@ import dotenv from 'dotenv';
 
 import * as Database from './server/database.js';
 import { GoogleAuth } from './server/googleAuth.js';
-import { GoogleDrive, cleanGameTitle, searchInternetGameArt } from './server/googleDrive.js';
+import { GoogleDrive, cleanGameTitle, searchInternetGameArt, COVERS_DIR } from './server/googleDrive.js';
 import { sanitizeFolderName, MAX_PC_REMOTE_TORRENT_BYTES, PC_REMOTE_TORRENT_LIMIT_MSG, parseSizeStringToBytes } from './server/rssDiscovery.js';
 import { DownloaderClient, GameDownloaderClient } from './server/downloaderClient.js';
 import { registerDiscoverRoutes } from './server/discoverRoutes.js';
@@ -402,9 +402,72 @@ app.post('/api/games/:id/favorite', async (req, res) => {
   res.json({ success: true, gameId, isFavorite });
 });
 
+// Optimized 256x256 PNG Game Poster Endpoint (cached locally from user's Google Drive)
+app.get('/api/games/poster/:driveId', async (req, res) => {
+  const { driveId } = req.params;
+  const safeId = String(driveId).replace(/[^a-zA-Z0-9_-]/g, '_');
+  const cachePath = path.join(COVERS_DIR, `drive_${safeId}.png`);
+
+  // 1. If cached on disk as 256x256 PNG, serve immediately!
+  if (fs.existsSync(cachePath)) {
+    try {
+      const stat = fs.statSync(cachePath);
+      if (stat.size > 200) {
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+        return res.sendFile(cachePath);
+      }
+    } catch (_) {}
+  }
+
+  // 2. If not cached yet, download from Google Drive, resize to 256x256 PNG, save, and serve
+  if (req.user) {
+    try {
+      const cached = await GoogleDrive.cacheDrivePoster(req.user, driveId);
+      if (cached && fs.existsSync(cached)) {
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+        return res.sendFile(cached);
+      }
+    } catch (err) {
+      console.warn(`[Poster Art] Failed to cache Drive poster ${driveId}:`, err.message);
+    }
+
+    // 3. Fallback: stream through GoogleDrive.streamFile
+    try {
+      return await GoogleDrive.streamFile(req.user, driveId, req, res);
+    } catch (_) {}
+  }
+
+  res.setHeader('Content-Type', 'image/svg+xml');
+  return res.status(404).send('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>');
+});
+
+app.head('/api/games/poster/:driveId', (req, res) => {
+  res.setHeader('Content-Type', 'image/png');
+  res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+  return res.status(200).end();
+});
+
 // Stream any file from Google Drive directly (posters, ROMs, etc.)
 app.get('/api/drive/file/:driveId', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  const { driveId } = req.params;
+  const safeId = String(driveId).replace(/[^a-zA-Z0-9_-]/g, '_');
+  const cachedPosterPath = path.join(COVERS_DIR, `drive_${safeId}.png`);
+
+  // Fast-path: if this Drive file is a cached 256x256 PNG poster, serve instantly from disk!
+  if (fs.existsSync(cachedPosterPath)) {
+    try {
+      const stat = fs.statSync(cachedPosterPath);
+      if (stat.size > 200) {
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+        return res.sendFile(cachedPosterPath);
+      }
+    } catch (_) {}
+  }
+
   try {
     res.setHeader('Cache-Control', 'public, max-age=86400');
     await GoogleDrive.streamFile(req.user, req.params.driveId, req, res);
@@ -415,7 +478,6 @@ app.get('/api/drive/file/:driveId', async (req, res) => {
 });
 
 // Dynamic Game Cover Art Endpoint (on-demand art resolution with in-memory and disk caching)
-const COVERS_DIR = process.env.COVERS_DIR || path.join(__dirname, 'data', 'covers');
 if (!fs.existsSync(COVERS_DIR)) {
   try {
     fs.mkdirSync(COVERS_DIR, { recursive: true });
@@ -555,13 +617,24 @@ app.get('/api/games/cover', async (req, res) => {
       }
 
       if (buf && buf.length > 500) {
-        const ext = mime.includes('png') ? 'png' : 'jpg';
-        const savePath = path.join(COVERS_DIR, `${safeFilename}.${ext}`);
-        fs.promises.writeFile(savePath, buf).catch(() => {});
-        coverBufferCache.set(cacheKey, { buffer: buf, contentType: mime });
-        res.setHeader('Content-Type', mime);
+        let outBuf = buf;
+        let outMime = 'image/png';
+        try {
+          const sharp = await import('sharp').then(m => m.default || m).catch(() => null);
+          if (sharp) {
+            outBuf = await sharp(buf, { failOn: 'none', animated: false })
+              .resize(256, 256, { fit: 'cover', position: 'center' })
+              .png({ compressionLevel: 8 })
+              .toBuffer();
+          }
+        } catch (_) {}
+
+        const savePath = path.join(COVERS_DIR, `${safeFilename}.png`);
+        fs.promises.writeFile(savePath, outBuf).catch(() => {});
+        coverBufferCache.set(cacheKey, { buffer: outBuf, contentType: outMime });
+        res.setHeader('Content-Type', outMime);
         res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
-        return res.send(buf);
+        return res.send(outBuf);
       }
     }
   } catch (err) {

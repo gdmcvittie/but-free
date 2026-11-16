@@ -1,5 +1,18 @@
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { GoogleAuth } from './googleAuth.js';
 import * as Database from './database.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+export const COVERS_DIR = process.env.COVERS_DIR || path.join(DATA_DIR, 'covers');
+if (!fs.existsSync(COVERS_DIR)) {
+  try {
+    fs.mkdirSync(COVERS_DIR, { recursive: true });
+  } catch (_) {}
+}
 
 // Consoles with browser-based WASM emulator cores
 export const SUPPORTED_EMULATOR_CONSOLES = new Set([
@@ -926,9 +939,85 @@ export const GoogleDrive = {
         consoleFolder.id
       );
 
+      // Cache a 256x256 PNG locally on the server for immediate fast loading
+      if (uploaded && uploaded.id) {
+        try {
+          const sharp = await getSharp();
+          let pngBuf;
+          if (sharp) {
+            pngBuf = await sharp(rawBuf, { failOn: 'none', animated: false })
+              .resize(256, 256, { fit: 'cover', position: 'center' })
+              .png({ compressionLevel: 8 })
+              .toBuffer();
+          } else {
+            pngBuf = rawBuf;
+          }
+          const safeId = String(uploaded.id).replace(/[^a-zA-Z0-9_-]/g, '_');
+          const cachePath = path.join(COVERS_DIR, `drive_${safeId}.png`);
+          await fs.promises.writeFile(cachePath, pngBuf);
+        } catch (_) {}
+      }
+
       return uploaded;
     } catch (err) {
       console.warn(`[GoogleDrive] uploadGamePoster failed for "${gameStem}" (${consoleKey}):`, err.message);
+      return null;
+    }
+  },
+
+  /**
+   * Downloads a user's poster image from Google Drive, resizes it to a 256x256 PNG via Sharp,
+   * and saves a local copy on the server in data/covers/drive_<id>.png for fast instant loading.
+   */
+  async cacheDrivePoster(user, fileId, modifiedTime = null) {
+    if (!user || !fileId) return null;
+    const safeId = String(fileId).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const cachePath = path.join(COVERS_DIR, `drive_${safeId}.png`);
+
+    if (fs.existsSync(cachePath)) {
+      try {
+        const stat = fs.statSync(cachePath);
+        if (stat.size > 200) {
+          if (!modifiedTime || stat.mtimeMs >= new Date(modifiedTime).getTime()) {
+            return cachePath;
+          }
+        }
+      } catch (_) {}
+    }
+
+    try {
+      const accessToken = await GoogleAuth.getValidAccessToken(user);
+      const driveUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&acknowledgeAbuse=true`;
+      const res = await fetch(driveUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(15000)
+      });
+      if (!res.ok) {
+        console.warn(`[GoogleDrive] Failed to download poster ${fileId} for 256x256 cache: HTTP ${res.status}`);
+        return null;
+      }
+
+      const arrayBuf = await res.arrayBuffer();
+      const rawBuf = Buffer.from(arrayBuf);
+      if (rawBuf.length < 100) return null;
+
+      const sharp = await getSharp();
+      let pngBuf;
+      if (sharp) {
+        pngBuf = await sharp(rawBuf, { failOn: 'none', animated: false })
+          .resize(256, 256, { fit: 'cover', position: 'center' })
+          .png({ compressionLevel: 8 })
+          .toBuffer();
+      } else {
+        pngBuf = rawBuf;
+      }
+
+      const tmpPath = `${cachePath}.tmp_${Date.now()}`;
+      await fs.promises.writeFile(tmpPath, pngBuf);
+      await fs.promises.rename(tmpPath, cachePath);
+      return cachePath;
+    } catch (err) {
+      console.warn(`[GoogleDrive] Error caching poster ${fileId} as 256x256 PNG:`, err.message);
       return null;
     }
   },
@@ -1027,12 +1116,13 @@ export const GoogleDrive = {
     const posterIndexByFolder = new Map();    // folderId -> Map(stem key -> drive file)
     const posterFoldersByParent = new Map();  // folderId -> legacy 'posters' folder inside it
     const looseImagesByParent = new Map();    // folderId -> Map(stem key -> image beside ROMs)
+    const postersToCache = new Map();         // fileId -> { id, modifiedTime }
 
     try {
       postersFolder = await this.findOrCreateFolder(user, 'posters', user.gamesFolderId);
       const existingPosters = await driveQueryFiles(
         `'${postersFolder.id}' in parents and trashed = false`,
-        'id,name,mimeType,parents'
+        'id,name,mimeType,parents,modifiedTime'
       );
       const rootIndex = new Map();
       for (const p of existingPosters) {
@@ -1040,6 +1130,7 @@ export const GoogleDrive = {
           postersFolderByConsole.set((p.name || '').toLowerCase().trim(), p);
         } else if (POSTER_IMAGE_EXTS.has(fileExt(p.name))) {
           indexPosterFile(rootIndex, p);
+          postersToCache.set(p.id, { id: p.id, modifiedTime: p.modifiedTime });
         }
       }
       posterIndexByFolder.set(postersFolder.id, rootIndex);
@@ -1056,10 +1147,13 @@ export const GoogleDrive = {
       try {
         const files = await driveQueryFiles(
           `'${folderId}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false`,
-          'id,name,mimeType,parents'
+          'id,name,mimeType,parents,modifiedTime'
         );
         for (const f of files) {
-          if (POSTER_IMAGE_EXTS.has(fileExt(f.name))) indexPosterFile(map, f);
+          if (POSTER_IMAGE_EXTS.has(fileExt(f.name))) {
+            indexPosterFile(map, f);
+            postersToCache.set(f.id, { id: f.id, modifiedTime: f.modifiedTime });
+          }
         }
       } catch (err) {
         console.warn('[GoogleDrive] Could not index posters folder:', err.message);
@@ -1203,17 +1297,26 @@ export const GoogleDrive = {
       if (canonFolder) {
         const canonIdx = await getPosterIndex(canonFolder.id);
         const hit = findPosterIn(canonIdx, keys);
-        if (hit) coverUrl = `/api/drive/file/${hit.id}`;
+        if (hit) {
+          coverUrl = `/api/games/poster/${hit.id}`;
+          postersToCache.set(hit.id, { id: hit.id, modifiedTime: hit.modifiedTime });
+        }
       }
       if (!coverUrl && postersFolder) {
         const rootIdx = posterIndexByFolder.get(postersFolder.id);
         const hit = findPosterIn(rootIdx, keys);
-        if (hit) coverUrl = `/api/drive/file/${hit.id}`;
+        if (hit) {
+          coverUrl = `/api/games/poster/${hit.id}`;
+          postersToCache.set(hit.id, { id: hit.id, modifiedTime: hit.modifiedTime });
+        }
       }
       if (!coverUrl && folderId) {
         const looseIdx = looseImagesByParent.get(folderId) || null;
         const hit = findPosterIn(looseIdx, keys);
-        if (hit) coverUrl = `/api/drive/file/${hit.id}`;
+        if (hit) {
+          coverUrl = `/api/games/poster/${hit.id}`;
+          postersToCache.set(hit.id, { id: hit.id, modifiedTime: hit.modifiedTime });
+        }
       }
 
       // 2. Fallback on-demand cover endpoint (browser loads asynchronously via <img src="..." />)
@@ -1246,6 +1349,7 @@ export const GoogleDrive = {
         if (!POSTER_IMAGE_EXTS.has(fileExt(file.name))) continue;
         if (!looseImagesByParent.has(cFolder.id)) looseImagesByParent.set(cFolder.id, new Map());
         indexPosterFile(looseImagesByParent.get(cFolder.id), file);
+        postersToCache.set(file.id, { id: file.id, modifiedTime: file.modifiedTime });
       }
 
       // 2a. Process game subfolders within this console folder (e.g. switch/Super Mario Odyssey/ or ps2/GTA/)
@@ -1309,6 +1413,7 @@ export const GoogleDrive = {
           if (!POSTER_IMAGE_EXTS.has(fileExt(file.name))) continue;
           if (!looseImagesByParent.has(sf.id)) looseImagesByParent.set(sf.id, new Map());
           indexPosterFile(looseImagesByParent.get(sf.id), file);
+          postersToCache.set(file.id, { id: file.id, modifiedTime: file.modifiedTime });
         }
 
         let gameFiles = sfFiles.filter(f => !IGNORED_FILE_EXTS.has(fileExt(f.name)) && !POSTER_IMAGE_EXTS.has(fileExt(f.name)));
@@ -1422,7 +1527,11 @@ export const GoogleDrive = {
     );
     for (const file of rootDirectFiles) {
       const ext = fileExt(file.name);
-      if (IGNORED_FILE_EXTS.has(ext) || POSTER_IMAGE_EXTS.has(ext)) continue;
+      if (POSTER_IMAGE_EXTS.has(ext)) {
+        postersToCache.set(file.id, { id: file.id, modifiedTime: file.modifiedTime });
+        continue;
+      }
+      if (IGNORED_FILE_EXTS.has(ext)) continue;
 
       let fileConsole = detectConsoleFromFilename(file.name, ext, Number(file.size || 0)) || EXTENSION_CONSOLE_MAP[ext] || 'other';
       if (['nsp', 'nsz', 'xci', 'xcz'].includes(ext)) fileConsole = 'switch';
@@ -1469,6 +1578,24 @@ export const GoogleDrive = {
     }
     console.log(`[GoogleDrive] Scan complete! Found ${cleanRecognizedGames.length} games across ${consoleFolders.length} console folders.`);
     console.log(`[GoogleDrive] Breakdown by console:`, JSON.stringify(breakdown));
+
+    // Cache all discovered user poster art images as 256x256 PNGs on the server for instant loading
+    if (postersToCache.size > 0) {
+      console.log(`[GoogleDrive] Caching ${postersToCache.size} user poster images as 256x256 PNGs on server...`);
+      const items = Array.from(postersToCache.values());
+      const CONCURRENCY = 6;
+      let cachedCount = 0;
+      const worker = async () => {
+        while (items.length > 0) {
+          const item = items.shift();
+          if (!item) break;
+          const ok = await this.cacheDrivePoster(user, item.id, item.modifiedTime);
+          if (ok) cachedCount++;
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, () => worker()));
+      console.log(`[GoogleDrive] Finished caching ${cachedCount} user poster images as 256x256 PNGs.`);
+    }
 
     // Save into database (drive-sourced records only; bookmarks survive)
     Database.saveGames(user.id, cleanRecognizedGames, 'drive');
