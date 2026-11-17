@@ -350,7 +350,6 @@ export default function RomslabTab({ onDownloadDispatched }) {
                             : 'bg-[#241e17] text-[#fcd34d] border-[#4d3c22]';
 
                           const isCopied = copiedId === link.id;
-                          const isQueueing = queueingId === (link.id || link.url);
 
                           return (
                             <div
