@@ -1139,6 +1139,30 @@
       }
     }
 
+    // ── Safe JSON Fetch Helper (Prevents HTML "Unexpected token <" syntax errors) ──
+    async function safeFetchJson(url, options) {
+      var res = await fetch(url, options);
+      var contentType = (res.headers.get('content-type') || '').toLowerCase();
+      if (!res.ok) {
+        var text = '';
+        try { text = await res.text(); } catch (_) {}
+        var msg = 'Request failed (HTTP ' + res.status + ')';
+        if (text && contentType.includes('application/json')) {
+          try {
+            var parsed = JSON.parse(text);
+            if (parsed.error || parsed.message) msg = parsed.error || parsed.message;
+          } catch (_) {}
+        } else if (text && text.length < 80 && !text.includes('<')) {
+          msg = text;
+        }
+        throw new Error(msg);
+      }
+      if (!contentType.includes('application/json')) {
+        throw new Error('Server returned non-JSON response');
+      }
+      return await res.json();
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // Downloads Folder Management
     // ══════════════════════════════════════════════════════════════════════
@@ -1991,7 +2015,7 @@
         var isTorrentFile = !isMag && url.toLowerCase().includes('.torrent');
         var isDirect = !isMag && !isTorrentFile;
 
-        var res = await fetch('/api/torrent/add', {
+        var data = await safeFetchJson('/api/torrent/add', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -2001,7 +2025,6 @@
             hoster: hoster || (isMag ? 'Magnet' : 'Direct')
           })
         });
-        var data = await res.json();
         if (data && data.success) {
           showToast('Added "' + (title || pcModalGameTitle) + '" to download queue', 'success');
           refreshPcTorrentQueueUI();
@@ -2074,12 +2097,11 @@
       listEl.innerHTML = '';
       modal.style.display = 'flex';
 
-      fetch('/api/torrent/inspect', {
+      safeFetchJson('/api/torrent/inspect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: magnetUrl })
       })
-      .then(function(r) { return r.json(); })
       .then(function(d) {
         if (!d || !d.success) throw new Error((d && d.error) || 'Failed to inspect torrent');
         pcTorrentFilesState.files = d.files || [];
@@ -2109,8 +2131,7 @@
       listEl.innerHTML = '';
       modal.style.display = 'flex';
 
-      fetch('/api/torrent/files?id=' + encodeURIComponent(id))
-        .then(function(r) { return r.json(); })
+      safeFetchJson('/api/torrent/files?id=' + encodeURIComponent(id))
         .then(function(d) {
           if (!d || !d.success) throw new Error((d && d.error) || 'Failed to get files');
           pcTorrentFilesState.files = d.files || [];
@@ -2220,12 +2241,11 @@
 
       if (state.queueItemId) {
         try {
-          var res = await fetch('/api/torrent/select-files', {
+          var data = await safeFetchJson('/api/torrent/select-files', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id: state.queueItemId, fileIndices: indices })
           });
-          var data = await res.json();
           if (data && data.success) {
             showToast('Updated selected files for torrent', 'success');
             closePcTorrentFilesModal();
@@ -2237,7 +2257,7 @@
         }
       } else if (state.pendingMagnetUrl) {
         try {
-          var res = await fetch('/api/torrent/add', {
+          var data = await safeFetchJson('/api/torrent/add', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -2246,7 +2266,6 @@
               fileIndices: indices
             })
           });
-          var data = await res.json();
           if (data && data.success) {
             showToast('Added "' + state.pendingTitle + '" to queue (' + indices.length + ' files)', 'success');
             closePcTorrentFilesModal();
@@ -2267,12 +2286,11 @@
 
     async function queueTorrentDownload(magnetUrl, title) {
       try {
-        var res = await fetch('/api/torrent/add', {
+        var data = await safeFetchJson('/api/torrent/add', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: magnetUrl, title: title })
         });
-        var data = await res.json();
         if (data && data.success) {
           showToast('Added "' + title + '" to download queue', 'success');
           refreshPcTorrentQueueUI();
@@ -2292,12 +2310,11 @@
 
     async function deletePcTorrent(id) {
       try {
-        var res = await fetch('/api/torrent/remove', {
+        var data = await safeFetchJson('/api/torrent/remove', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: id })
         });
-        var data = await res.json();
         if (data && data.success) {
           showToast('Download removed from queue', 'info');
           refreshPcTorrentQueueUI();

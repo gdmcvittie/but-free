@@ -13,6 +13,8 @@ import https from 'https';
 import { execFile } from 'child_process';
 import { unpack7z, detectArchiveFileType } from './archive.js';
 import { isFuckingFastLandingPage, resolveFuckingFastUrl } from './fuckingfast-resolver.js';
+import { isFileKeeperLandingPage, resolveFileKeeperUrl } from './filekeeper-resolver.js';
+import { isDataNodesLandingPage, resolveDataNodesUrl } from './datanodes-resolver.js';
 import { classifyDownloadUrl, extractMagnetName } from './link-utils.js';
 import { getWebTorrentClient, resolveTorrentId, inspectTorrentFiles } from './torrent-engine.js';
 
@@ -574,6 +576,8 @@ export function createDownloadQueue({ getDownloadsFolder, broadcastEvent: broadc
         };
         if (parsedUrl.hostname && parsedUrl.hostname.includes('fuckingfast.co')) {
           reqHeaders['Referer'] = 'https://fuckingfast.co/';
+        } else if (parsedUrl.hostname && (parsedUrl.hostname.includes('filekeeper.net') || parsedUrl.hostname.includes('datanodes.to'))) {
+          reqHeaders['Referer'] = 'https://romslab.com/';
         }
 
         const req = client.get(parsedUrl, {
@@ -722,25 +726,87 @@ export function createDownloadQueue({ getDownloadsFolder, broadcastEvent: broadc
       item.originalUrl = item.url;
     }
 
-    // 1. If this is a DataNodes web landing page rather than a resolved direct storage node link
-    const isDataNodesLanding = (item.url || '').toLowerCase().includes('datanodes.to') &&
-      !(item.url.includes(':8443') || item.url.includes('/d/'));
-
-    if (isDataNodesLanding) {
-      console.warn(`[Direct Download Queue] "${item.title}" is a DataNodes landing page. Direct node link required.`);
-      item.status = 'error';
-      item.errorMessage = 'DataNodes landing page. Click ↗ Open in Browser to get the direct file link, then click 🔗 Paste Link.';
-      item.nextAttemptAt = null;
-      activeDirectPending = null;
-      activeTorrentItem = null;
+    // 1. If this is a FileKeeper landing page, automatically resolve to direct storage download link
+    if (isFileKeeperLandingPage(item.url)) {
+      console.log(`[Direct Download Queue] Resolving FileKeeper landing page for "${item.title}": ${item.url}`);
+      item.status = 'downloading';
+      item.errorMessage = 'Resolving FileKeeper direct download link...';
       saveTorrentQueue();
-      broadcastEvent('torrent_queue_update', { queue: torrentQueue, active: null });
-      broadcastEvent('torrent_failed', { id: item.id, title: item.title, message: item.errorMessage });
-      setTimeout(() => { processTorrentQueue(); }, 500);
-      return;
+      broadcastEvent('torrent_queue_update', { queue: torrentQueue, active: activeTorrentItem });
+
+      try {
+        const resolvedDirectUrl = await resolveFileKeeperUrl(item.url);
+        if (cancelledDirectIds.has(item.id)) {
+          cancelledDirectIds.delete(item.id);
+          console.log(`[Direct Download Queue] Download cancelled during resolution for "${item.title}"`);
+          activeDirectPending = null;
+          activeTorrentItem = null;
+          setTimeout(() => { processTorrentQueue(); }, 200);
+          return;
+        }
+        if (resolvedDirectUrl && resolvedDirectUrl !== item.url) {
+          console.log(`[Direct Download Queue] Resolved FileKeeper direct URL: ${resolvedDirectUrl}`);
+          item.url = resolvedDirectUrl;
+          item.errorMessage = null;
+          saveTorrentQueue();
+          broadcastEvent('torrent_queue_update', { queue: torrentQueue, active: activeTorrentItem });
+        }
+      } catch (resolveErr) {
+        console.warn(`[Direct Download Queue] FileKeeper auto-resolution failed for "${item.title}": ${resolveErr.message}`);
+        item.status = 'error';
+        item.errorMessage = `FileKeeper resolution: ${resolveErr.message}. Click ↗ Open in Browser then click 🔗 Paste Link.`;
+        item.nextAttemptAt = null;
+        activeDirectPending = null;
+        activeTorrentItem = null;
+        saveTorrentQueue();
+        broadcastEvent('torrent_queue_update', { queue: torrentQueue, active: null });
+        broadcastEvent('torrent_failed', { id: item.id, title: item.title, message: item.errorMessage });
+        setTimeout(() => { processTorrentQueue(); }, 500);
+        return;
+      }
     }
 
-    // 2. If this is a FuckingFast landing page, automatically resolve to direct download link
+    // 2. If this is a DataNodes landing page, automatically resolve to direct download link
+    if (isDataNodesLandingPage(item.url)) {
+      console.log(`[Direct Download Queue] Resolving DataNodes landing page for "${item.title}": ${item.url}`);
+      item.status = 'downloading';
+      item.errorMessage = 'Resolving DataNodes direct download link...';
+      saveTorrentQueue();
+      broadcastEvent('torrent_queue_update', { queue: torrentQueue, active: activeTorrentItem });
+
+      try {
+        const resolvedDirectUrl = await resolveDataNodesUrl(item.url);
+        if (cancelledDirectIds.has(item.id)) {
+          cancelledDirectIds.delete(item.id);
+          console.log(`[Direct Download Queue] Download cancelled during resolution for "${item.title}"`);
+          activeDirectPending = null;
+          activeTorrentItem = null;
+          setTimeout(() => { processTorrentQueue(); }, 200);
+          return;
+        }
+        if (resolvedDirectUrl && resolvedDirectUrl !== item.url) {
+          console.log(`[Direct Download Queue] Resolved DataNodes direct URL: ${resolvedDirectUrl}`);
+          item.url = resolvedDirectUrl;
+          item.errorMessage = null;
+          saveTorrentQueue();
+          broadcastEvent('torrent_queue_update', { queue: torrentQueue, active: activeTorrentItem });
+        }
+      } catch (resolveErr) {
+        console.warn(`[Direct Download Queue] DataNodes auto-resolution failed for "${item.title}": ${resolveErr.message}`);
+        item.status = 'error';
+        item.errorMessage = `DataNodes resolution: ${resolveErr.message}. Click ↗ Open in Browser to download or use FileKeeper mirror.`;
+        item.nextAttemptAt = null;
+        activeDirectPending = null;
+        activeTorrentItem = null;
+        saveTorrentQueue();
+        broadcastEvent('torrent_queue_update', { queue: torrentQueue, active: null });
+        broadcastEvent('torrent_failed', { id: item.id, title: item.title, message: item.errorMessage });
+        setTimeout(() => { processTorrentQueue(); }, 500);
+        return;
+      }
+    }
+
+    // 3. If this is a FuckingFast landing page, automatically resolve to direct download link
     if (isFuckingFastLandingPage(item.url)) {
       console.log(`[Direct Download Queue] Resolving FuckingFast landing page for "${item.title}": ${item.url}`);
       item.status = 'downloading';
@@ -1261,7 +1327,7 @@ export function createDownloadQueue({ getDownloadsFolder, broadcastEvent: broadc
     inspectTorrent: (rawUrl, timeoutMs) => inspectTorrentFiles(rawUrl, getDownloadsFolder(), timeoutMs, { isQueued: queueApi.isUrlQueued }),
 
     registerRoutes(app) {
-      // 3. Add Torrent or Direct Download to Queue: POST /api/pc-rss/torrent/add & /api/pc-rss/download/add
+      // 3. Add Torrent or Direct Download to Queue: POST /api/pc-rss/torrent/add, /api/torrent/add, etc.
       const handleAddDownloadToQueue = (req, res) => {
         try {
           const { url, title, magnet, filename, selectedFiles, files, isDirect, hoster } = req.body || {};
@@ -1276,11 +1342,10 @@ export function createDownloadQueue({ getDownloadsFolder, broadcastEvent: broadc
           res.status(400).json({ success: false, error: err.message });
         }
       };
-      app.post('/api/pc-rss/torrent/add', handleAddDownloadToQueue);
-      app.post('/api/pc-rss/download/add', handleAddDownloadToQueue);
+      app.post(['/api/pc-rss/torrent/add', '/api/pc-rss/download/add', '/api/torrent/add', '/api/download/add'], handleAddDownloadToQueue);
 
       // 3b. Batch Add Downloads to Queue: POST /api/pc-rss/torrent/add-batch
-      app.post('/api/pc-rss/torrent/add-batch', (req, res) => {
+      app.post(['/api/pc-rss/torrent/add-batch', '/api/torrent/add-batch'], (req, res) => {
         try {
           const { items: batchItems } = req.body || {};
           if (!Array.isArray(batchItems) || batchItems.length === 0) {
@@ -1310,8 +1375,8 @@ export function createDownloadQueue({ getDownloadsFolder, broadcastEvent: broadc
         }
       });
 
-      // 3b. Inspect Torrent Files: POST /api/pc-rss/torrent/inspect
-      app.post('/api/pc-rss/torrent/inspect', async (req, res) => {
+      // 3c. Inspect Torrent Files: POST /api/pc-rss/torrent/inspect & /api/torrent/inspect
+      app.post(['/api/pc-rss/torrent/inspect', '/api/torrent/inspect'], async (req, res) => {
         try {
           const { id, url, magnet } = req.body || {};
 
@@ -1379,8 +1444,8 @@ export function createDownloadQueue({ getDownloadsFolder, broadcastEvent: broadc
         }
       });
 
-      // 3c. Select / Deselect Files in Torrent: POST /api/pc-rss/torrent/select-files
-      app.post('/api/pc-rss/torrent/select-files', (req, res) => {
+      // 3d. Select / Deselect Files in Torrent: POST /api/pc-rss/torrent/select-files & /api/torrent/select-files
+      app.post(['/api/pc-rss/torrent/select-files', '/api/torrent/select-files'], (req, res) => {
         try {
           const { id, selectedFiles } = req.body || {};
           if (!id) return res.status(400).json({ success: false, error: 'Torrent ID required' });
@@ -1438,8 +1503,24 @@ export function createDownloadQueue({ getDownloadsFolder, broadcastEvent: broadc
         }
       });
 
-      // 4. Delete / Remove Torrent from Queue: POST /api/pc-rss/torrent/delete & DELETE /api/pc-rss/torrent/:id
-      app.post('/api/pc-rss/torrent/delete', (req, res) => {
+      // 3e. Get Files for Torrent / Item: GET /api/pc-rss/torrent/files & /api/torrent/files
+      app.get(['/api/pc-rss/torrent/files', '/api/torrent/files'], (req, res) => {
+        const id = req.query.id;
+        if (!id) return res.status(400).json({ success: false, error: 'id query parameter required' });
+        const item = torrentQueue.find(t => t.id === id);
+        if (!item) return res.status(404).json({ success: false, error: 'Item not found in queue' });
+        res.json({
+          success: true,
+          id: item.id,
+          name: item.title,
+          files: item.files || [],
+          selectedFiles: item.selectedFiles || null,
+          totalBytes: item.totalBytes || 0
+        });
+      });
+
+      // 4. Delete / Remove Torrent from Queue: POST /api/pc-rss/torrent/delete, /api/torrent/delete, /api/torrent/remove
+      app.post(['/api/pc-rss/torrent/delete', '/api/torrent/delete', '/api/torrent/remove', '/api/pc-rss/torrent/remove'], (req, res) => {
         const { id } = req.body || {};
         if (!id) return res.status(400).json({ success: false, error: 'ID is required' });
 
@@ -1447,14 +1528,14 @@ export function createDownloadQueue({ getDownloadsFolder, broadcastEvent: broadc
         res.json({ success: deleted, queue: torrentQueue });
       });
 
-      app.delete('/api/pc-rss/torrent/:id', (req, res) => {
+      app.delete(['/api/pc-rss/torrent/:id', '/api/torrent/:id'], (req, res) => {
         const id = req.params.id;
         const deleted = deleteTorrentFromQueue(id);
         res.json({ success: deleted, queue: torrentQueue });
       });
 
-      // 4b. Update Download URL in Queue: POST /api/pc-rss/torrent/update-url
-      app.post('/api/pc-rss/torrent/update-url', (req, res) => {
+      // 4b. Update Download URL in Queue: POST /api/pc-rss/torrent/update-url & /api/torrent/update-url
+      app.post(['/api/pc-rss/torrent/update-url', '/api/torrent/update-url'], (req, res) => {
         const { id, url } = req.body || {};
         if (!id || !url) return res.status(400).json({ success: false, error: 'id and url are required' });
         const item = torrentQueue.find(t => t.id === id);
@@ -1470,8 +1551,8 @@ export function createDownloadQueue({ getDownloadsFolder, broadcastEvent: broadc
         res.json({ success: true, item, queue: torrentQueue });
       });
 
-      // 5. Get Torrent Queue Status: GET /api/pc-rss/torrent/queue
-      app.get('/api/pc-rss/torrent/queue', (req, res) => {
+      // 5. Get Torrent Queue Status: GET /api/pc-rss/torrent/queue & /api/torrent/queue
+      app.get(['/api/pc-rss/torrent/queue', '/api/torrent/queue'], (req, res) => {
         // If active lock is set but handle is dead or missing, clear it.
         // A direct download has no handle and sets activeDirectDownloadRequest only
         // once headers arrive, so both of those must be ignored here or this poll

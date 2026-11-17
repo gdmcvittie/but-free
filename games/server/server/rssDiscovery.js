@@ -1732,3 +1732,89 @@ export function isDataNodesLandingPage(url) {
   const lower = url.toLowerCase();
   return lower.includes('datanodes.to') && !(lower.includes(':8443') || lower.includes('/d/'));
 }
+
+export function isFileKeeperUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  return url.toLowerCase().includes('filekeeper.net');
+}
+
+export function isFileKeeperDirectUrl(url) {
+  if (!isFileKeeperUrl(url)) return false;
+  const lower = url.toLowerCase();
+  return lower.includes(':8443') || lower.includes('/d/') || lower.includes('fs') || lower.includes('/download/');
+}
+
+export function isFileKeeperLandingPage(url) {
+  if (!isFileKeeperUrl(url)) return false;
+  return !isFileKeeperDirectUrl(url);
+}
+
+export async function resolveFileKeeperUrl(landingUrl, referer = 'https://romslab.com/') {
+  const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+  const clean = landingUrl.split('#')[0].split('?')[0];
+  const parts = new URL(clean).pathname.split('/').filter(Boolean);
+  const fileId = parts[0];
+  if (!fileId) throw new Error('Could not parse file ID from FileKeeper URL');
+
+  const r1 = await fetch(landingUrl, {
+    method: 'GET',
+    headers: { 'User-Agent': ua, 'Referer': referer },
+    redirect: 'manual'
+  });
+
+  const cookieHeader = r1.headers.get('set-cookie');
+  const fileCodeCookie = cookieHeader ? cookieHeader.split(';')[0] : `file_code=${fileId}`;
+  const loc = new URL(r1.headers.get('location') || landingUrl, landingUrl).href;
+
+  const r2 = await fetch(loc, {
+    headers: { 'User-Agent': ua, 'Referer': referer, 'Cookie': fileCodeCookie }
+  });
+
+  if (!r2.ok) throw new Error(`FileKeeper responded with HTTP ${r2.status}`);
+
+  const html2 = await r2.text();
+  if (html2.includes('404 File Not Found') || html2.includes('The file expired') || html2.includes('The file was deleted')) {
+    throw new Error('File has expired or was removed on FileKeeper (404 Not Found)');
+  }
+
+  const cdTagMatch = html2.match(/<[^>]+id=["']download-countdown["'][^>]*>/i);
+  const cdTag = cdTagMatch ? cdTagMatch[0] : '';
+  const code = cdTag.match(/data-code=["']([^"']*)["']/i)?.[1] || html2.match(/name=["']id["']\s+value=["']([^"']*)["']/i)?.[1] || fileId;
+  const rand = cdTag.match(/data-rand=["']([^"']*)["']/i)?.[1] || html2.match(/name=["']rand["']\s+value=["']([^"']*)["']/i)?.[1] || '';
+  const postReferer = cdTag.match(/data-referer=["']([^"']*)["']/i)?.[1] || html2.match(/name=["']referer["']\s+value=["']([^"']*)["']/i)?.[1] || referer;
+  const method = cdTag.match(/data-method=["']([^"']*)["']/i)?.[1] || html2.match(/name=["']method_free["']\s+value=["']([^"']*)["']/i)?.[1] || '';
+
+  const postEndpoint = `https://filekeeper.net/${code}`;
+  const params = new URLSearchParams({
+    op: 'download2',
+    id: code,
+    rand: rand,
+    referer: postReferer,
+    method_free: method,
+    down_direct: '1'
+  });
+
+  const r3 = await fetch(postEndpoint, {
+    method: 'POST',
+    headers: {
+      'User-Agent': ua,
+      'Referer': loc,
+      'Origin': 'https://filekeeper.net',
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Cookie': fileCodeCookie
+    },
+    body: params.toString(),
+    redirect: 'manual'
+  });
+
+  const directLocation = r3.headers.get('location');
+  if (directLocation) {
+    return new URL(directLocation, 'https://filekeeper.net').href;
+  }
+
+  const bodyText = await r3.text().catch(() => '');
+  const directMatch = bodyText.match(/https?:\/\/[a-zA-Z0-9.-]*filekeeper\.net(?::8443|\/d\/)[^\s"'<>\\]+/i);
+  if (directMatch) return directMatch[0];
+
+  throw new Error('FileKeeper resolution did not return direct link');
+}

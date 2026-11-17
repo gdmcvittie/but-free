@@ -22,6 +22,8 @@ import {
   isFuckingFastBlockedError,
   resetFuckingFastCooldown,
   isDataNodesLandingPage,
+  isFileKeeperLandingPage,
+  resolveFileKeeperUrl,
   MAX_PC_REMOTE_TORRENT_BYTES,
   PC_REMOTE_TORRENT_LIMIT_MSG,
   parseSizeStringToBytes
@@ -235,10 +237,19 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
     try {
       const ctx = buildDispatchContext(req);
 
-      if (isDataNodesLandingPage(target)) {
+      if (isFileKeeperLandingPage(target)) {
+        try {
+          target = await resolveFileKeeperUrl(target);
+        } catch (fkErr) {
+          return res.status(400).json({
+            success: false,
+            error: `FileKeeper resolution: ${fkErr.message}`
+          });
+        }
+      } else if (isDataNodesLandingPage(target)) {
         return res.status(400).json({
           success: false,
-          error: 'DataNodes links require an interactive browser (Cloudflare Turnstile). Use the Freeplay Downloader app or pick Mirror 2 instead.'
+          error: 'DataNodes links require an interactive browser (Cloudflare Turnstile). Use the Freeplay Downloader app or pick Mirror 2 (FileKeeper) instead.'
         });
       }
 
@@ -337,6 +348,8 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
       if (isDirect && isFuckingFastLandingPage(target)) {
         resetFuckingFastCooldown();
         target = await resolveFuckingFastUrl(target, { downloaderClient: GameDownloaderClient });
+      } else if (isDirect && isFileKeeperLandingPage(target)) {
+        target = await resolveFileKeeperUrl(target);
       } else if (isDirect && isDataNodesLandingPage(target)) {
         return res.status(400).json({
           success: false,
