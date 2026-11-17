@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Gamepad2, Search, Download, Rss, RefreshCw, Layers, ExternalLink,
-  Copy, Check, HardDrive, Sparkles, AlertCircle, X, ShieldAlert
+  Copy, Check, Sparkles, AlertCircle, X, ShieldAlert
 } from 'lucide-react';
 import { fetchJson } from '../../utils/api';
 import { JobStatusBanner, Grid } from './shared';
@@ -39,7 +39,6 @@ export default function RomslabTab({ onDownloadDispatched }) {
   const [scraping, setScraping] = useState(false);
   const [scrapedData, setScrapedData] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
-  const [queueingId, setQueueingId] = useState(null);
 
   const loadFeed = useCallback(async (query = '', platform = '', force = false) => {
     setLoading(true);
@@ -95,34 +94,12 @@ export default function RomslabTab({ onDownloadDispatched }) {
     setScrapedData(null);
     setScraping(false);
     setCopiedId(null);
-    setQueueingId(null);
   };
 
   const handleCopyLink = (linkId, url) => {
     navigator.clipboard?.writeText(url);
     setCopiedId(linkId);
     setTimeout(() => setCopiedId(null), 2000);
-  };
-
-  const handleQueueToDrive = async (link, item) => {
-    setQueueingId(link.id || link.url);
-    try {
-      const res = await fetchJson('/api/romslab/add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          source: link.url,
-          title: item.cleanTitle || item.title,
-          platform: item.platform || 'Nintendo Switch'
-        })
-      });
-      setStatus({ type: 'ok', message: res.message || `Queued "${item.cleanTitle || item.title}" to Google Drive` });
-      if (onDownloadDispatched) onDownloadDispatched(res.job);
-    } catch (err) {
-      setStatus({ type: 'err', message: err.message || 'Failed to queue download' });
-    } finally {
-      setQueueingId(null);
-    }
   };
 
   return (
@@ -178,10 +155,10 @@ export default function RomslabTab({ onDownloadDispatched }) {
       )}
 
       {/* Info Banner */}
-      <div className="glass-panel p-4 flex flex-col sm:flex-row sm:items-center gap-3 border border-[#383838] bg-[#202020]">
+      <div className="glass-panel p-4 flex flex-col sm:flex-row sm:items-center gap-3 border border-cyan-500/20 bg-cyan-500/5">
         <div className="flex-1 text-xs text-slate-300 leading-relaxed">
-          Nintendo Switch &amp; Console ROMs from <span className="font-semibold text-white">Romslab</span>.
-          Download base game, updates, and DLC packages straight via Freeplay Downloader, queue to Google Drive, or copy direct mirror links.
+          Nintendo Switch &amp; Console ROM downloads are handled by the <span className="font-semibold text-white">Freeplay Downloader</span> desktop app.
+          Install it once, then send any release or mirror link directly to your download queue.
         </div>
         <a
           href="/FreeplayDownloader-Setup.exe"
@@ -189,7 +166,7 @@ export default function RomslabTab({ onDownloadDispatched }) {
           className="btn btn-primary btn-xs whitespace-nowrap text-center"
         >
           <Download className="w-3.5 h-3.5" />
-          <span>Freeplay Downloader</span>
+          <span>Download FreeplayDownloader-Setup.exe</span>
         </a>
       </div>
 
@@ -305,7 +282,9 @@ export default function RomslabTab({ onDownloadDispatched }) {
               </div>
               <button
                 onClick={closeLinksModal}
-                className="w-8 h-8 rounded flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition"
+                className="icon-btn icon-btn-sm"
+                title="Close"
+                aria-label="Close"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -399,24 +378,12 @@ export default function RomslabTab({ onDownloadDispatched }) {
                                 {/* Freeplay Downloader deep link */}
                                 <a
                                   href={`freeplayDL://download?url=${encodeURIComponent(link.url)}&title=${encodeURIComponent(scrapedData.cleanTitle || inspectItem.title)}`}
-                                  className="btn btn-primary btn-xs flex items-center gap-1"
+                                  className="btn btn-primary btn-xs flex items-center gap-1.5"
                                   title="Send to Freeplay Downloader"
                                 >
                                   <Download className="w-3 h-3" />
-                                  <span>Downloader</span>
+                                  <span>Download</span>
                                 </a>
-
-                                {/* Queue to Google Drive (Downloader node) */}
-                                <button
-                                  type="button"
-                                  onClick={() => handleQueueToDrive(link, scrapedData)}
-                                  disabled={isQueueing}
-                                  className="btn btn-secondary btn-xs flex items-center gap-1"
-                                  title="Queue direct download into your Google Drive"
-                                >
-                                  <HardDrive className={`w-3 h-3 ${isQueueing ? 'animate-spin' : ''}`} />
-                                  <span>{isQueueing ? 'Queueing...' : 'To Drive'}</span>
-                                </button>
 
                                 {/* Copy Link */}
                                 <button
@@ -455,7 +422,7 @@ export default function RomslabTab({ onDownloadDispatched }) {
 
             {/* Modal Footer */}
             <div className="p-3 border-t border-[#2d2d2d] bg-[#222222] flex items-center justify-between text-[11px] text-slate-400">
-              <span className="font-mono">Tip: DataNodes links require an interactive browser or Freeplay Downloader</span>
+              <span className="font-mono">Tip: ROMs download directly via the Freeplay Downloader app</span>
               <button onClick={closeLinksModal} className="btn btn-secondary btn-xs">
                 Close
               </button>
