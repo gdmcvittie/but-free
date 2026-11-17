@@ -535,8 +535,6 @@ app.get('/api/music/whats-new/torrents', async (req, res) => {
     if (q) {
       const cat = feed === 'mp3' ? 101 : 104;
       releases = await musicTorrents.searchTorrents(q, cat);
-    } else if (feed === 'nyaa') {
-      releases = await musicTorrents.fetchNyaaRss(refresh);
     } else if (feed === 'mp3') {
       releases = await musicTorrents.fetchApibayTop(101, refresh);
     } else {

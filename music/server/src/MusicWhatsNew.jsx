@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Music4, Download, FolderOpen, RefreshCw, Check, AlertTriangle, Search as SearchIcon, X, User, Heart, ListMusic, Loader2, Zap, Radio, Disc, Users } from 'lucide-react';
+import { Music4, Download, FolderOpen, RefreshCw, Check, AlertTriangle, Search as SearchIcon, X, User, Heart, ListMusic, Loader2, Zap, Disc, Users } from 'lucide-react';
 import { api, subscribeToEvents } from './api';
 import { useSwipeBack } from './swipeBack';
 import { formatDuration, formatLengthShort, isSameTrack, isSameAlbum, stripTrackNumber } from './format';
@@ -25,7 +25,7 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
   const [entityJobs, setEntityJobs] = useState({});
 
   // ---- torrent feeds --------------------------------------------------
-  const [feedType, setFeedType] = useState('yt'); // 'yt' | 'flac' | 'nyaa' | 'mp3'
+  const [feedType, setFeedType] = useState('yt'); // 'yt' | 'flac' | 'mp3'
   const [torrentReleases, setTorrentReleases] = useState([]);
   const [torrentLoading, setTorrentLoading] = useState(false);
   const [torrentRefreshing, setTorrentRefreshing] = useState(false);
@@ -579,11 +579,9 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
               ? `Top tracks and albums from ${artist.title}`
               : feedType === 'flac'
                 ? 'Lossless FLAC and Hi-Res studio releases from The Pirate Bay'
-                : feedType === 'nyaa'
-                  ? 'Lossless anime OSTs, J-Pop, and international soundtracks from Nyaa Audio'
-                  : feedType === 'mp3'
-                    ? 'Top seeded MP3 and full album collections'
-                    : 'Fresh albums from YouTube Music, or search for songs and artists'}
+                : feedType === 'mp3'
+                  ? 'Top seeded MP3 and full album collections'
+                  : 'Fresh albums from YouTube Music, or search for songs and artists'}
           </p>
         </div>
         {!artist && (
@@ -634,14 +632,6 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
           </button>
           <button
             type="button"
-            className={`stitcher-mode-btn ${feedType === 'nyaa' ? 'active' : ''}`}
-            onClick={() => { setFeedType('nyaa'); setQuery(''); }}
-          >
-            <Radio size={14} style={{ color: '#f59e0b' }} />
-            Anime &amp; OST (Nyaa)
-          </button>
-          <button
-            type="button"
             className={`stitcher-mode-btn ${feedType === 'mp3' ? 'active' : ''}`}
             onClick={() => { setFeedType('mp3'); setQuery(''); }}
           >
@@ -658,7 +648,7 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
             <input
               type="search"
               className="input-field"
-              placeholder={feedType === 'yt' ? 'Search songs, artists, albums…' : `Search ${feedType === 'nyaa' ? 'anime/soundtracks' : 'torrent releases'}…`}
+              placeholder={feedType === 'yt' ? 'Search songs, artists, albums…' : 'Search torrent releases…'}
               value={query}
               onChange={(e) => runSearch(e.target.value)}
               autoFocus={Boolean(initialQuery)}
@@ -713,7 +703,7 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
         torrentLoading ? (
           <div className="loading-state">
             <div className="spinner" />
-            <p>Loading {feedType === 'nyaa' ? 'Anime & Soundtracks' : 'Lossless Torrents'}…</p>
+            <p>Loading {feedType === 'mp3' ? 'Top MP3 Releases' : 'Lossless FLAC Releases'}…</p>
           </div>
         ) : torrentReleases.length === 0 && !torrentError ? (
           <div className="empty-state">
@@ -724,11 +714,9 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
           <>
             <div className="section-head">
               <span className="section-title">
-                {feedType === 'nyaa'
-                  ? 'Lossless Soundtracks & Anime Music'
-                  : feedType === 'mp3'
-                    ? 'Top MP3 Releases'
-                    : 'Lossless FLAC Releases'}
+                {feedType === 'mp3'
+                  ? 'Top MP3 Releases'
+                  : 'Lossless FLAC Releases'}
               </span>
               <span className="section-count">{torrentReleases.length}</span>
             </div>
@@ -1219,7 +1207,7 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
                 <span className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                   <Users size={12} style={{ color: '#3ddc97' }} /> {torrentDetail.seeders} seeds ({torrentDetail.leechers} leechers)
                 </span>
-                <span className="badge">{torrentDetail.source === 'nyaa' ? 'Nyaa RSS' : 'The Pirate Bay'}</span>
+                <span className="badge">The Pirate Bay</span>
               </div>
 
               <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>

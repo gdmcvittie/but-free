@@ -1,12 +1,11 @@
 /**
  * Music Torrent Feeds & Search Provider
  *
- * Integrates high-quality music torrent RSS & top feeds:
+ * Integrates high-quality music torrent top feeds:
  * 1. Apibay Top 100 Category 104: Lossless FLAC releases
  * 2. Apibay Top 100 Category 101: Top MP3 releases
- * 3. Nyaa RSS Category 2_1: Lossless Audio / Soundtracks / Anime music
- * 4. Apibay Music Search: Search lossless or all music torrents
- * 5. Cover art resolution: iTunes Search API cache
+ * 3. Apibay Music Search: Search lossless or all music torrents
+ * 4. Cover art resolution: iTunes Search API cache
  */
 
 const FEED_CACHE_MS = 15 * 60 * 1000; // 15 minutes cache
@@ -37,7 +36,7 @@ export function parseMusicRelease(raw) {
     format = 'AAC';
   }
 
-  // Strip leading group tag like [JMAX], [Erai-raws], [SEED], etc.
+  // Strip leading group tag like [Group], (Group), etc.
   clean = clean.replace(/^\[[^\]]+\]\s*/, '');
 
   // Extract year
@@ -51,11 +50,6 @@ export function parseMusicRelease(raw) {
     const parts = clean.split(/\s+-\s+/);
     artist = parts[0].trim();
     album = parts.slice(1).join(' - ').trim();
-  } else if (clean.includes('／')) {
-    // Japanese / Nyaa style: Title／Artist
-    const parts = clean.split('／');
-    album = parts[0].trim();
-    artist = parts[1] ? parts[1].replace(/\[.*?\]/g, '').trim() : '';
   } else {
     album = clean;
   }
@@ -159,73 +153,6 @@ export async function fetchApibayTop(category = 104, refresh = false) {
   return items;
 }
 
-export async function fetchNyaaRss(refresh = false) {
-  const cacheKey = 'nyaa_2_1';
-  const now = Date.now();
-  if (!refresh && feedCache.has(cacheKey)) {
-    const hit = feedCache.get(cacheKey);
-    if (now - hit.time < FEED_CACHE_MS) return hit.data;
-  }
-
-  const url = 'https://nyaa.si/?page=rss&c=2_1';
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (FraudioMusic/1.0)' },
-    signal: AbortSignal.timeout(10000)
-  });
-
-  if (!res.ok) throw new Error(`Nyaa RSS returned HTTP ${res.status}`);
-  const xml = await res.text();
-
-  const items = [];
-  const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-  let match;
-  let counter = 0;
-
-  while ((match = itemRegex.exec(xml)) !== null) {
-    const block = match[1];
-    const rawTitle = block.match(/<title><!\[CDATA\[(.*?)\]\]>|<title>(.*?)<\/title>/)?.[1]
-      || block.match(/<title>(.*?)<\/title>/)?.[1]
-      || '';
-    const infoHash = (block.match(/<nyaa:infoHash>(.*?)<\/nyaa:infoHash>/)?.[1] || '').toLowerCase().trim();
-    const size = block.match(/<nyaa:size>(.*?)<\/nyaa:size>/)?.[1] || '';
-    const seeders = parseInt(block.match(/<nyaa:seeders>(.*?)<\/nyaa:seeders>/)?.[1] || '0', 10);
-    const leechers = parseInt(block.match(/<nyaa:leechers>(.*?)<\/nyaa:leechers>/)?.[1] || '0', 10);
-
-    if (!infoHash || !rawTitle) continue;
-
-    const parsed = parseMusicRelease(rawTitle);
-    const magnet = `magnet:?xt=urn:btih:${infoHash}&dn=${encodeURIComponent(rawTitle)}`;
-
-    items.push({
-      id: `nyaa_${infoHash.slice(0, 12)}_${counter++}`,
-      title: rawTitle,
-      artist: parsed.artist,
-      album: parsed.album,
-      year: parsed.year,
-      format: parsed.format,
-      size,
-      sizeBytes: 0,
-      seeders,
-      leechers,
-      infoHash,
-      magnet,
-      coverUrl: null,
-      source: 'nyaa'
-    });
-  }
-
-  // Cover art lookup for first 15 anime/ost items
-  const topSlice = items.slice(0, 15);
-  await Promise.allSettled(
-    topSlice.map(async (item) => {
-      item.coverUrl = await resolveCoverArt(item.artist, item.album);
-    })
-  );
-
-  feedCache.set(cacheKey, { time: now, data: items });
-  return items;
-}
-
 export async function searchTorrents(query, category = 104) {
   if (!query || typeof query !== 'string' || !query.trim()) return [];
 
@@ -276,7 +203,6 @@ export async function searchTorrents(query, category = 104) {
 
 export default {
   fetchApibayTop,
-  fetchNyaaRss,
   searchTorrents,
   resolveCoverArt,
   parseMusicRelease
