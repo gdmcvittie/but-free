@@ -7,11 +7,23 @@ import { fetchJson } from '../../utils/api';
 import { JobStatusBanner, Grid } from './shared';
 
 const PLATFORM_FILTERS = [
-  { key: '', label: 'All Systems' },
-  { key: 'switch', label: 'Nintendo Switch' },
-  { key: 'switch 2', label: 'Switch 2' },
-  { key: 'playstation', label: 'PlayStation' },
+  { key: '', label: 'ALL CONSOLES' },
+  { key: 'switch', label: 'SWITCH' },
+  { key: 'switch 2', label: 'SWITCH 2' },
+  { key: 'playstation', label: 'PLAYSTATION' },
 ];
+
+function getConsoleBadgeClass(platform = '') {
+  const p = (platform || '').toLowerCase();
+  if (p.includes('switch')) return 'badge-switch';
+  if (p.includes('ps5') || p.includes('playstation 5')) return 'badge-ps5';
+  if (p.includes('ps4') || p.includes('playstation 4')) return 'badge-ps4';
+  if (p.includes('ps3')) return 'badge-ps3';
+  if (p.includes('ps2') || p.includes('psx')) return 'badge-ps2';
+  if (p.includes('wii')) return 'badge-wii';
+  if (p.includes('3ds')) return 'badge-3ds';
+  return 'badge-console';
+}
 
 export default function RomslabTab({ onDownloadDispatched }) {
   const [feed, setFeed] = useState(null);
@@ -140,33 +152,32 @@ export default function RomslabTab({ onDownloadDispatched }) {
         </button>
       </div>
 
-      {/* Platform Filter Pills */}
-      <div className="flex items-center gap-1.5 flex-wrap">
-        {PLATFORM_FILTERS.map(pf => (
-          <button
-            key={pf.key}
-            onClick={() => handlePlatformChange(pf.key)}
-            className={`px-3 py-1 text-xs rounded-sm transition-colors border font-mono ${
-              selectedPlatform === pf.key
-                ? 'bg-[#31a8ff]/20 text-[#31a8ff] border-[#31a8ff]/50 font-bold'
-                : 'bg-[#222222] text-slate-400 border-[#383838] hover:text-white hover:border-slate-500'
-            }`}
-          >
-            {pf.label}
-          </button>
-        ))}
+      {/* Consoles / System Filter Bar */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none flex-wrap">
+        {PLATFORM_FILTERS.map(pf => {
+          const isSelected = selectedPlatform === pf.key;
+          return (
+            <button
+              key={pf.key}
+              onClick={() => handlePlatformChange(pf.key)}
+              className={`filter-chip ${isSelected ? 'active' : ''}`}
+            >
+              <span className="console-key font-mono text-[11px]">{pf.label}</span>
+            </button>
+          );
+        })}
       </div>
 
       {feed && (
         <div className="flex items-center gap-2 text-[11px] text-slate-500">
-          <Rss className="w-3.5 h-3.5 text-emerald-400" />
+          <Rss className="w-3.5 h-3.5 text-[#31a8ff]" />
           <span className="font-semibold text-slate-400">{feed.title}</span>
           <span>• {feed.itemsCount} releases</span>
         </div>
       )}
 
       {/* Info Banner */}
-      <div className="glass-panel p-4 flex flex-col sm:flex-row sm:items-center gap-3 border border-emerald-500/20 bg-emerald-500/5">
+      <div className="glass-panel p-4 flex flex-col sm:flex-row sm:items-center gap-3 border border-[#383838] bg-[#202020]">
         <div className="flex-1 text-xs text-slate-300 leading-relaxed">
           Nintendo Switch &amp; Console ROMs from <span className="font-semibold text-white">Romslab</span>.
           Download base game, updates, and DLC packages straight via Freeplay Downloader, queue to Google Drive, or copy direct mirror links.
@@ -189,7 +200,7 @@ export default function RomslabTab({ onDownloadDispatched }) {
       {/* Items Grid */}
       {loading ? (
         <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-400">
-          <div className="w-10 h-10 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+          <div className="w-10 h-10 border-2 border-[#31a8ff] border-t-transparent rounded-full animate-spin" />
           <p className="text-sm">Fetching releases from Romslab...</p>
         </div>
       ) : (
@@ -214,7 +225,8 @@ export default function RomslabTab({ onDownloadDispatched }) {
                   ) : (
                     <Gamepad2 className="w-8 h-8 text-slate-700" />
                   )}
-                  <span className="badge-mint badge-top-right !bg-emerald-600/90 !text-white">
+                  {/* Console Badge in Top-Right */}
+                  <span className={`badge-console ${getConsoleBadgeClass(item.platform)} badge-top-right`}>
                     {item.platform || 'SWITCH'}
                   </span>
                   {item.isUpdate && (
@@ -267,15 +279,17 @@ export default function RomslabTab({ onDownloadDispatched }) {
             {/* Modal Header */}
             <div className="flex items-center justify-between p-4 border-b border-[#2d2d2d] bg-[#222222]">
               <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-8 h-8 rounded bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                <div className="w-8 h-8 rounded bg-[#181818] border border-[#333333] text-slate-300 flex items-center justify-center shrink-0">
                   <Gamepad2 className="w-4 h-4" />
                 </div>
                 <div className="min-w-0">
                   <h3 className="font-bold text-sm text-white truncate">
                     {inspectItem.cleanTitle || inspectItem.title}
                   </h3>
-                  <div className="flex items-center gap-2 text-xs text-slate-400 font-mono">
-                    <span className="text-emerald-400">{inspectItem.platform || 'Nintendo Switch'}</span>
+                  <div className="flex items-center gap-2 text-xs text-slate-400 font-mono mt-0.5">
+                    <span className={`badge-console ${getConsoleBadgeClass(inspectItem.platform)}`}>
+                      {inspectItem.platform || 'Nintendo Switch'}
+                    </span>
                     <span>•</span>
                     <a
                       href={inspectItem.link}
@@ -300,7 +314,7 @@ export default function RomslabTab({ onDownloadDispatched }) {
             <div className="p-4 overflow-y-auto space-y-4">
               {scraping ? (
                 <div className="flex flex-col items-center justify-center py-12 gap-3 text-slate-400">
-                  <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                  <div className="w-8 h-8 border-2 border-[#31a8ff] border-t-transparent rounded-full animate-spin" />
                   <p className="text-xs">Scraping download links &amp; mirrors from Romslab...</p>
                 </div>
               ) : scrapedData ? (
@@ -348,12 +362,12 @@ export default function RomslabTab({ onDownloadDispatched }) {
                           const isUpdate = link.type === 'update';
                           const isDlc = link.type === 'dlc';
                           const badgeColor = isBase
-                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                            ? 'bg-[#1a231d] text-[#86efac] border-[#224d2c]'
                             : isUpdate
-                            ? 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                            ? 'bg-[#14202e] text-[#93c5fd] border-[#1e3a5f]'
                             : isDlc
-                            ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
-                            : 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+                            ? 'bg-[#221729] text-[#d8b4fe] border-[#452354]'
+                            : 'bg-[#241e17] text-[#fcd34d] border-[#4d3c22]';
 
                           const isCopied = copiedId === link.id;
                           const isQueueing = queueingId === (link.id || link.url);
