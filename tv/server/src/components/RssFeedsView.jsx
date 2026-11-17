@@ -24,6 +24,150 @@ import {
 } from 'lucide-react';
 import { useToast } from './Toast.jsx';
 
+const clientPosterCache = new Map();
+const clientInFlightPosters = new Map();
+
+async function fetchRssPoster(cleanTitle, type = 'tv', year = '') {
+  if (!cleanTitle) return null;
+  const key = `${type}_${cleanTitle.toLowerCase().trim()}_${year || ''}`;
+  if (clientPosterCache.has(key)) {
+    return clientPosterCache.get(key);
+  }
+  if (clientInFlightPosters.has(key)) {
+    return clientInFlightPosters.get(key);
+  }
+
+  const promise = (async () => {
+    try {
+      const url = `/api/meta/poster?title=${encodeURIComponent(cleanTitle)}&type=${encodeURIComponent(type)}${year ? `&year=${encodeURIComponent(year)}` : ''}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.poster) {
+          clientPosterCache.set(key, data.poster);
+          return data.poster;
+        }
+      }
+    } catch (_) {}
+
+    if (type === 'tv') {
+      try {
+        const clean = cleanTitle
+          .replace(/\b(s\d{1,2}e\d{1,2}.*)/i, '')
+          .replace(/\b(19\d\d|20\d\d)\b/g, '')
+          .replace(/\b(720p|1080p|2160p|4k|hdtv|web-?dl|webrip|x264|x265|hevc|aac|repack)\b/gi, '')
+          .replace(/\[.*?\]|\(.*?\)/g, '')
+          .replace(/[._-]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (clean) {
+          const res = await fetch(`https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(clean)}`);
+          if (res.ok) {
+            const data = await res.json();
+            const img = data?.image?.medium || data?.image?.original || null;
+            if (img) {
+              clientPosterCache.set(key, img);
+              return img;
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    clientPosterCache.set(key, null);
+    return null;
+  })().finally(() => {
+    clientInFlightPosters.delete(key);
+  });
+
+  clientInFlightPosters.set(key, promise);
+  return promise;
+}
+
+function RssPosterImage({ item, isTv, style, alt, showPlaceholderIcon = true }) {
+  const getInitial = () => {
+    if (item?.poster) return item.poster;
+    const clean = item?.cleanTitle || item?.title;
+    if (!clean) return null;
+    const key = `${item?.type || (isTv ? 'tv' : 'movie')}_${clean.toLowerCase().trim()}_${item?.year || ''}`;
+    return clientPosterCache.get(key) || null;
+  };
+
+  const [posterUrl, setPosterUrl] = useState(getInitial);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    if (item?.poster) {
+      setPosterUrl(item.poster);
+      return;
+    }
+    const cleanTitle = item?.cleanTitle || item?.title;
+    if (!cleanTitle) return;
+
+    let isMounted = true;
+    fetchRssPoster(cleanTitle, item?.type || (isTv ? 'tv' : 'movie'), item?.year).then(url => {
+      if (isMounted && url) {
+        setPosterUrl(url);
+        item.poster = url;
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [item?.poster, item?.cleanTitle, item?.title, item?.type, item?.year, isTv]);
+
+  if (posterUrl && !error) {
+    return (
+      <img
+        src={posterUrl}
+        alt={alt || item?.cleanTitle || item?.title || ''}
+        style={{
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          transition: 'opacity 0.25s ease-in-out',
+          opacity: loaded ? 1 : 0.7,
+          ...style
+        }}
+        loading="lazy"
+        onLoad={() => setLoaded(true)}
+        onError={() => setError(true)}
+      />
+    );
+  }
+
+  return (
+    <div
+      style={{
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '8px',
+        padding: '12px',
+        textAlign: 'center',
+        background: isTv
+          ? 'linear-gradient(135deg, rgba(37, 99, 235, 0.22) 0%, rgba(15, 23, 42, 0.85) 100%)'
+          : 'linear-gradient(135deg, rgba(147, 51, 234, 0.22) 0%, rgba(15, 23, 42, 0.85) 100%)',
+        ...style
+      }}
+    >
+      {showPlaceholderIcon && (isTv ? (
+        <Tv size={34} style={{ color: '#60a5fa', opacity: 0.85 }} />
+      ) : (
+        <Film size={34} style={{ color: '#c084fc', opacity: 0.85 }} />
+      ))}
+      <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', lineHeight: '1.2' }}>
+        {item?.cleanTitle || item?.title}
+      </div>
+    </div>
+  );
+}
+
 export default function RssFeedsView({
   view,
   fixedType = null,
@@ -1844,40 +1988,7 @@ export default function RssFeedsView({
                         }}
                         onClick={() => setSelectedItem(item)}
                       >
-                        {item.poster ? (
-                          <img
-                            src={item.poster}
-                            alt={item.cleanTitle || item.title}
-                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                            loading="lazy"
-                          />
-                        ) : (
-                          <div
-                            style={{
-                              width: '100%',
-                              height: '100%',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: '8px',
-                              padding: '12px',
-                              textAlign: 'center',
-                              background: isTv
-                                ? 'linear-gradient(135deg, rgba(37, 99, 235, 0.22) 0%, rgba(15, 23, 42, 0.85) 100%)'
-                                : 'linear-gradient(135deg, rgba(147, 51, 234, 0.22) 0%, rgba(15, 23, 42, 0.85) 100%)'
-                            }}
-                          >
-                            {isTv ? (
-                              <Tv size={34} style={{ color: '#60a5fa', opacity: 0.85 }} />
-                            ) : (
-                              <Film size={34} style={{ color: '#c084fc', opacity: 0.85 }} />
-                            )}
-                            <div style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', lineHeight: '1.2' }}>
-                              {item.cleanTitle || item.title}
-                            </div>
-                          </div>
-                        )}
+                        <RssPosterImage item={item} isTv={isTv} />
 
                         {/* Play overlay on poster hover */}
                         <div
@@ -2292,24 +2403,22 @@ export default function RssFeedsView({
 
             {/* Title & Preview */}
             <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-              {selectedItem.poster && (
-                <div
-                  style={{
-                    width: '70px',
-                    aspectRatio: '2/3',
-                    borderRadius: '8px',
-                    overflow: 'hidden',
-                    flexShrink: 0,
-                    background: '#1f1f28'
-                  }}
-                >
-                  <img
-                    src={selectedItem.poster}
-                    alt={selectedItem.title}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
-                </div>
-              )}
+              <div
+                style={{
+                  width: '70px',
+                  aspectRatio: '2/3',
+                  borderRadius: '8px',
+                  overflow: 'hidden',
+                  flexShrink: 0,
+                  background: '#1f1f28'
+                }}
+              >
+                <RssPosterImage
+                  item={selectedItem}
+                  isTv={selectedItem.type === 'tv'}
+                  alt={selectedItem.title}
+                />
+              </div>
               <div style={{ minWidth: 0, flex: 1 }}>
                 <h2 style={{ fontSize: '17px', fontWeight: 800, margin: '0 0 6px', color: 'var(--text-primary)', lineHeight: '1.3' }}>
                   {selectedItem.cleanTitle || selectedItem.title}

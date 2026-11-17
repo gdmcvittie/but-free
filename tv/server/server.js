@@ -2199,11 +2199,20 @@ function saveDrivePosterCache() {
 
 async function fetchShowPoster(showName) {
   if (!showName) return null;
-  const k = `tv_${showName.toLowerCase()}`;
+  const clean = showName
+    .replace(/\b(s\d{1,2}e\d{1,2}.*)/i, '')
+    .replace(/\b(19\d\d|20\d\d)\b/g, '')
+    .replace(/\b(720p|1080p|2160p|4k|hdtv|web-?dl|webrip|x264|x265|hevc|aac|repack)\b/gi, '')
+    .replace(/\[.*?\]|\(.*?\)/g, '')
+    .replace(/[._-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!clean) return null;
+
+  const k = `tv_${clean.toLowerCase()}`;
   if (drivePosterCache[k]) return drivePosterCache[k];
 
   try {
-    const clean = showName.replace(/\(.*?\)/g, '').trim();
     const res = await fetch(`https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(clean)}`);
     if (res.ok) {
       const data = await res.json();
@@ -2212,6 +2221,19 @@ async function fetchShowPoster(showName) {
         drivePosterCache[k] = img;
         saveDrivePosterCache();
         return img;
+      }
+    }
+    if (/\b(us|uk|au|ca)\b/i.test(clean)) {
+      const noCountry = clean.replace(/\b(us|uk|au|ca)\b/gi, '').trim();
+      const res2 = await fetch(`https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(noCountry)}`);
+      if (res2.ok) {
+        const data2 = await res2.json();
+        const img2 = data2?.image?.medium || data2?.image?.original || null;
+        if (img2) {
+          drivePosterCache[k] = img2;
+          saveDrivePosterCache();
+          return img2;
+        }
       }
     }
   } catch {}
@@ -7514,6 +7536,79 @@ function savePersistedRssItems(userId = null, items = []) {
   }
 }
 
+let isEnrichingRssPosters = false;
+async function enrichRssPostersBackground(items = [], userId = null) {
+  if (isEnrichingRssPosters || !Array.isArray(items) || items.length === 0) return;
+  isEnrichingRssPosters = true;
+
+  try {
+    const missingShows = new Set();
+    const missingMovies = new Map(); // title -> year
+
+    for (const it of items) {
+      if (!it.poster && it.cleanTitle) {
+        if (it.type === 'tv') {
+          missingShows.add(it.cleanTitle);
+        } else if (it.type === 'movie' && !missingMovies.has(it.cleanTitle)) {
+          missingMovies.set(it.cleanTitle, it.year || '');
+        }
+      }
+    }
+
+    let updatedCount = 0;
+
+    for (const show of missingShows) {
+      try {
+        const poster = await fetchShowPoster(show);
+        if (poster) {
+          for (const it of items) {
+            if (it.type === 'tv' && it.cleanTitle === show && !it.poster) {
+              it.poster = poster;
+              updatedCount++;
+            }
+          }
+        }
+      } catch (_) {}
+      await new Promise(r => setTimeout(r, 120));
+    }
+
+    for (const [movieTitle, year] of missingMovies.entries()) {
+      try {
+        const meta = await fetchMovieMeta(movieTitle, year);
+        const poster = meta?.poster || meta?.posterUrl || null;
+        if (poster) {
+          for (const it of items) {
+            if (it.type === 'movie' && it.cleanTitle === movieTitle && !it.poster) {
+              it.poster = poster;
+              updatedCount++;
+            }
+          }
+        }
+      } catch (_) {}
+      await new Promise(r => setTimeout(r, 120));
+    }
+
+    if (updatedCount > 0) {
+      savePersistedRssItems(userId, items);
+      if (rssCache && rssCache.items) {
+        const posterMap = new Map();
+        for (const it of items) {
+          if (it.poster) posterMap.set(it.id, it.poster);
+        }
+        for (const it of rssCache.items) {
+          if (!it.poster && posterMap.has(it.id)) {
+            it.poster = posterMap.get(it.id);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[RSS Poster Enricher] Error:', err.message);
+  } finally {
+    isEnrichingRssPosters = false;
+  }
+}
+
 function decodeXmlEntities(str) {
   if (!str) return '';
   return str
@@ -7663,6 +7758,17 @@ function parseRssFeedXml(xml, feedInfo) {
       if (yearMatch) {
         cleanTitle = yearMatch[1].replace(/[._-]/g, ' ').trim();
         year = parseInt(yearMatch[2], 10);
+      }
+    }
+
+    if (!poster && cleanTitle) {
+      if (type === 'tv') {
+        const cached = drivePosterCache[`tv_${cleanTitle.toLowerCase()}`];
+        if (cached) poster = cached;
+      } else {
+        const cached = drivePosterCache[`movie_${cleanTitle.toLowerCase()}_${year || ''}`] || drivePosterCache[`movie_${cleanTitle.toLowerCase()}_`];
+        const cachedPoster = typeof cached === 'string' ? cached : (cached?.poster || cached?.posterUrl || null);
+        if (cachedPoster) poster = cachedPoster;
       }
     }
 
@@ -7895,6 +8001,10 @@ async function fetchAllRssFeeds(customFeeds = null, force = false, options = {})
       savePersistedRssItems(userId, allItems);
       rssCache.items = allItems;
       rssCache.lastFetched = Date.now();
+
+      // Enrich missing posters for TV shows in the background
+      enrichRssPostersBackground(allItems, userId);
+
       return allItems;
     } finally {
       rssCache.fetching = null;
@@ -7944,6 +8054,29 @@ app.post('/api/rss-feeds/refresh', authenticate, async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/meta/poster', optionalAuth, async (req, res) => {
+  const title = (req.query.title || req.query.show || req.query.name || '').trim();
+  const type = (req.query.type || 'tv').toLowerCase();
+  const year = req.query.year ? String(req.query.year).trim() : '';
+
+  if (!title) {
+    return res.json({ success: true, poster: null });
+  }
+
+  try {
+    let poster = null;
+    if (type === 'tv' || type === 'show' || type === 'series') {
+      poster = await fetchShowPoster(title);
+    } else {
+      const meta = await fetchMovieMeta(title, year);
+      poster = meta.poster || meta.posterUrl || null;
+    }
+    return res.json({ success: true, poster });
+  } catch (err) {
+    return res.json({ success: false, poster: null, error: err.message });
   }
 });
 
