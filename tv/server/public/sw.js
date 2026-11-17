@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const SHELL_CACHE = `FREEVEE-${CACHE_VERSION}`;
 const THUMB_CACHE = `FREEVEE-thumbs-${CACHE_VERSION}`;
 const PRECACHE_URLS = ['/', '/index.html'];

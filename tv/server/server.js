@@ -2981,7 +2981,8 @@ app.get('/api/drive/channels', optionalAuth, (req, res) => {
     const libraryPath = path.join(getUserDir(userId), 'library.json');
     let mtime = 0;
     try { mtime = fs.statSync(libraryPath).mtimeMs; } catch {}
-    const cacheKey = userId;
+    const CHANNELS_CACHE_VERSION = 3;
+    const cacheKey = `${userId}:v${CHANNELS_CACHE_VERSION}`;
     const cached = driveChannelsCache.get(cacheKey);
     if (cached && cached.mtime === mtime) {
       const payload = JSON.stringify({ channels: cached.channels });
@@ -3102,7 +3103,21 @@ app.get('/api/drive/channels', optionalAuth, (req, res) => {
   }
 
   // One channel per TV show - episodes sorted by season then episode
-  for (const showName of (library.showsList || [])) {
+  // Case-insensitively deduplicate library.showsList to prevent duplicate channels
+  const rawShowsList = Array.isArray(library.showsList) ? library.showsList : [];
+  const uniqueShows = [];
+  const seenShowNames = new Set();
+  for (const s of rawShowsList) {
+    if (!s || typeof s !== 'string') continue;
+    const lower = s.toLowerCase().trim();
+    if (!seenShowNames.has(lower)) {
+      seenShowNames.add(lower);
+      uniqueShows.push(s.trim());
+    }
+  }
+
+  const seenShowIds = new Set();
+  for (const showName of uniqueShows) {
     const seasons = library.shows[showName] || {};
     const playlist = [];
     const seasonKeys = Object.keys(seasons).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
@@ -3115,8 +3130,12 @@ app.get('/api/drive/channels', optionalAuth, (req, res) => {
     const posterUrl = library.showsPosters?.[showName] ||
       (playlist.find(ep => ep.thumbnailUrl)?.thumbnailUrl) ||
       null;
+    const showId = `show_${channelIdFromName(showName)}`;
+    if (seenShowIds.has(showId)) continue;
+    seenShowIds.add(showId);
+
     channels.push({
-      id: `show_${channelIdFromName(showName)}`,
+      id: showId,
       name: showName,
       type: 'show',
       channelType: 'show',
@@ -3126,6 +3145,18 @@ app.get('/api/drive/channels', optionalAuth, (req, res) => {
       totalDuration
     });
   }
+
+  // Deduplicate all channels by id to ensure strictly unique channel IDs
+  const seenChannelIds = new Set();
+  const dedupedChannels = [];
+  for (const ch of channels) {
+    if (!ch || !ch.id) continue;
+    if (seenChannelIds.has(ch.id)) continue;
+    seenChannelIds.add(ch.id);
+    dedupedChannels.push(ch);
+  }
+  channels.length = 0;
+  channels.push(...dedupedChannels);
 
   // Sort: special channels first (alphabetically), then genre channels, then shows
   channels.sort((a, b) => {

@@ -185,14 +185,27 @@ export default function ChannelsView({
     } else if (guideCategory === 'show') {
       list = filtered.filter(c => c.channelType === 'show' || c.channelType === 'new_episodes');
     } else if (guideCategory === 'genre' || guideCategory === 'movies' || guideCategory === 'movie') {
-      // Movie Channels filter: strictly show only movie genre channels
-      list = filtered.filter(c => c.channelType === 'genre');
+      // Movie Channels filter: strictly show only movie genre channels (never shows or episodes)
+      list = filtered.filter(c =>
+        c.channelType === 'genre' &&
+        c.channelType !== 'show' &&
+        c.channelType !== 'new_episodes' &&
+        c.type !== 'show' &&
+        c.type !== 'new_episodes'
+      );
     } else if (guideCategory === 'faves') {
       list = filtered.filter(c =>
         favorites.some(f => f.title && f.title.toLowerCase() === c.name.toLowerCase())
       );
     }
-    return list;
+    // Deduplicate by ID to guarantee unique elements
+    const seen = new Set();
+    return list.filter(c => {
+      if (!c || !c.id) return false;
+      if (seen.has(c.id)) return false;
+      seen.add(c.id);
+      return true;
+    });
   }, [filtered, guideCategory, favorites]);
 
   // Selected channel for preview & EPG pane (must belong to currently filtered list)
@@ -541,7 +554,7 @@ export default function ChannelsView({
 
                 return (
                   <div
-                    key={channel.id}
+                    key={`${guideCategory}_${channel.id}_${index}`}
                     className={`guide-channel-row ${isSelected ? 'selected' : ''} ${playing ? 'playing' : ''}`}
                     onClick={() => setSelectedChannelId(channel.id)}
                     onDoubleClick={() => handleTuneIn(channel, schedule)}
