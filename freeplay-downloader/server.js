@@ -489,7 +489,7 @@ app.get(['/favicon.ico', '/favicon.svg'], (req, res) => {
 });
 
 // ── API 404 Catch-All (Ensure JSON response for any unhandled /api/*) ──────
-app.all('/api/*', (req, res) => {
+app.use('/api', (req, res) => {
   res.status(404).json({ success: false, error: `API endpoint not found: ${req.method} ${req.originalUrl}` });
 });
 

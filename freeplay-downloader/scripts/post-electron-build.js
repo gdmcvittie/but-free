@@ -1,5 +1,5 @@
 // Zips the built Windows exe(s) and copies them next to the project folder.
-import { readFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'fs';
+import { readFileSync, existsSync, mkdirSync, readdirSync, statSync, copyFileSync } from 'fs';
 import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import AdmZip from 'adm-zip';
@@ -41,5 +41,21 @@ for (const targetExe of exeFiles) {
     zip.writeZip(parentZipPath);
     console.log(`[Build] Copied to parent folder: ${parentZipPath}`);
   } catch (_) {}
+
+  // Also stage the setup executable in games/server/public for web downloads
+  const setupExe = exeFiles.find(f => f.name.toLowerCase().includes('setup'));
+  if (setupExe) {
+    const gamesServerPublic = resolve(root, '..', 'games', 'server', 'public');
+    if (existsSync(gamesServerPublic)) {
+      try {
+        const dest = join(gamesServerPublic, 'FreeplayDownloader-Setup.exe');
+        copyFileSync(setupExe.path, dest);
+        console.log(`[Build] Staged installer to: ${dest}`);
+      } catch (err) {
+        console.warn(`[Build] Failed to stage installer to games/server/public:`, err.message);
+      }
+    }
+  }
+
   break; // Zip only the newest exe (the installer if both targets ran)
 }
