@@ -186,9 +186,6 @@ function setStatus(jobId, patch) {
   }
   Object.assign(job, patch, { updatedAt: Date.now() });
   broadcast('download_status', { jobId, userId: job.userId, ...publicJob(job) });
-  if (job.kind === 'music') {
-    broadcast('music_jobs', { reason: 'torrent_progress', jobId, ...publicJob(job) });
-  }
   return job;
 }
 
@@ -260,12 +257,17 @@ async function rehydrateJob(nodeJobId, userId) {
     ? await abbClient.fetchDetail(remote.postUrl).catch(() => null)
     : null;
 
+  const isMusic = remote.kind === 'music' || remote.type === 'music';
   const id = newId('dl');
   const job = {
     id,
     userId,
     nodeJobId,
-    title: detail?.title || remote.title || 'Audiobook',
+    kind: isMusic ? 'music' : 'audiobook',
+    artist: remote.artist || null,
+    album: remote.album || null,
+    coverUrl: remote.coverUrl || null,
+    title: detail?.title || remote.title || (isMusic ? 'Music Release' : 'Audiobook'),
     postUrl: remote.postUrl || null,
     postId: remote.postId || null,
     detail,
@@ -424,6 +426,7 @@ export const downloadManager = {
 
         if (!isRemoteActive) continue;
 
+        const isMusic = remoteJob.kind === 'music' || remoteJob.type === 'music';
         const id = newId('dl');
         const phase = remoteJob.status === 'downloading'
           ? 'Downloading'
@@ -437,9 +440,13 @@ export const downloadManager = {
           id,
           userId: userId || remoteJob.userId || 'default',
           nodeJobId: remoteJob.id,
+          kind: isMusic ? 'music' : 'audiobook',
+          artist: remoteJob.artist || null,
+          album: remoteJob.album || null,
+          coverUrl: remoteJob.coverUrl || null,
           postId: remoteJob.postId || null,
           postUrl: remoteJob.postUrl || null,
-          title: remoteJob.title || 'Audiobook',
+          title: remoteJob.title || (isMusic ? 'Music Release' : 'Audiobook'),
           status: remoteJob.status,
           phase,
           percent: remoteJob.percent ?? (remoteJob.status === 'downloading' ? 10 : 0),
@@ -448,6 +455,9 @@ export const downloadManager = {
           result: null,
           detail: {
             title: remoteJob.title,
+            artist: remoteJob.artist,
+            album: remoteJob.album,
+            coverUrl: remoteJob.coverUrl,
             author: remoteJob.author,
             series: remoteJob.series,
             seriesIndex: remoteJob.seriesIndex,
@@ -461,6 +471,13 @@ export const downloadManager = {
           updatedAt: Date.now()
         };
         jobs.set(id, job);
+      } else {
+        if (remoteJob.kind === 'music' || remoteJob.type === 'music') {
+          job.kind = 'music';
+          if (remoteJob.artist && !job.artist) job.artist = remoteJob.artist;
+          if (remoteJob.album && !job.album) job.album = remoteJob.album;
+          if (remoteJob.coverUrl && !job.coverUrl) job.coverUrl = remoteJob.coverUrl;
+        }
       }
 
       if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') continue;

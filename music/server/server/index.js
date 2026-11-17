@@ -785,13 +785,28 @@ app.post('/api/youtube/liked/import', (req, res) => {
   }
 });
 
+let lastMusicSyncTime = 0;
+let musicSyncPromise = null;
+
 /** Live jobs (queued/running/done/error within a short window), newest last. */
 app.get('/api/music/jobs', async (req, res) => {
-  await downloadManager.syncFromNode(req.user?.id).catch(() => {});
+  const userId = req.user?.id || 'default';
+  const now = Date.now();
+  if (now - lastMusicSyncTime > 4000) {
+    lastMusicSyncTime = now;
+    if (!musicSyncPromise) {
+      musicSyncPromise = downloadManager.syncFromNode(userId)
+        .catch(() => {})
+        .finally(() => { musicSyncPromise = null; });
+    }
+  }
+  if (musicSyncPromise) {
+    await musicSyncPromise;
+  }
 
   const ytJobs = youtubeMusic.jobList().map(j => ({ ...j, type: 'youtube' }));
 
-  const torrentJobs = downloadManager.listForUser(req.user?.id)
+  const torrentJobs = downloadManager.listForUser(userId)
     .filter((j) => j.kind === 'music')
     .map((j) => {
       const isRun = ['downloading', 'uploading', 'indexing', 'resolving'].includes(j.status);
@@ -1424,13 +1439,26 @@ app.post('/api/downloads', async (req, res) => {
   }
 });
 
+let lastAudioSyncTime = 0;
+let audioSyncPromise = null;
+
 app.get('/api/downloads', async (req, res) => {
-  // Mirror the remote node's progress into our own job records so the UI shows
-  // live bytes/peers without holding a second SSE channel open.
-  await downloadManager.syncFromNode(req.user.id);
-  const allJobs = downloadManager.listForUser(req.user.id);
+  const userId = req.user?.id || 'default';
+  const now = Date.now();
+  if (now - lastAudioSyncTime > 4000) {
+    lastAudioSyncTime = now;
+    if (!audioSyncPromise) {
+      audioSyncPromise = downloadManager.syncFromNode(userId)
+        .catch(() => {})
+        .finally(() => { audioSyncPromise = null; });
+    }
+  }
+  if (audioSyncPromise) {
+    await audioSyncPromise;
+  }
+  const allJobs = downloadManager.listForUser(userId);
   const audioJobs = allJobs.filter((j) => j.kind !== 'music');
-  const allHist = downloadManager.history(req.user.id);
+  const allHist = downloadManager.history(userId);
   const audioHist = allHist.filter((h) => h.kind !== 'music');
   res.json({ jobs: audioJobs, history: audioHist });
 });
