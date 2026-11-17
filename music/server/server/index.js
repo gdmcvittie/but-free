@@ -786,18 +786,74 @@ app.post('/api/youtube/liked/import', (req, res) => {
 });
 
 /** Live jobs (queued/running/done/error within a short window), newest last. */
-app.get('/api/music/jobs', (req, res) => {
-  res.json({ jobs: youtubeMusic.jobList() });
+app.get('/api/music/jobs', async (req, res) => {
+  await downloadManager.syncFromNode(req.user?.id).catch(() => {});
+
+  const ytJobs = youtubeMusic.jobList().map(j => ({ ...j, type: 'youtube' }));
+
+  const torrentJobs = downloadManager.listForUser(req.user?.id)
+    .filter((j) => j.kind === 'music')
+    .map((j) => {
+      const isRun = ['downloading', 'uploading', 'indexing', 'resolving'].includes(j.status);
+      return {
+        id: j.id,
+        type: 'torrent',
+        kind: 'music',
+        title: j.album || j.title || 'Music Release',
+        artist: j.artist || 'Unknown Artist',
+        album: j.album || j.title,
+        coverUrl: j.coverUrl || null,
+        status: isRun ? 'running' : j.status,
+        rawStatus: j.status,
+        phase: j.phase || j.message || 'Downloading',
+        percent: j.percent || 0,
+        current: j.message || '',
+        position: null,
+        error: j.error,
+        infoHash: j.infoHash,
+        createdAt: j.createdAt,
+        updatedAt: j.updatedAt
+      };
+    });
+
+  const combined = [...torrentJobs, ...ytJobs].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  res.json({ jobs: combined });
 });
 
 app.get('/api/music/jobs/:jobId', (req, res) => {
+  const torrentJob = downloadManager.get(req.params.jobId);
+  if (torrentJob && torrentJob.kind === 'music') {
+    const isRun = ['downloading', 'uploading', 'indexing', 'resolving'].includes(torrentJob.status);
+    return res.json({
+      job: {
+        id: torrentJob.id,
+        type: 'torrent',
+        kind: 'music',
+        title: torrentJob.album || torrentJob.title,
+        artist: torrentJob.artist,
+        album: torrentJob.album,
+        coverUrl: torrentJob.coverUrl,
+        status: isRun ? 'running' : torrentJob.status,
+        phase: torrentJob.phase,
+        percent: torrentJob.percent,
+        current: torrentJob.message,
+        error: torrentJob.error
+      }
+    });
+  }
   const job = youtubeMusic.jobStatus(req.params.jobId);
   if (!job) return res.status(404).json({ error: 'Unknown download job.' });
   return res.json({ job });
 });
 
-app.post('/api/music/jobs/:jobId/cancel', (req, res) => {
-  return res.json({ success: youtubeMusic.cancelJob(req.params.jobId) });
+app.post('/api/music/jobs/:jobId/cancel', async (req, res) => {
+  const jobId = req.params.jobId;
+  const torrentJob = downloadManager.get(jobId);
+  if (torrentJob) {
+    const outcome = await downloadManager.cancel(jobId, req.user?.id);
+    return res.json({ success: outcome?.success !== false });
+  }
+  return res.json({ success: youtubeMusic.cancelJob(jobId) });
 });
 
 // =========================================================================
@@ -1372,7 +1428,11 @@ app.get('/api/downloads', async (req, res) => {
   // Mirror the remote node's progress into our own job records so the UI shows
   // live bytes/peers without holding a second SSE channel open.
   await downloadManager.syncFromNode(req.user.id);
-  res.json({ jobs: downloadManager.listForUser(req.user.id), history: downloadManager.history(req.user.id) });
+  const allJobs = downloadManager.listForUser(req.user.id);
+  const audioJobs = allJobs.filter((j) => j.kind !== 'music');
+  const allHist = downloadManager.history(req.user.id);
+  const audioHist = allHist.filter((h) => h.kind !== 'music');
+  res.json({ jobs: audioJobs, history: audioHist });
 });
 
 app.get('/api/downloads/status/:jobId', (req, res) => {

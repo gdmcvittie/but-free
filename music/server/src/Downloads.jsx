@@ -3,7 +3,7 @@ import { Download, X, Server, RefreshCw, FolderOpen, Music4 } from 'lucide-react
 import { api, subscribeToEvents } from './api';
 
 const ACTIVE_STATUSES = ['queued', 'resolving', 'downloading', 'uploading', 'indexing'];
-const MUSIC_ACTIVE = ['queued', 'running'];
+const MUSIC_ACTIVE = ['queued', 'running', 'downloading', 'uploading', 'resolving', 'indexing'];
 
 /**
  * Downloads, split by library like everything else:
@@ -32,8 +32,10 @@ export default function Downloads({ kind = 'audiobooks', user, libraryVersion, o
     if (!quiet) setLoading(true);
     try {
       const data = await api.downloads();
-      setJobs(Array.isArray(data.jobs) ? data.jobs : []);
-      setHistory(Array.isArray(data.history) ? data.history : []);
+      const allJobs = Array.isArray(data.jobs) ? data.jobs : [];
+      setJobs(allJobs.filter((j) => j.kind !== 'music'));
+      const allHistory = Array.isArray(data.history) ? data.history : [];
+      setHistory(allHistory.filter((h) => h.kind !== 'music'));
       setError(null);
     } catch (err) {
       if (!quiet) setError(err.message || 'Could not load downloads.');
@@ -72,17 +74,46 @@ export default function Downloads({ kind = 'audiobooks', user, libraryVersion, o
     if (!userId) return undefined;
     return subscribeToEvents({
       download_status: (payload) => {
-        if (payload.userId !== userId) return;
-        setJobs((prev) => {
-          const index = prev.findIndex((j) => j.id === payload.jobId);
-          const merged = { ...(index >= 0 ? prev[index] : {}), ...payload, id: payload.jobId };
-          if (index >= 0) {
-            const next = [...prev];
-            next[index] = merged;
-            return next;
-          }
-          return [merged, ...prev];
-        });
+        if (payload.userId && payload.userId !== userId) return;
+        if (payload.kind === 'music') {
+          setMusicJobs((prev) => {
+            const index = prev.findIndex((j) => j.id === payload.jobId);
+            const isRun = ['downloading', 'uploading', 'indexing', 'resolving'].includes(payload.status);
+            const mapped = {
+              ...(index >= 0 ? prev[index] : {}),
+              id: payload.jobId,
+              type: 'torrent',
+              kind: 'music',
+              title: payload.album || payload.title || 'Music Release',
+              artist: payload.artist || 'Unknown Artist',
+              album: payload.album || payload.title,
+              coverUrl: payload.coverUrl || prev[index]?.coverUrl || null,
+              status: isRun ? 'running' : payload.status,
+              rawStatus: payload.status,
+              phase: payload.phase || payload.message || 'Downloading',
+              percent: payload.percent || 0,
+              current: payload.message || '',
+              error: payload.error
+            };
+            if (index >= 0) {
+              const next = [...prev];
+              next[index] = mapped;
+              return next;
+            }
+            return [mapped, ...prev];
+          });
+        } else {
+          setJobs((prev) => {
+            const index = prev.findIndex((j) => j.id === payload.jobId);
+            const merged = { ...(index >= 0 ? prev[index] : {}), ...payload, id: payload.jobId };
+            if (index >= 0) {
+              const next = [...prev];
+              next[index] = merged;
+              return next;
+            }
+            return [merged, ...prev];
+          });
+        }
       },
       music_jobs: (payload) => {
         if (Array.isArray(payload.jobs)) setMusicJobs(payload.jobs);
@@ -127,7 +158,7 @@ export default function Downloads({ kind = 'audiobooks', user, libraryVersion, o
       <>
         <div className="view-header">
           <h1 className="view-title">Downloads</h1>
-          <p className="view-subtitle">YouTube Music queue - songs and playlists downloaded straight into Drive.</p>
+          <p className="view-subtitle">Music queue — albums, songs, and torrent releases downloaded straight into Drive.</p>
         </div>
 
         {!hasFolder && (
@@ -166,17 +197,35 @@ export default function Downloads({ kind = 'audiobooks', user, libraryVersion, o
           <div className="row-list">
             {[...musicActive, ...musicFinished].map((job) => (
               <div className="row-item" key={job.id}>
-                <div className="row-thumb-placeholder"><Music4 size={16} /></div>
+                {job.coverUrl ? (
+                  <img
+                    src={job.coverUrl}
+                    alt={job.title}
+                    className="row-thumb"
+                    style={{ width: 40, height: 40, borderRadius: 4, objectFit: 'cover' }}
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                  />
+                ) : (
+                  <div className="row-thumb-placeholder"><Music4 size={16} /></div>
+                )}
                 <div className="row-meta">
-                  <div className="row-title">{job.artist ? `${job.artist} — ${job.title}` : job.title}</div>
+                  <div className="row-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>{job.artist ? `${job.artist} — ${job.title}` : job.title}</span>
+                    {job.type === 'torrent' && (
+                      <span className="badge" style={{ fontSize: '0.65rem', padding: '2px 5px', background: 'rgba(255,255,255,0.1)' }}>
+                        Torrent
+                      </span>
+                    )}
+                  </div>
                   <div className="row-subtitle">
                     {job.status === 'queued' ? `Queued${job.position ? ` · #${job.position}` : ''}`
-                      : job.status === 'running' ? `${job.phase || 'Working'}${job.current ? ` · ${job.current}` : ''} · ${Math.round(job.percent || 0)}%`
+                      : (job.status === 'running' || ['downloading', 'uploading', 'resolving', 'indexing'].includes(job.status))
+                        ? `${job.phase || 'Working'}${job.current ? ` · ${job.current}` : ''} · ${Math.round(job.percent || 0)}%`
                         : job.status === 'done' ? 'Saved to Drive'
                           : (job.error || 'Failed')}
                     {job.status === 'done' && job.where?.skipped ? ` · ${job.where.skipped} skipped` : ''}
                   </div>
-                  {job.status === 'running' && (
+                  {(job.status === 'running' || ['downloading', 'uploading', 'resolving', 'indexing'].includes(job.status)) && (
                     <div className="job-bar" style={{ marginTop: 4 }}>
                       <div className="job-bar-fill" style={{ width: `${Math.max(2, job.percent || 0)}%` }} />
                     </div>

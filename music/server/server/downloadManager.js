@@ -186,6 +186,9 @@ function setStatus(jobId, patch) {
   }
   Object.assign(job, patch, { updatedAt: Date.now() });
   broadcast('download_status', { jobId, userId: job.userId, ...publicJob(job) });
+  if (job.kind === 'music') {
+    broadcast('music_jobs', { reason: 'torrent_progress', jobId, ...publicJob(job) });
+  }
   return job;
 }
 
@@ -204,6 +207,7 @@ function publicJob(job) {
     title: job.title,
     artist: job.artist,
     album: job.album,
+    coverUrl: job.coverUrl || null,
     infoHash: job.infoHash,
     nodeJobId: job.nodeJobId,
     createdAt: job.createdAt,
@@ -526,6 +530,7 @@ export const downloadManager = {
     };
     jobs.set(id, job);
     broadcast('download_status', { jobId: id, userId: user.id, ...publicJob(job) });
+    broadcast('music_jobs', { reason: 'torrent_queued', jobId: id });
 
     this._runMusicTorrent(job, release).catch((err) => {
       console.error('[MusicDownload] Torrent job crashed:', err.message);
@@ -536,7 +541,7 @@ export const downloadManager = {
         message: err.message,
         error: err.message
       });
-      pushHistory(job.userId, { jobId: id, title: job.title, status: 'error', error: err.message });
+      pushHistory(job.userId, { jobId: id, title: job.title, kind: job.kind || 'audiobook', status: 'error', error: err.message });
     });
 
     return publicJob(job);
@@ -617,6 +622,7 @@ export const downloadManager = {
     };
     jobs.set(id, job);
     broadcast('download_status', { jobId: id, userId: user.id, ...publicJob(job) });
+    broadcast('music_jobs', { reason: 'torrent_queued', jobId: id });
 
     this._run(job, providedDetail).catch((err) => {
       console.error('[Download] Job crashed:', err.message);
@@ -627,7 +633,7 @@ export const downloadManager = {
         message: err.message,
         error: err.message
       });
-      pushHistory(job.userId, { jobId: id, title: job.title, status: 'error', error: err.message, postUrl });
+      pushHistory(job.userId, { jobId: id, title: job.title, kind: job.kind || 'audiobook', status: 'error', error: err.message, postUrl });
     });
 
     return publicJob(job);
@@ -729,6 +735,7 @@ export const downloadManager = {
       pushHistory(userId, {
         jobId: job.id,
         title: job.title,
+        kind: job.kind || 'audiobook',
         status: 'error',
         error: message,
         postUrl: job.postUrl
@@ -818,6 +825,7 @@ export const downloadManager = {
       pushHistory(userId, {
         jobId: job.id,
         title: job.title,
+        kind: job.kind || 'audiobook',
         status: 'done',
         itemIds,
         downloadedAt: Date.now()
@@ -896,6 +904,7 @@ export const downloadManager = {
     pushHistory(userId, {
       jobId: job.id,
       title: result.title,
+      kind: job.kind || 'audiobook',
       author: result.author,
       series: result.series,
       status: 'done',
