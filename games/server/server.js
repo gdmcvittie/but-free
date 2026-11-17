@@ -11,6 +11,7 @@ import * as Database from './server/database.js';
 import { GoogleAuth } from './server/googleAuth.js';
 import { GoogleDrive, cleanGameTitle, searchInternetGameArt, COVERS_DIR } from './server/googleDrive.js';
 import { sanitizeFolderName, MAX_PC_REMOTE_TORRENT_BYTES, PC_REMOTE_TORRENT_LIMIT_MSG, parseSizeStringToBytes, fetchFeed, FITGIRL_FEED_URL } from './server/rssDiscovery.js';
+import { fetchRomslabFeed } from './server/romslabScraper.js';
 import { DownloaderClient, GameDownloaderClient } from './server/downloaderClient.js';
 import { registerDiscoverRoutes } from './server/discoverRoutes.js';
 import { registerLibraryRoutes } from './server/libraryRoutes.js';
@@ -878,6 +879,9 @@ async function sweepRssFeeds() {
     if (Date.now() - lastRssSweep >= intervalMs) {
       lastRssSweep = Date.now();
       await fetchFeed(FITGIRL_FEED_URL, { retentionMonths: maxRetentionMonths, forceRefresh: true });
+      await fetchRomslabFeed({ retentionMonths: maxRetentionMonths, forceRefresh: true }).catch(err => {
+        console.warn('[RSS Worker] Romslab background sweep error:', err.message);
+      });
     }
   } catch (err) {
     console.warn('[RSS Worker] Background sweep error:', err.message);

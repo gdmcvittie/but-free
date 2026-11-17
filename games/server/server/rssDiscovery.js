@@ -1236,6 +1236,44 @@ export async function fetchPopularGames({ forceRefresh = false } = {}) {
 export async function scrapeLinksFromPage(pageUrl) {
   if (!pageUrl) throw new Error('Webpage URL is required');
 
+  if (pageUrl && pageUrl.toLowerCase().includes('romslab.com')) {
+    try {
+      const { scrapeRomslabPost } = await import('./romslabScraper.js');
+      const romslab = await scrapeRomslabPost(pageUrl);
+      const mappedLinks = (romslab.links || []).map(l => ({
+        id: l.id,
+        url: l.url,
+        filename: l.filename || `${romslab.cleanTitle} (${l.label})`,
+        extension: l.filename && l.filename.includes('.') ? l.filename.split('.').pop().toUpperCase() : 'FILE',
+        category: 'archive',
+        hoster: l.hoster,
+        isMagnet: false,
+        source: 'romslab-scraper',
+        label: l.label,
+        type: l.type
+      }));
+
+      return {
+        pageUrl,
+        title: romslab.cleanTitle,
+        platform: romslab.platform,
+        coverImage: romslab.coverImage,
+        hasMagnet: false,
+        hasTorrents: false,
+        hasMirrors: mappedLinks.length > 0,
+        hasFuckingFast: false,
+        magnetCount: 0,
+        torrentCount: 0,
+        fuckingFastCount: 0,
+        mirrorCount: mappedLinks.length,
+        links: mappedLinks,
+        totalFound: mappedLinks.length
+      };
+    } catch (err) {
+      console.warn('[RSS Discovery] Romslab scraper error, falling back to generic scraper:', err.message);
+    }
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 14000);
 

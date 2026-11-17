@@ -46,6 +46,13 @@ import {
   resolveGogDownloadUrl
 } from './gogApi.js';
 
+import {
+  ROMSLAB_FEED_URL,
+  fetchRomslabFeed,
+  scrapeRomslabPost,
+  cleanRomslabTitle
+} from './romslabScraper.js';
+
 // -------------------------------------------------------------
 // Helpers
 // -------------------------------------------------------------
@@ -169,6 +176,83 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
     try {
       const result = await scrapeLinksFromPage((req.query.url || '').trim());
       res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // ===========================================================================
+  // ROMSLAB DISCOVERY (Nintendo Switch & Console ROMs)
+  // ===========================================================================
+
+  // GET /api/romslab/feed?q=...&refresh=true&page=1&platform=switch
+  app.get('/api/romslab/feed', async (req, res) => {
+    if (!requireUser(req, res)) return;
+    const forceRefresh = req.query.refresh === 'true' || req.query.force === 'true';
+    const query = (req.query.q || req.query.s || req.query.search || '').trim();
+    const platformFilter = (req.query.platform || req.query.category || '').trim();
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const retentionMonths = parseInt(req.query.retentionMonths || req.user?.settings?.rssRetentionMonths, 10) || 3;
+
+    try {
+      const feed = await fetchRomslabFeed({ forceRefresh, query, platformFilter, retentionMonths, page });
+      res.json({ success: true, feed });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // GET /api/romslab/scrape?url=<romslab post url>
+  app.get('/api/romslab/scrape', async (req, res) => {
+    if (!requireUser(req, res)) return;
+    const url = (req.query.url || '').trim();
+    if (!url) return res.status(400).json({ success: false, error: 'URL is required' });
+
+    try {
+      const result = await scrapeRomslabPost(url);
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // POST /api/romslab/add { source, title, platform, subfolder }
+  app.post('/api/romslab/add', async (req, res) => {
+    if (!requireGamesFolder(req, res)) return;
+
+    const { source, url: altUrl, title, platform, subfolder } = req.body || {};
+    let target = String(source || altUrl || '').trim();
+    if (!target) {
+      return res.status(400).json({ success: false, error: 'A download URL is required' });
+    }
+
+    const cleanTitle = cleanRomslabTitle(title || '') || title || 'Console Game';
+    const consoleKey = platform && platform.toLowerCase().includes('switch') ? 'switch' : (platform?.toLowerCase() || 'console');
+    const folderName = sanitizeFolderName(cleanTitle);
+    const resolvedSubfolder = subfolder || `ROMs/${sanitizeFolderName(platform || 'Switch')}/${folderName}`;
+
+    try {
+      const ctx = buildDispatchContext(req);
+
+      if (isDataNodesLandingPage(target)) {
+        return res.status(400).json({
+          success: false,
+          error: 'DataNodes links require an interactive browser (Cloudflare Turnstile). Use the Freeplay Downloader app or pick Mirror 2 instead.'
+        });
+      }
+
+      const fileName = (target.split('#')[1] || '').split('?')[0];
+      const job = await GameDownloaderClient.addDirectDownload(req.user, {
+        url: target,
+        title: cleanTitle,
+        console: consoleKey,
+        fileName: fileName && fileName.length > 3 ? fileName : undefined,
+        subfolder: resolvedSubfolder,
+        webhookUrl: ctx.webhookUrl,
+        tokenRefreshUrl: ctx.tokenRefreshUrl
+      });
+
+      res.json({ success: true, job, message: `"${cleanTitle}" queued on the downloader node` });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
