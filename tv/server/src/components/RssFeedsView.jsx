@@ -45,7 +45,13 @@ export default function RssFeedsView({
   const [refreshing, setRefreshing] = useState(false);
   const [lastFetched, setLastFetched] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [qualityFilter, setQualityFilter] = useState('all'); // 'all' | '2160p' | '1080p' | '720p'
+  const [qualityFilter, setQualityFilter] = useState(() => {
+    try {
+      return localStorage.getItem('freevee_rss_quality') || '720p';
+    } catch {
+      return '720p';
+    }
+  }); // '720p' | '1080p' | '2160p' | 'all'
   const [selectedFeedId, setSelectedFeedId] = useState('all');
   const [selectedItem, setSelectedItem] = useState(null);
   const [visibleCount, setVisibleCount] = useState(30);
@@ -82,7 +88,7 @@ export default function RssFeedsView({
   // Form State for Add / Edit Modal
   const [formTitle, setFormTitle] = useState('');
   const [formType, setFormType] = useState('tv');
-  const [formQuality, setFormQuality] = useState('any');
+  const [formQuality, setFormQuality] = useState('720p');
   const [formSeason, setFormSeason] = useState('');
   const [formEpisode, setFormEpisode] = useState('');
   const [formYear, setFormYear] = useState('');
@@ -332,7 +338,7 @@ export default function RssFeedsView({
       setEditingItem(null);
       setFormTitle('');
       setFormType('tv');
-      setFormQuality('any');
+      setFormQuality('720p');
       setFormSeason('');
       setFormEpisode('');
       setFormYear('');
@@ -546,9 +552,10 @@ export default function RssFeedsView({
       }
       if (qualityFilter !== 'all') {
         const q = (it.quality || '').toLowerCase();
+        const titleQ = (it.title || '').toLowerCase();
         if (qualityFilter === '2160p') {
-          if (!q.includes('2160') && !q.includes('4k')) return false;
-        } else if (!q.includes(qualityFilter)) {
+          if (!q.includes('2160') && !q.includes('4k') && !titleQ.includes('2160p') && !titleQ.includes('4k')) return false;
+        } else if (!q.includes(qualityFilter) && !titleQ.includes(qualityFilter)) {
           return false;
         }
       }
@@ -1679,7 +1686,12 @@ export default function RssFeedsView({
                 <SlidersHorizontal size={14} style={{ color: 'var(--text-muted)' }} />
                 <select
                   value={qualityFilter}
-                  onChange={(e) => { setQualityFilter(e.target.value); setVisibleCount(30); }}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setQualityFilter(val);
+                    setVisibleCount(30);
+                    try { localStorage.setItem('freevee_rss_quality', val); } catch {}
+                  }}
                   style={{
                     background: 'rgba(0, 0, 0, 0.4)',
                     border: '1px solid var(--border-color)',
@@ -1690,10 +1702,10 @@ export default function RssFeedsView({
                     outline: 'none'
                   }}
                 >
-                  <option value="all">Any Quality</option>
-                  <option value="2160p">4K / 2160p</option>
+                  <option value="720p">720p HD (Default)</option>
                   <option value="1080p">1080p Full HD</option>
-                  <option value="720p">720p HD</option>
+                  <option value="2160p">4K / 2160p</option>
+                  <option value="all">Any Quality</option>
                 </select>
               </div>
             </div>
