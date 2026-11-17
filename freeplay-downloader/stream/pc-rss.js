@@ -339,9 +339,10 @@ export function registerPcRssRoutes(app, options = {}) {
       const platformFilter = (req.query.platform || '').trim();
       const retentionMonths = parseInt(req.query.retentionMonths || (options.getConfig && options.getConfig().rssRetentionMonths), 10) || 3;
       const page = parseInt(req.query.page, 10) || 1;
+      const pagesCount = Math.min(10, Math.max(1, parseInt(req.query.pages || req.query.pagesCount, 10) || 6));
       const dataDir = options.dataDir;
 
-      const feed = await fetchRomslabFeed({ forceRefresh, query, platformFilter, retentionMonths, page, dataDir });
+      const feed = await fetchRomslabFeed({ forceRefresh, query, platformFilter, retentionMonths, page, pagesCount, dataDir });
       res.json({ success: true, feed });
     } catch (err) {
       console.error('[Romslab API] Feed error:', err.message);

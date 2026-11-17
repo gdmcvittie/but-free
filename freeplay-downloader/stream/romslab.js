@@ -129,16 +129,75 @@ function saveRomslabCache(cache, dataDir) {
 }
 
 // -------------------------------------------------------------
-// Feed Fetcher (with disk persistence, search, pagination & retention)
+// Feed Item XML Parser
 // -------------------------------------------------------------
 
-export async function fetchRomslabFeed({ forceRefresh = false, query = '', platformFilter = '', retentionMonths = 3, page = 1, dataDir = null } = {}) {
+function parseRomslabXml(xmlString) {
+  if (!xmlString) return [];
+  const itemRegex = /<item[^>]*>([\s\S]*?)<\/item>/gi;
+  const items = [];
+  let match;
+
+  while ((match = itemRegex.exec(xmlString)) !== null) {
+    const itemXml = match[1];
+    const rawTitle = decodeHtmlEntities(getXmlTag(itemXml, 'title') || 'Untitled Game');
+    const cleanTitle = cleanRomslabTitle(rawTitle);
+    const link = (getXmlTag(itemXml, 'link') || '').replace(/&amp;/g, '&').trim();
+    const pubDate = getXmlTag(itemXml, 'pubDate') || '';
+    const author = getXmlTag(itemXml, 'dc:creator') || 'Romslab';
+
+    // Categories
+    const categories = [...itemXml.matchAll(/<category><!\[CDATA\[(.*?)\]\]><\/category>/gi)].map(m => decodeHtmlEntities(m[1].trim()));
+    const platform = detectPlatform(rawTitle, categories);
+
+    // Extract cover image
+    let thumbnail = null;
+    const imgMatches = [...itemXml.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)].map(m => m[1]);
+    if (imgMatches.length > 0) {
+      thumbnail = imgMatches.find(src => /cover|body.*1/i.test(src)) || imgMatches[0];
+    }
+
+    // Excerpt description
+    const rawDesc = getXmlTag(itemXml, 'description') || '';
+    const cleanExcerpt = decodeHtmlEntities(rawDesc)
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 220);
+
+    const isUpdate = /\bupdate\b/i.test(rawTitle);
+
+    items.push({
+      id: 'romslab_' + crypto.createHash('md5').update(link || rawTitle).digest('hex').substring(0, 14),
+      title: rawTitle,
+      cleanTitle,
+      link,
+      pubDate,
+      firstSeenAt: Date.now(),
+      author,
+      thumbnail,
+      categories,
+      platform,
+      isUpdate,
+      excerpt: cleanExcerpt
+    });
+  }
+  return items;
+}
+
+// -------------------------------------------------------------
+// Feed Fetcher (with multi-page scraping, disk persistence & search)
+// -------------------------------------------------------------
+
+export async function fetchRomslabFeed({ forceRefresh = false, query = '', platformFilter = '', retentionMonths = 3, page = 1, pagesCount = 6, dataDir = null } = {}) {
   const isSearch = Boolean(query && query.trim());
   const cache = loadRomslabCache(dataDir);
   const now = Date.now();
+  const numPages = Math.min(10, Math.max(1, parseInt(pagesCount, 10) || 6));
 
-  // If main feed (no query) and cached recently (< 10 min) without forceRefresh, return cached
-  if (!isSearch && !forceRefresh && page === 1 && cache.items && cache.items.length > 0 && (now - (cache.lastFetched || 0) < 10 * 60 * 1000)) {
+  // If main feed (no query) and cached recently (< 10 min) with sufficient items without forceRefresh, return cached
+  const minCachedItems = Math.min(30, numPages * 8);
+  if (!isSearch && !forceRefresh && page === 1 && cache.items && cache.items.length >= minCachedItems && (now - (cache.lastFetched || 0) < 10 * 60 * 1000)) {
     const cutoffMs = now - (retentionMonths * 30 * 24 * 60 * 60 * 1000);
     let validItems = cache.items.filter(item => {
       let t = item.pubDate ? new Date(item.pubDate).getTime() : 0;
@@ -161,39 +220,60 @@ export async function fetchRomslabFeed({ forceRefresh = false, query = '', platf
     };
   }
 
-  let targetUrl;
-  if (isSearch) {
-    const q = encodeURIComponent(query.trim());
-    targetUrl = page > 1 ? `https://romslab.com/page/${page}/?s=${q}&feed=rss2` : `https://romslab.com/?s=${q}&feed=rss2`;
-  } else {
-    targetUrl = page > 1 ? `https://romslab.com/feed/?paged=${page}` : ROMSLAB_FEED_URL;
-  }
+  // Determine pages to scrape:
+  // When page === 1, fetch 1..numPages in parallel
+  // When page > 1, fetch that requested single page
+  const pageNumbers = (page === 1)
+    ? Array.from({ length: numPages }, (_, i) => i + 1)
+    : [page];
 
-  let xmlString = null;
-  let fetchError = null;
-
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12000);
-    const response = await fetch(targetUrl, {
-      signal: controller.signal,
-      headers: {
-        'User-Agent': UA_BROWSER,
-        'Accept': 'application/rss+xml, application/xml, text/xml, */*'
-      }
-    });
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      throw new Error(`Romslab responded with HTTP ${response.status}`);
+  async function fetchFeedXml(p) {
+    let url;
+    if (isSearch) {
+      const q = encodeURIComponent(query.trim());
+      url = p > 1 ? `https://romslab.com/page/${p}/?s=${q}&feed=rss2` : `https://romslab.com/?s=${q}&feed=rss2`;
+    } else {
+      url = p > 1 ? `https://romslab.com/feed/?paged=${p}` : ROMSLAB_FEED_URL;
     }
-    xmlString = await response.text();
-  } catch (err) {
-    fetchError = err;
-    console.warn('[Romslab Scraper] Feed fetch error:', err.message);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 14000);
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': UA_BROWSER,
+          'Accept': 'application/rss+xml, application/xml, text/xml, */*'
+        }
+      });
+      clearTimeout(timeout);
+      if (!response.ok) return null;
+      return await response.text();
+    } catch (_) {
+      clearTimeout(timeout);
+      return null;
+    }
   }
 
-  if (!xmlString) {
+  const xmlResults = await Promise.allSettled(pageNumbers.map(p => fetchFeedXml(p)));
+  const allFetchedItems = [];
+  const seenIds = new Set();
+
+  for (const res of xmlResults) {
+    if (res.status === 'fulfilled' && res.value) {
+      const parsed = parseRomslabXml(res.value);
+      for (const it of parsed) {
+        const key = it.id || it.link;
+        if (!seenIds.has(key)) {
+          seenIds.add(key);
+          allFetchedItems.push(it);
+        }
+      }
+    }
+  }
+
+  // Fallback to cache if network requests failed
+  if (allFetchedItems.length === 0) {
     if (cache.items && cache.items.length > 0) {
       let validItems = cache.items;
       if (platformFilter && platformFilter !== 'all') {
@@ -207,62 +287,16 @@ export async function fetchRomslabFeed({ forceRefresh = false, query = '', platf
         itemsCount: validItems.length,
         items: validItems,
         cached: true,
-        stale: true,
-        fetchError: fetchError?.message
+        stale: true
       };
     }
-    throw fetchError || new Error('Failed to fetch Romslab feed XML');
+    throw new Error('Failed to fetch Romslab feed from remote server');
   }
 
-  const itemRegex = /<item[^>]*>([\s\S]*?)<\/item>/gi;
-  const fetchedItems = [];
-  let match;
-
-  while ((match = itemRegex.exec(xmlString)) !== null && fetchedItems.length < 50) {
-    const itemXml = match[1];
-    const rawTitle = decodeHtmlEntities(getXmlTag(itemXml, 'title') || 'Untitled Game');
-    const cleanTitle = cleanRomslabTitle(rawTitle);
-    const link = (getXmlTag(itemXml, 'link') || '').replace(/&amp;/g, '&').trim();
-    const pubDate = getXmlTag(itemXml, 'pubDate') || '';
-    const author = getXmlTag(itemXml, 'dc:creator') || 'Romslab';
-
-    const categories = [...itemXml.matchAll(/<category><!\[CDATA\[(.*?)\]\]><\/category>/gi)].map(m => decodeHtmlEntities(m[1].trim()));
-    const platform = detectPlatform(rawTitle, categories);
-
-    let thumbnail = null;
-    const imgMatches = [...itemXml.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)].map(m => m[1]);
-    if (imgMatches.length > 0) {
-      thumbnail = imgMatches.find(src => /cover|body.*1/i.test(src)) || imgMatches[0];
-    }
-
-    const rawDesc = getXmlTag(itemXml, 'description') || '';
-    const cleanExcerpt = decodeHtmlEntities(rawDesc)
-      .replace(/<[^>]*>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 220);
-
-    const isUpdate = /\bupdate\b/i.test(rawTitle);
-
-    fetchedItems.push({
-      id: 'romslab_' + crypto.createHash('md5').update(link || rawTitle).digest('hex').substring(0, 14),
-      title: rawTitle,
-      cleanTitle,
-      link,
-      pubDate,
-      firstSeenAt: Date.now(),
-      author,
-      thumbnail,
-      categories,
-      platform,
-      isUpdate,
-      excerpt: cleanExcerpt
-    });
-  }
-
-  if (!isSearch && page === 1 && fetchedItems.length > 0) {
+  // If this is the main feed page 1, merge with disk cache
+  if (!isSearch && page === 1 && allFetchedItems.length > 0) {
     const existingMap = new Map((cache.items || []).map(i => [i.id || i.link, i]));
-    for (const item of fetchedItems) {
+    for (const item of allFetchedItems) {
       const key = item.id || item.link;
       const existing = existingMap.get(key);
       if (existing) {
@@ -305,7 +339,7 @@ export async function fetchRomslabFeed({ forceRefresh = false, query = '', platf
     };
   }
 
-  let finalItems = fetchedItems;
+  let finalItems = allFetchedItems;
   if (platformFilter && platformFilter !== 'all') {
     const pf = platformFilter.toLowerCase();
     finalItems = finalItems.filter(it => (it.platform || '').toLowerCase().includes(pf));
@@ -314,7 +348,7 @@ export async function fetchRomslabFeed({ forceRefresh = false, query = '', platf
   return {
     title: isSearch ? `Search results for "${query}"` : 'Romslab.com',
     description: isSearch ? `Found ${finalItems.length} items on Romslab` : 'ROMs & Switch Games',
-    link: targetUrl,
+    link: 'https://romslab.com',
     itemsCount: finalItems.length,
     items: finalItems,
     cached: false

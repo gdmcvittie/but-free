@@ -192,10 +192,11 @@ export function registerDiscoverRoutes(app, { Database, GameDownloaderClient }) 
     const query = (req.query.q || req.query.s || req.query.search || '').trim();
     const platformFilter = (req.query.platform || req.query.category || '').trim();
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const pagesCount = Math.min(10, Math.max(1, parseInt(req.query.pages || req.query.pagesCount, 10) || 6));
     const retentionMonths = parseInt(req.query.retentionMonths || req.user?.settings?.rssRetentionMonths, 10) || 3;
 
     try {
-      const feed = await fetchRomslabFeed({ forceRefresh, query, platformFilter, retentionMonths, page });
+      const feed = await fetchRomslabFeed({ forceRefresh, query, platformFilter, retentionMonths, page, pagesCount });
       res.json({ success: true, feed });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });

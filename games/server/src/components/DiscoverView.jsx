@@ -14,7 +14,7 @@ import GogTab from './discover/GogTab';
 
 const TABS = [
   { key: 'fitgirl', label: 'Latest Repacks', icon: Layers },
-  { key: 'romslab', label: 'Romslab (Console ROMs)', icon: Disc },
+  { key: 'romslab', label: 'Romslab', icon: Disc },
   { key: 'itch', label: 'itch.io', icon: Gamepad2 },
   { key: 'gog', label: 'GOG.com', icon: ShoppingBag }
 ];

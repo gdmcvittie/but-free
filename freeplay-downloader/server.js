@@ -164,7 +164,7 @@ async function sweepRssFeeds() {
     if (Date.now() - lastRssSweep >= intervalMs) {
       lastRssSweep = Date.now();
       await fetchAndCacheFeed('https://fitgirl-repacks.site/feed/', { retentionMonths, forceRefresh: true });
-      await fetchRomslabFeed({ retentionMonths, forceRefresh: true, dataDir });
+      await fetchRomslabFeed({ retentionMonths, forceRefresh: true, pagesCount: 6, dataDir });
     }
   } catch (err) {
     console.warn('[RSS Worker] Background sweep error:', err.message);

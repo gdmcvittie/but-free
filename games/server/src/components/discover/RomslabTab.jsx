@@ -49,6 +49,7 @@ export default function RomslabTab({ onDownloadDispatched }) {
       if (query) params.set('q', query);
       if (platform) params.set('platform', platform);
       if (force) params.set('refresh', 'true');
+      params.set('pages', '6');
       const qs = params.toString() ? `?${params.toString()}` : '';
       const data = await fetchJson(`/api/romslab/feed${qs}`);
       setFeed(data.feed);

@@ -879,7 +879,7 @@ async function sweepRssFeeds() {
     if (Date.now() - lastRssSweep >= intervalMs) {
       lastRssSweep = Date.now();
       await fetchFeed(FITGIRL_FEED_URL, { retentionMonths: maxRetentionMonths, forceRefresh: true });
-      await fetchRomslabFeed({ retentionMonths: maxRetentionMonths, forceRefresh: true }).catch(err => {
+      await fetchRomslabFeed({ retentionMonths: maxRetentionMonths, forceRefresh: true, pagesCount: 6 }).catch(err => {
         console.warn('[RSS Worker] Romslab background sweep error:', err.message);
       });
     }

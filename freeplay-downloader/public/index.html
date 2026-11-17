@@ -1637,6 +1637,7 @@
         if (romslabSearchQuery) params.set('q', romslabSearchQuery);
         if (romslabPlatform) params.set('platform', romslabPlatform);
         if (force) params.set('refresh', 'true');
+        params.set('pages', '6');
         var qs = params.toString() ? ('?' + params.toString()) : '';
 
         var res = await fetch('/api/romslab/feed' + qs);
