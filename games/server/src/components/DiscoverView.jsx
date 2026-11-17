@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Layers, Flame, Gamepad2, ShoppingBag, HardDrive, Disc } from 'lucide-react';
+import { Sparkles, Layers, Gamepad2, ShoppingBag, HardDrive, Disc } from 'lucide-react';
 import FitgirlTab from './discover/FitgirlTab';
 import RomslabTab from './discover/RomslabTab';
-import PopularTab from './discover/PopularTab';
 import ItchTab from './discover/ItchTab';
 import GogTab from './discover/GogTab';
 
 // =============================================================================
 // Discover & Download hub (ported from my-games-server):
-// FitGirl repack RSS, Romslab console ROMs, popular Steam releases w/ repack matching,
+// FitGirl repack RSS, Romslab console ROMs,
 // itch.io store + purchases, and GOG.com offline installers.
 // Everything queues on the central Downloader node and lands in Google Drive.
 // =============================================================================
@@ -16,7 +15,6 @@ import GogTab from './discover/GogTab';
 const TABS = [
   { key: 'fitgirl', label: 'Latest Repacks', icon: Layers },
   { key: 'romslab', label: 'Romslab (Console ROMs)', icon: Disc },
-  { key: 'popular', label: 'Popular', icon: Flame },
   { key: 'itch', label: 'itch.io', icon: Gamepad2 },
   { key: 'gog', label: 'GOG.com', icon: ShoppingBag }
 ];
@@ -114,7 +112,6 @@ export default function DiscoverView({ user, onOpenSettings, onDownloadDispatche
 
       {effectiveTab === 'fitgirl' && <FitgirlTab onDownloadDispatched={onDownloadDispatched} />}
       {effectiveTab === 'romslab' && <RomslabTab onDownloadDispatched={onDownloadDispatched} />}
-      {effectiveTab === 'popular' && <PopularTab onDownloadDispatched={onDownloadDispatched} />}
       {effectiveTab === 'itch' && <ItchTab user={user} onDownloadDispatched={onDownloadDispatched} onLibraryUpdated={onLibraryUpdated} />}
       {effectiveTab === 'gog' && <GogTab onDownloadDispatched={onDownloadDispatched} onLibraryUpdated={onLibraryUpdated} />}
     </div>

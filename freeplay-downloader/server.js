@@ -10,6 +10,7 @@ import os from 'os';
 import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
 import { registerPcRssRoutes, fetchAndCacheFeed } from './stream/pc-rss.js';
+import { fetchRomslabFeed } from './stream/romslab.js';
 import { createDownloadQueue } from './stream/download-queue.js';
 import { electronBridge } from './lib/electron-bridge.js';
 
@@ -163,6 +164,7 @@ async function sweepRssFeeds() {
     if (Date.now() - lastRssSweep >= intervalMs) {
       lastRssSweep = Date.now();
       await fetchAndCacheFeed('https://fitgirl-repacks.site/feed/', { retentionMonths, forceRefresh: true });
+      await fetchRomslabFeed({ retentionMonths, forceRefresh: true, dataDir });
     }
   } catch (err) {
     console.warn('[RSS Worker] Background sweep error:', err.message);

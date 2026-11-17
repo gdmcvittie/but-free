@@ -14,6 +14,11 @@ import {
   classifyDownloadUrl,
   isFitgirlUpdateTitle
 } from './link-utils.js';
+import {
+  fetchRomslabFeed,
+  scrapeRomslabPost,
+  isRomslabUrl
+} from './romslab.js';
 
 const SCRAPE_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
@@ -326,129 +331,36 @@ export function registerPcRssRoutes(app, options = {}) {
     }
   });
 
-  // Steam New Releases / Popular Releases RSS Feed Cache
-  let steamPopularCache = {
-    timestamp: 0,
-    items: []
-  };
+  // 1b. Romslab ROM & Console Feed: /api/romslab/feed
+  app.get('/api/romslab/feed', async (req, res) => {
+    try {
+      const forceRefresh = req.query.refresh === 'true' || req.query.force === 'true';
+      const query = (req.query.q || req.query.query || '').trim();
+      const platformFilter = (req.query.platform || '').trim();
+      const retentionMonths = parseInt(req.query.retentionMonths || (options.getConfig && options.getConfig().rssRetentionMonths), 10) || 3;
+      const page = parseInt(req.query.page, 10) || 1;
+      const dataDir = options.dataDir;
 
-  function cleanSteamTitle(rawTitle) {
-    if (!rawTitle) return '';
-    let title = rawTitle.trim();
-    title = title.replace(/^Now Available(?: on Steam)?\s*[-–—:]\s*/i, '');
-    title = title.replace(/^Pre-Purchase(?: Now)?\s*[-–—:]\s*/i, '');
-    title = title.replace(/\s+is Now Available(?: on Steam)?\.?$/i, '');
-    title = title.replace(/\s+is Available Now(?: on Steam)?\.?$/i, '');
-    return title.trim();
-  }
-
-  function parseSteamDbHtml(html) {
-    const items = [];
-    const seenAppIds = new Set();
-
-    const rowRegex = /<tr[^>]*data-appid=["'](\d+)["'][^>]*>([\s\S]*?)<\/tr>/gi;
-    let match;
-    while ((match = rowRegex.exec(html)) !== null) {
-      const appId = match[1];
-      if (seenAppIds.has(appId)) continue;
-      const row = match[2];
-
-      const titleMatch = row.match(/<a\s+[^>]*href=["'](?:\/app\/\d+[^"']*|https?:\/\/steamdb\.info\/app\/\d+[^"']*)["'][^>]*>([\s\S]*?)<\/a>/i);
-      let title = '';
-      if (titleMatch) {
-        title = decodeHtmlEntities(titleMatch[1].replace(/<[^>]+>/g, '').trim());
-      }
-      if (!title) {
-        const altMatch = row.match(/<td[^>]*>([\s\S]*?)<\/td>/gi);
-        if (altMatch && altMatch[2]) {
-          title = decodeHtmlEntities(altMatch[2].replace(/<[^>]+>/g, '').trim());
-        }
-      }
-
-      if (appId && title && title.length > 1 && !title.toLowerCase().includes('valve')) {
-        seenAppIds.add(appId);
-        items.push({
-          title,
-          appId,
-          thumbnail: `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/capsule_sm_120.jpg`,
-          link: `https://store.steampowered.com/app/${appId}/`
-        });
-      }
+      const feed = await fetchRomslabFeed({ forceRefresh, query, platformFilter, retentionMonths, page, dataDir });
+      res.json({ success: true, feed });
+    } catch (err) {
+      console.error('[Romslab API] Feed error:', err.message);
+      res.status(500).json({ success: false, error: err.message });
     }
+  });
 
-    if (items.length === 0) {
-      const linkRegex = /href=["'](?:\/app\/|https?:\/\/steamdb\.info\/app\/)(\d+)[^"']*["'][^>]*>([^<]+)<\/a>/gi;
-      let m;
-      while ((m = linkRegex.exec(html)) !== null) {
-        const appId = m[1];
-        const title = decodeHtmlEntities(m[2].trim());
-        if (appId && title && title.length > 1 && !seenAppIds.has(appId) && !['SteamDB', 'Install', 'Store'].includes(title)) {
-          seenAppIds.add(appId);
-          items.push({
-            title,
-            appId,
-            thumbnail: `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/capsule_sm_120.jpg`,
-            link: `https://store.steampowered.com/app/${appId}/`
-          });
-        }
-      }
+  // 1c. Romslab Post Scraper: /api/romslab/scrape?url=<postUrl>
+  app.get('/api/romslab/scrape', async (req, res) => {
+    try {
+      const pageUrl = (req.query.url || '').trim();
+      if (!pageUrl) return res.status(400).json({ success: false, error: 'URL is required' });
+      const data = await scrapeRomslabPost(pageUrl);
+      res.json({ success: true, ...data });
+    } catch (err) {
+      console.error('[Romslab API] Scrape error:', err.message);
+      res.status(500).json({ success: false, error: err.message });
     }
-
-    return items;
-  }
-
-  async function fetchSteamPopularSearchGames() {
-    const items = [];
-    const seen = new Set();
-
-    const endpoints = [
-      'https://store.steampowered.com/search/results/?query&start=0&count=100&sort_by=Released_DESC&filter=popularnew&infinite=1',
-      'https://store.steampowered.com/search/results/?query&start=0&count=50&sort_by=Released_DESC&infinite=1'
-    ];
-
-    for (const url of endpoints) {
-      try {
-        const res = await fetch(url, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Accept': 'application/json, text/javascript, */*'
-          }
-        });
-        if (!res.ok) continue;
-        const data = await res.json();
-        const html = data && data.results_html ? data.results_html : '';
-        const linkRegex = /<a\s+[^>]*href=["']https?:\/\/store\.steampowered\.com\/app\/(\d+)[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi;
-        let m;
-        while ((m = linkRegex.exec(html)) !== null) {
-          const appId = m[1];
-          if (seen.has(appId)) continue;
-          const inner = m[2];
-          const titleMatch = inner.match(/<span\s+class=["']title["']>([\s\S]*?)<\/span>/i);
-          const title = titleMatch ? decodeHtmlEntities(titleMatch[1].trim()) : '';
-
-          // Extract image URL directly from Steam search row
-          const imgMatch = inner.match(/<img[^>]+src=["']([^"'>]+)["']/i);
-          let thumbnail = (imgMatch && imgMatch[1]) ? decodeHtmlEntities(imgMatch[1].trim()) : '';
-          if (!thumbnail && appId) {
-            thumbnail = `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`;
-          }
-
-          if (appId && title) {
-            seen.add(appId);
-            items.push({
-              title,
-              appId,
-              thumbnail,
-              link: `https://store.steampowered.com/app/${appId}/`
-            });
-          }
-        }
-      } catch (_) {}
-      if (items.length >= 60) break;
-    }
-
-    return items;
-  }
+  });
 
   // FitGirl Availability Cache & Matching
   const fitgirlAvailabilityCache = new Map();
@@ -646,111 +558,6 @@ export function registerPcRssRoutes(app, options = {}) {
     });
   }
 
-  // 1b. Popular New Releases Feed: /api/pc-rss/popular-games
-  app.get('/api/pc-rss/popular-games', async (req, res) => {
-    const forceRefresh = req.query.refresh === 'true';
-    const now = Date.now();
-    if (!forceRefresh && steamPopularCache.items.length > 0 && (now - steamPopularCache.timestamp < 10 * 60 * 1000)) {
-      return res.json({ success: true, items: decorateItemsWithFitgirlCache(steamPopularCache.items), cached: true });
-    }
-
-    let items = [];
-
-    // Strategy 1: Fast direct HTTP fetch to SteamDB upcoming/lastweek
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 3500);
-      const response = await fetch('https://steamdb.info/upcoming/?lastweek', {
-        signal: controller.signal,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9'
-        }
-      });
-      clearTimeout(timeout);
-      if (response.ok) {
-        const html = await response.text();
-        items = parseSteamDbHtml(html);
-      }
-    } catch (_) {}
-
-    // Strategy 2: Official Steam Store Popular New Releases Search API (returns 50-100 popular releases)
-    if (items.length === 0) {
-      try {
-        items = await fetchSteamPopularSearchGames();
-      } catch (_) {}
-    }
-
-    // Strategy 3: Fallback to Steam official new releases RSS feed
-    if (items.length === 0) {
-      try {
-        const response = await fetch('https://store.steampowered.com/feeds/newreleases.xml', {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Accept': 'application/rss+xml, application/xml, text/xml, */*'
-          }
-        });
-        if (response.ok) {
-          const xml = await response.text();
-          const itemRegex = /<item[^>]*>([\s\S]*?)<\/item>/gi;
-          let match;
-          while ((match = itemRegex.exec(xml)) !== null && items.length < 50) {
-            const itemXml = match[1];
-            const rawTitle = decodeHtmlEntities(getXmlTag(itemXml, 'title') || '').trim();
-            const title = cleanSteamTitle(rawTitle);
-            const link = decodeHtmlEntities(getXmlTag(itemXml, 'link') || '').trim();
-            const appMatch = link.match(/\/app\/(\d+)/i);
-            const appId = appMatch ? appMatch[1] : null;
-            if (title && appId) {
-              items.push({
-                title,
-                appId,
-                thumbnail: `https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`,
-                link: `https://store.steampowered.com/app/${appId}/`
-              });
-            }
-          }
-        }
-      } catch (_) {}
-    }
-
-    if (items.length > 0) {
-      steamPopularCache = {
-        timestamp: now,
-        items
-      };
-      return res.json({ success: true, items: decorateItemsWithFitgirlCache(items) });
-    }
-
-    if (steamPopularCache.items.length > 0) {
-      return res.json({ success: true, items: decorateItemsWithFitgirlCache(steamPopularCache.items), cached: true });
-    }
-
-    res.status(500).json({ success: false, error: 'Failed to retrieve popular games', items: [] });
-  });
-
-  // 1c. Check single game FitGirl availability: GET /api/pc-rss/check-fitgirl?title=...
-  app.get('/api/pc-rss/check-fitgirl', async (req, res) => {
-    const title = (req.query.title || '').trim();
-    if (!title) {
-      return res.status(400).json({ success: false, error: 'Title is required' });
-    }
-    const result = await checkFitgirlAvailability(title);
-    res.json({ success: true, title, ...result });
-  });
-
-  // 1d. Batch check FitGirl availability: POST /api/pc-rss/check-fitgirl-batch
-  app.post('/api/pc-rss/check-fitgirl-batch', async (req, res) => {
-    const titles = Array.isArray(req.body.titles) ? req.body.titles : [];
-    if (titles.length === 0) {
-      return res.json({ success: true, results: {} });
-    }
-    const capped = titles.slice(0, 50);
-    const results = await checkFitgirlBatch(capped);
-    res.json({ success: true, results });
-  });
-
   // 2. Scrape Download Links: /api/pc-rss/scrape-links?url=<pageUrl>
   app.get('/api/pc-rss/scrape-links', async (req, res) => {
     const pageUrl = (req.query.url || '').trim();
@@ -759,6 +566,17 @@ export function registerPcRssRoutes(app, options = {}) {
     }
 
     try {
+      if (isRomslabUrl(pageUrl)) {
+        const romslabData = await scrapeRomslabPost(pageUrl);
+        return res.json({
+          success: true,
+          url: pageUrl,
+          title: romslabData.title,
+          gameSize: romslabData.size || null,
+          gameSizeBytes: romslabData.size ? parseSizeStringToBytes(romslabData.size) : null,
+          links: romslabData.links
+        });
+      }
       async function fetchHtmlWithHeaders(url) {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 12000);
