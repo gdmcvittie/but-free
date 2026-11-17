@@ -27,6 +27,7 @@ import audiobookStitcher, { recoverInterruptedJobs } from './audiobookStitcher.j
 import id3Editor from './id3Editor.js';
 import deviceApi from './deviceApi.js';
 import playlistWizard from './playlistWizard.js';
+import musicTorrents from './musicTorrents.js';
 
 const DEFAULT_OWNER_EMAIL = 'gdmcvittie@gmail.com';
 
@@ -521,6 +522,54 @@ app.get('/api/music/whats-new', async (req, res) => {
     return res.json({ albums });
   } catch (err) {
     return res.status(502).json({ error: err.message });
+  }
+});
+
+app.get('/api/music/whats-new/torrents', async (req, res) => {
+  try {
+    const feed = req.query.feed || 'flac';
+    const refresh = req.query.refresh === 'true';
+    const q = req.query.q ? String(req.query.q).trim() : '';
+
+    let releases = [];
+    if (q) {
+      const cat = feed === 'mp3' ? 101 : 104;
+      releases = await musicTorrents.searchTorrents(q, cat);
+    } else if (feed === 'nyaa') {
+      releases = await musicTorrents.fetchNyaaRss(refresh);
+    } else if (feed === 'mp3') {
+      releases = await musicTorrents.fetchApibayTop(101, refresh);
+    } else {
+      // Default: 104 (FLAC Lossless)
+      releases = await musicTorrents.fetchApibayTop(104, refresh);
+    }
+    return res.json({ releases, feed });
+  } catch (err) {
+    return res.status(502).json({ error: err.message });
+  }
+});
+
+app.post('/api/music/torrent/download', async (req, res) => {
+  const { infoHash, magnet, title, artist, album, coverUrl } = req.body || {};
+  if (!infoHash && !magnet) {
+    return res.status(400).json({ error: 'infoHash or magnet is required.' });
+  }
+  if (!req.user.musicFolderId) {
+    return res.status(400).json({ error: 'Pick a music folder in Settings before downloading.' });
+  }
+
+  try {
+    const job = await downloadManager.startMusicTorrent(req.user, {
+      infoHash,
+      magnet,
+      title: title || `${artist} - ${album}`,
+      artist,
+      album,
+      coverUrl
+    });
+    return res.json({ success: true, job });
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
   }
 });
 

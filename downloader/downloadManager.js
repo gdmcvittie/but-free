@@ -218,11 +218,14 @@ export function addDownloadJob(options) {
   const job = {
     id,
     userId: options.userId || 'default',
+    kind: options.kind || options.type || 'audiobook',
     source,
     infoHash,
-    title: options.title || 'Audiobook',
-    author: options.author || '',
-    series: options.series || '',
+    title: options.title || (options.kind === 'music' ? 'Music Release' : 'Audiobook'),
+    artist: options.artist || options.author || '',
+    album: options.album || options.series || '',
+    author: options.author || options.artist || '',
+    series: options.series || options.album || '',
     seriesIndex: options.seriesIndex ?? null,
     narrator: options.narrator || '',
     format: options.format || '',
@@ -513,12 +516,21 @@ async function runUploadPhase(job, parts) {
 
   await refreshToken();
 
-  const { folderId, drivePath } = await resolveAudiobookFolder(
-    driveConfig.accessToken,
-    driveConfig.rootFolderId,
-    { author: job.author, series: job.series },
-    refreshToken
-  );
+  const isMusic = job.kind === 'music' || job.type === 'music';
+  const { folderId, drivePath } = isMusic
+    ? await resolveMusicFolder(
+        driveConfig.accessToken,
+        driveConfig.rootFolderId,
+        job.artist || 'Unknown Artist',
+        job.album || job.title || 'Singles',
+        refreshToken
+      )
+    : await resolveAudiobookFolder(
+        driveConfig.accessToken,
+        driveConfig.rootFolderId,
+        { author: job.author, series: job.series },
+        refreshToken
+      );
 
   const results = [];
   const multi = parts.length > 1;
@@ -529,9 +541,9 @@ async function runUploadPhase(job, parts) {
     const sourcePath = parts[i];
     const baseName = path.basename(sourcePath);
     const sizeBytes = fs.statSync(sourcePath).size;
-    // For multi-book torrents keep the part ordering visible in the file name.
+    // For multi-part torrents keep the part ordering visible in the file name (preserve audio track names for music).
     const fileName = multi
-      ? `${String(i + 1).padStart(2, '0')} - ${sanitizeName(baseName)}`
+      ? (isMusic ? sanitizeName(baseName) : `${String(i + 1).padStart(2, '0')} - ${sanitizeName(baseName)}`)
       : sanitizeName(baseName);
 
     const span = 45 / parts.length;
@@ -592,7 +604,7 @@ async function runUploadPhase(job, parts) {
   releaseClaim(job);
   saveHistory();
 
-  await notify(job, { status: 'completed', results, drivePath, coverUploaded });
+  await notify(job, { status: 'completed', results, drivePath, coverUploaded, kind: job.kind });
 }
 
 async function runYoutubePhase(job) {

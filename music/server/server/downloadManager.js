@@ -192,6 +192,7 @@ function setStatus(jobId, patch) {
 function publicJob(job) {
   return {
     id: job.id,
+    kind: job.kind || 'audiobook',
     status: job.status,
     phase: job.phase,
     percent: job.percent,
@@ -201,6 +202,9 @@ function publicJob(job) {
     postId: job.postId,
     postUrl: job.postUrl,
     title: job.title,
+    artist: job.artist,
+    album: job.album,
+    infoHash: job.infoHash,
     nodeJobId: job.nodeJobId,
     createdAt: job.createdAt,
     updatedAt: job.updatedAt
@@ -487,6 +491,101 @@ export const downloadManager = {
   },
 
   /**
+   * Starts a music release torrent download and saves into the user's musicFolderId.
+   */
+  async startMusicTorrent(user, release) {
+    if (!user.musicFolderId) {
+      throw new Error('Pick a music folder in Settings before downloading.');
+    }
+    if (!torrentNode.isConfigured()) {
+      throw new Error('No torrent node is configured. Set TORRENT_NODE_URL in .env.');
+    }
+    if (!release?.infoHash && !release?.magnet) {
+      throw new Error('No torrent info hash or magnet was provided.');
+    }
+
+    const id = newId('job');
+    const job = {
+      id,
+      userId: user.id,
+      kind: 'music',
+      nodeJobId: null,
+      infoHash: release.infoHash || null,
+      title: release.title || 'Music Release',
+      artist: release.artist || 'Unknown Artist',
+      album: release.album || release.title || 'Singles',
+      coverUrl: release.coverUrl || null,
+      status: 'queued',
+      phase: 'Queued',
+      percent: 0,
+      message: 'Queued for torrent download…',
+      error: null,
+      result: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+    jobs.set(id, job);
+    broadcast('download_status', { jobId: id, userId: user.id, ...publicJob(job) });
+
+    this._runMusicTorrent(job, release).catch((err) => {
+      console.error('[MusicDownload] Torrent job crashed:', err.message);
+      setStatus(id, {
+        status: 'error',
+        phase: 'Failed',
+        percent: 0,
+        message: err.message,
+        error: err.message
+      });
+      pushHistory(job.userId, { jobId: id, title: job.title, status: 'error', error: err.message });
+    });
+
+    return publicJob(job);
+  },
+
+  async _runMusicTorrent(job, release) {
+    const { id } = job;
+    setStatus(id, { status: 'resolving', phase: 'Contacting torrent node', percent: 5, message: 'Contacting torrent node…' });
+
+    const user = db.getUser(job.userId);
+    const accessToken = await googleAuth.getValidAccessToken(user);
+    if (!accessToken) {
+      throw new Error('Could not get a Google Drive access token. Reconnect your Drive account in Settings.');
+    }
+
+    const callbackOrigin = resolveCallbackOrigin();
+    const webhookSecret = process.env.TORRENT_NODE_WEBHOOK_SECRET || process.env.TORRENT_NODE_KEY || process.env.DOWNLOADER_SECRET_KEY || process.env.NODE_KEY || (callbackOrigin ? 'fraudio-secret' : null);
+    const webhookUrl = publicUrl('/api/downloads/webhook');
+    const tokenRefreshUrl = publicUrl('/api/downloads/token-refresh');
+
+    const remoteJob = await torrentNode.enqueue({
+      userId: job.userId,
+      kind: 'music',
+      infoHash: release.infoHash,
+      magnet: release.magnet,
+      title: release.title,
+      artist: release.artist,
+      album: release.album,
+      coverUrl: release.coverUrl || null,
+      driveConfig: {
+        accessToken,
+        rootFolderId: user.musicFolderId,
+        ...(tokenRefreshUrl ? { tokenRefreshUrl, webhookSecret } : {})
+      },
+      ...(webhookUrl ? { webhookUrl, webhookSecret } : {})
+    });
+
+    job.nodeJobId = remoteJob.id;
+    ensureActivePolling();
+    setStatus(id, {
+      nodeJobId: remoteJob.id,
+      status: 'downloading',
+      phase: 'Downloading',
+      percent: 10,
+      message: 'The torrent node is downloading this release…'
+    });
+  },
+
+  /**
    * Starts an audiobook download from an AudioBookBay post URL.
    * Returns immediately with a local job id.
    */
@@ -657,6 +756,76 @@ export const downloadManager = {
       setStatus(job.id, { status: 'error', phase: 'Failed', percent: 100, message, error: message });
       return { handled: true, reason: 'unknown user' };
     }
+
+    if (job.kind === 'music' || payload.kind === 'music') {
+      const itemIds = [];
+      const cleanArtist = job.artist || 'Unknown Artist';
+      const cleanAlbum = job.album || job.title || 'Singles';
+
+      for (const uploaded of results) {
+        const rawBase = path.basename(uploaded.fileName || '', path.extname(uploaded.fileName || ''));
+        const trackTitle = rawBase.replace(/^\d+[\s.-]+/, '').trim() || rawBase || job.title;
+        const ext = path.extname(uploaded.fileName || '').replace(/^\./, '').toUpperCase() || 'FLAC';
+
+        const item = db.upsertItem(userId, {
+          kind: 'track',
+          googleFileId: uploaded.driveFileId,
+          driveFolderId: uploaded.driveFolderId,
+          title: trackTitle,
+          author: cleanArtist,
+          artist: cleanArtist,
+          album: cleanAlbum,
+          albumArtist: cleanArtist,
+          format: ext,
+          sizeBytes: uploaded.sizeBytes || null,
+          drivePath: uploaded.drivePath || uploaded.fileName,
+          coverImage: job.coverUrl || null
+        });
+        if (item?.id) itemIds.push(item.id);
+
+        if (job.coverUrl) {
+          try {
+            await googleDrive.cacheRemoteCover(
+              job.coverUrl,
+              `${item.id}-cover`,
+              cacheCoverPath(item.id)
+            );
+          } catch { /* cover is optional */ }
+        }
+      }
+
+      broadcast('library_changed', { userId, reason: 'music-torrent' });
+      googleDrive.syncLibrary(user, 'music', { forceCovers: false }).catch(() => {});
+
+      const result = {
+        success: true,
+        itemIds,
+        itemId: itemIds[0],
+        title: job.title,
+        artist: cleanArtist,
+        album: cleanAlbum,
+        message: `Saved ${itemIds.length} track${itemIds.length === 1 ? '' : 's'} to Drive: ${cleanArtist} / ${cleanAlbum}`
+      };
+
+      setStatus(job.id, {
+        status: 'done',
+        phase: 'Complete',
+        percent: 100,
+        message: result.message,
+        result
+      });
+
+      pushHistory(userId, {
+        jobId: job.id,
+        title: job.title,
+        status: 'done',
+        itemIds,
+        downloadedAt: Date.now()
+      });
+
+      return { handled: true };
+    }
+
     const itemIds = [];
 
     for (const uploaded of results) {

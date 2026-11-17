@@ -151,9 +151,17 @@ export const api = {
   abbSession: () => get('/api/abb/session'),
   abbLogin: () => post('/api/abb/login'),
 
-  // ---- music: YouTube Music new releases --------------------------------
+  // ---- music: YouTube Music & Torrent new releases ---------------------
   musicWhatsNew: (refresh = false) =>
     get(`/api/music/whats-new${refresh ? '?refresh=true' : ''}`),
+  musicWhatsNewTorrents: (feed = 'flac', refresh = false, q = '', signal) => {
+    const params = new URLSearchParams();
+    if (feed) params.set('feed', feed);
+    if (refresh) params.set('refresh', 'true');
+    if (q) params.set('q', q);
+    return get(`/api/music/whats-new/torrents?${params.toString()}`, { signal });
+  },
+  downloadMusicTorrent: (item) => post('/api/music/torrent/download', item),
   albumTracks: (playlistId) =>
     get(`/api/music/album/tracks?playlistId=${encodeURIComponent(playlistId)}`),
   downloadAlbum: (album) => post('/api/music/album/download', album),

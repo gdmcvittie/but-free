@@ -355,6 +355,9 @@ app.post('/api/download', requireAuth, (req, res) => {
     const job = addDownloadJob({
       id: body.id,
       userId: body.userId,
+      kind: body.kind,
+      artist: body.artist,
+      album: body.album,
       magnet: body.magnet,
       source: body.source,
       infoHash: body.infoHash,

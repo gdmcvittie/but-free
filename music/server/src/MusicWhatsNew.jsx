@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Music4, Download, FolderOpen, RefreshCw, Check, AlertTriangle, Search as SearchIcon, X, User, Heart, ListMusic, Loader2 } from 'lucide-react';
+import { Music4, Download, FolderOpen, RefreshCw, Check, AlertTriangle, Search as SearchIcon, X, User, Heart, ListMusic, Loader2, Zap, Radio, Disc, Users } from 'lucide-react';
 import { api, subscribeToEvents } from './api';
 import { useSwipeBack } from './swipeBack';
 import { formatDuration, formatLengthShort, isSameTrack, isSameAlbum, stripTrackNumber } from './format';
@@ -23,6 +23,14 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
 
   const [queue, setQueue] = useState([]);
   const [entityJobs, setEntityJobs] = useState({});
+
+  // ---- torrent feeds --------------------------------------------------
+  const [feedType, setFeedType] = useState('yt'); // 'yt' | 'flac' | 'nyaa' | 'mp3'
+  const [torrentReleases, setTorrentReleases] = useState([]);
+  const [torrentLoading, setTorrentLoading] = useState(false);
+  const [torrentRefreshing, setTorrentRefreshing] = useState(false);
+  const [torrentError, setTorrentError] = useState(null);
+  const [torrentDetail, setTorrentDetail] = useState(null);
 
   // ---- search ---------------------------------------------------------
   const [query, setQuery] = useState(initialQuery);
@@ -106,6 +114,27 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
     }
   }, []);
 
+  const loadTorrents = useCallback(async (feed = feedType, force = false, searchQ = '') => {
+    if (force) setTorrentRefreshing(true);
+    else setTorrentLoading(true);
+    setTorrentError(null);
+    try {
+      const data = await api.musicWhatsNewTorrents(feed, force, searchQ);
+      setTorrentReleases(Array.isArray(data?.releases) ? data.releases : []);
+    } catch (err) {
+      setTorrentError(err.message || 'Could not load torrent releases.');
+    } finally {
+      setTorrentLoading(false);
+      setTorrentRefreshing(false);
+    }
+  }, [feedType]);
+
+  useEffect(() => {
+    if (feedType !== 'yt') {
+      loadTorrents(feedType, false, query);
+    }
+  }, [feedType, loadTorrents]);
+
   useEffect(() => { load(); }, [load, libraryVersion]);
 
   useEffect(() => {
@@ -120,6 +149,26 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
     const trimmed = raw.trim();
     setQuery(raw);
     setArtist(null);
+
+    if (feedType !== 'yt') {
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setTorrentLoading(true);
+      setTorrentError(null);
+      try {
+        const data = await api.musicWhatsNewTorrents(feedType, false, trimmed, controller.signal);
+        if (controller.signal.aborted) return;
+        setTorrentReleases(Array.isArray(data?.releases) ? data.releases : []);
+      } catch (err) {
+        if (err.name === 'AbortError' || controller.signal.aborted) return;
+        setTorrentError(err.message || 'Search failed.');
+      } finally {
+        if (!controller.signal.aborted) setTorrentLoading(false);
+      }
+      return;
+    }
+
     if (trimmed.length < 2) {
       abortRef.current?.abort();
       setSongs([]);
@@ -148,7 +197,54 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
     } finally {
       if (!controller.signal.aborted) setSearching(false);
     }
-  }, []);
+  }, [feedType]);
+
+  const isTorrentInLib = useCallback((rel) => {
+    if (!rel?.artist || !rel?.album) return false;
+    const a = rel.artist.toLowerCase().trim();
+    const alb = rel.album.toLowerCase().trim();
+    return libraryTracks.some((t) => {
+      const ta = (t.author || t.artist || '').toLowerCase().trim();
+      const talb = (t.album || '').toLowerCase().trim();
+      return (ta === a || (ta && a && (ta.includes(a) || a.includes(ta)))) &&
+             (talb === alb || (talb && alb && (talb.includes(alb) || alb.includes(talb))));
+    });
+  }, [libraryTracks]);
+
+  const isTorrentDownloading = useCallback((rel) => {
+    if (!rel) return false;
+    const hash = rel.infoHash || rel.id;
+    if (entityJobs[`torrent:${hash}`]) return true;
+    return queue.some((j) =>
+      ['queued', 'downloading', 'uploading'].includes(j.status) &&
+      ((j.infoHash && rel.infoHash && j.infoHash.toLowerCase() === rel.infoHash.toLowerCase()) ||
+       (j.title && rel.title && j.title.toLowerCase() === rel.title.toLowerCase()))
+    );
+  }, [entityJobs, queue]);
+
+  const startTorrentDownload = useCallback(async (rel) => {
+    if (!hasMusicFolder) {
+      onOpenDrivePicker('music');
+      return;
+    }
+    const hash = rel.infoHash || rel.id;
+    try {
+      setEntityJobs((prev) => ({ ...prev, [`torrent:${hash}`]: 'pending' }));
+      const res = await api.downloadMusicTorrent(rel);
+      const jId = res?.job?.id || res?.id;
+      if (jId) {
+        setEntityJobs((prev) => ({ ...prev, [`torrent:${hash}`]: jId }));
+      }
+      notify('Download started', `Queued "${rel.album || rel.title}" for download.`);
+    } catch (err) {
+      setEntityJobs((prev) => {
+        const copy = { ...prev };
+        delete copy[`torrent:${hash}`];
+        return copy;
+      });
+      notify('Download failed', err.message || 'Could not queue torrent.', true);
+    }
+  }, [hasMusicFolder, onOpenDrivePicker, notify]);
 
   useEffect(() => {
     if (!searched && !initialQuery) return undefined;
@@ -301,9 +397,11 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
     setDetailLoading(false);
   }, []);
 
-  // Album detail is a full takeover view with a "Back to results" button;
-  // a right-edge swipe should unwind it the same way.
-  useSwipeBack(Boolean(detail), closeDetail);
+  // Album/torrent detail takeover view swipe back
+  useSwipeBack(Boolean(detail || torrentDetail), () => {
+    if (detail) closeDetail();
+    else setTorrentDetail(null);
+  });
 
   const startDownload = useCallback(async (album) => {
     if (tracks.length > 0 && tracks.every((t) => isSongInLib(t))) {
@@ -479,31 +577,79 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
           <p className="view-subtitle">
             {artist
               ? `Top tracks and albums from ${artist.title}`
-              : 'Fresh albums from YouTube Music, or search for songs and artists'}
+              : feedType === 'flac'
+                ? 'Lossless FLAC and Hi-Res studio releases from The Pirate Bay'
+                : feedType === 'nyaa'
+                  ? 'Lossless anime OSTs, J-Pop, and international soundtracks from Nyaa Audio'
+                  : feedType === 'mp3'
+                    ? 'Top seeded MP3 and full album collections'
+                    : 'Fresh albums from YouTube Music, or search for songs and artists'}
           </p>
         </div>
         {!artist && (
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            {feedType === 'yt' && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setPlOpen(true)}
+              >
+                <ListMusic size={14} />
+                Playlist
+              </button>
+            )}
             <button
               type="button"
               className="btn btn-secondary btn-sm"
-              onClick={() => setPlOpen(true)}
+              onClick={() => {
+                if (feedType === 'yt') load(true);
+                else loadTorrents(feedType, true, query);
+              }}
+              disabled={refreshing || loading || torrentLoading || torrentRefreshing}
             >
-              <ListMusic size={14} />
-              Playlist
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => load(true)}
-              disabled={refreshing || loading}
-            >
-              <RefreshCw size={14} className={refreshing ? 'spin' : undefined} />
+              <RefreshCw size={14} className={refreshing || torrentRefreshing ? 'spin' : undefined} />
               Refresh
             </button>
           </div>
         )}
       </div>
+
+      {!artist && (
+        <div className="stitcher-mode-tabs" style={{ marginBottom: '1.25rem', display: 'inline-flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+          <button
+            type="button"
+            className={`stitcher-mode-btn ${feedType === 'yt' ? 'active' : ''}`}
+            onClick={() => { setFeedType('yt'); setQuery(''); }}
+          >
+            <Music4 size={14} />
+            YouTube Music
+          </button>
+          <button
+            type="button"
+            className={`stitcher-mode-btn ${feedType === 'flac' ? 'active' : ''}`}
+            onClick={() => { setFeedType('flac'); setQuery(''); }}
+          >
+            <Zap size={14} style={{ color: '#3ddc97' }} />
+            Lossless (FLAC)
+          </button>
+          <button
+            type="button"
+            className={`stitcher-mode-btn ${feedType === 'nyaa' ? 'active' : ''}`}
+            onClick={() => { setFeedType('nyaa'); setQuery(''); }}
+          >
+            <Radio size={14} style={{ color: '#f59e0b' }} />
+            Anime &amp; OST (Nyaa)
+          </button>
+          <button
+            type="button"
+            className={`stitcher-mode-btn ${feedType === 'mp3' ? 'active' : ''}`}
+            onClick={() => { setFeedType('mp3'); setQuery(''); }}
+          >
+            <Disc size={14} />
+            Top MP3
+          </button>
+        </div>
+      )}
 
       {!artist && (
         <div className="toolbar" style={{ marginBottom: '1.5rem' }}>
@@ -512,7 +658,7 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
             <input
               type="search"
               className="input-field"
-              placeholder="Search songs, artists, albums…"
+              placeholder={feedType === 'yt' ? 'Search songs, artists, albums…' : `Search ${feedType === 'nyaa' ? 'anime/soundtracks' : 'torrent releases'}…`}
               value={query}
               onChange={(e) => runSearch(e.target.value)}
               autoFocus={Boolean(initialQuery)}
@@ -553,7 +699,107 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
         </div>
       )}
 
-      {artist ? (
+      {torrentError && !artist && feedType !== 'yt' && (
+        <div className="error-banner">
+          <AlertTriangle size={15} style={{ verticalAlign: '-2px', marginRight: '0.4rem' }} />
+          {torrentError}
+          <button type="button" className="btn btn-secondary btn-xs" style={{ marginLeft: '0.75rem' }} onClick={() => loadTorrents(feedType, true, query)}>
+            Retry
+          </button>
+        </div>
+      )}
+
+      {feedType !== 'yt' ? (
+        torrentLoading ? (
+          <div className="loading-state">
+            <div className="spinner" />
+            <p>Loading {feedType === 'nyaa' ? 'Anime & Soundtracks' : 'Lossless Torrents'}…</p>
+          </div>
+        ) : torrentReleases.length === 0 && !torrentError ? (
+          <div className="empty-state">
+            <Music4 size={40} style={{ color: 'var(--text-muted)', margin: '0 auto 1rem' }} />
+            <p>No releases found.</p>
+          </div>
+        ) : (
+          <>
+            <div className="section-head">
+              <span className="section-title">
+                {feedType === 'nyaa'
+                  ? 'Lossless Soundtracks & Anime Music'
+                  : feedType === 'mp3'
+                    ? 'Top MP3 Releases'
+                    : 'Lossless FLAC Releases'}
+              </span>
+              <span className="section-count">{torrentReleases.length}</span>
+            </div>
+            <div className="media-grid">
+              {torrentReleases.map((rel) => {
+                const inLib = isTorrentInLib(rel);
+                const downloading = isTorrentDownloading(rel);
+                return (
+                  <div key={rel.id} className="media-card" onClick={() => setTorrentDetail(rel)}>
+                    <div className="media-cover">
+                      {rel.coverUrl ? (
+                        <img src={rel.coverUrl} alt="" loading="lazy" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="row-thumb-placeholder" style={{ width: '100%', height: '100%' }}>
+                          <Music4 size={24} />
+                        </div>
+                      )}
+                      <div className="media-badges">
+                        <span className="badge badge-accent" style={{ fontWeight: 600 }}>{rel.format}</span>
+                        {inLib && (
+                          <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                            <Check size={10} /> In library
+                          </span>
+                        )}
+                      </div>
+                      <div className="media-play-overlay">
+                        <div className="media-play-button" onClick={(e) => {
+                          e.stopPropagation();
+                          if (!inLib && !downloading) startTorrentDownload(rel);
+                        }}>
+                          <Download size={19} />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="media-title">{rel.album || rel.title}</div>
+                    <div className="media-subtitle">
+                      {rel.artist}{rel.year ? ` • ${rel.year}` : ''}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.4rem', fontSize: '0.72rem' }}>
+                      <span className="tag-bitrate">{rel.size}</span>
+                      <span style={{ color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                        <Users size={11} style={{ color: '#3ddc97' }} />
+                        {rel.seeders}
+                      </span>
+                      <button
+                        type="button"
+                        className={`btn ${inLib ? 'btn-secondary' : 'btn-primary'} btn-xs`}
+                        style={{ padding: '2px 8px', fontSize: '0.72rem' }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!inLib && !downloading) startTorrentDownload(rel);
+                        }}
+                        disabled={downloading || inLib}
+                      >
+                        {downloading ? (
+                          <Loader2 size={11} className="spin" />
+                        ) : inLib ? (
+                          <Check size={11} />
+                        ) : (
+                          <Download size={11} />
+                        )}
+                        {downloading ? 'Queued' : inLib ? 'Saved' : 'Get'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )
+      ) : artist ? (
         <>
           <div className="section-head">
             <button
@@ -935,6 +1181,87 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
                       ? `Save album`
                       : `Save album`}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {torrentDetail && (
+        <div className="modal-backdrop" onClick={() => setTorrentDetail(null)}>
+          <div className="modal-container" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', minWidth: 0 }}>
+                {torrentDetail.coverUrl ? (
+                  <img
+                    src={torrentDetail.coverUrl}
+                    alt=""
+                    style={{ width: 52, height: 52, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }}
+                  />
+                ) : (
+                  <div className="row-thumb-placeholder" style={{ width: 52, height: 52, borderRadius: 6, flexShrink: 0 }}>
+                    <Music4 size={24} />
+                  </div>
+                )}
+                <div style={{ minWidth: 0 }}>
+                  <h2 style={{ margin: 0, fontSize: '1.1rem' }}>{torrentDetail.album || torrentDetail.title}</h2>
+                  <div className="media-subtitle" style={{ marginTop: '0.2rem' }}>
+                    {torrentDetail.artist}{torrentDetail.year ? ` • ${torrentDetail.year}` : ''}
+                  </div>
+                </div>
+              </div>
+              <button type="button" className="modal-close-btn" onClick={() => setTorrentDetail(null)} aria-label="Close">✕</button>
+            </div>
+
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <span className="badge badge-accent" style={{ fontWeight: 600 }}>{torrentDetail.format}</span>
+                <span className="tag-bitrate">{torrentDetail.size}</span>
+                <span className="badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  <Users size={12} style={{ color: '#3ddc97' }} /> {torrentDetail.seeders} seeds ({torrentDetail.leechers} leechers)
+                </span>
+                <span className="badge">{torrentDetail.source === 'nyaa' ? 'Nyaa RSS' : 'The Pirate Bay'}</span>
+              </div>
+
+              <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Release Title</div>
+                <div style={{ fontSize: '0.85rem', wordBreak: 'break-all' }}>{torrentDetail.title}</div>
+              </div>
+
+              {torrentDetail.infoHash && (
+                <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)' }}>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Torrent Info Hash</div>
+                  <code style={{ fontSize: '0.75rem', color: 'var(--accent-color)' }}>{torrentDetail.infoHash}</code>
+                </div>
+              )}
+
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                Files download directly to your Google Drive music library:
+                <div style={{ color: 'var(--text-primary)', fontWeight: 500, marginTop: '0.2rem' }}>
+                  Music / {torrentDetail.artist} / {torrentDetail.album || 'Singles'}
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button type="button" className="btn btn-secondary" onClick={() => setTorrentDetail(null)}>Close</button>
+              {isTorrentInLib(torrentDetail) ? (
+                <button type="button" className="btn btn-secondary" disabled>
+                  <Check size={14} /> In Library
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => {
+                    startTorrentDownload(torrentDetail);
+                    setTorrentDetail(null);
+                  }}
+                  disabled={isTorrentDownloading(torrentDetail)}
+                >
+                  <Download size={14} />
+                  {isTorrentDownloading(torrentDetail) ? 'Queued / Downloading' : 'Download to Drive'}
+                </button>
+              )}
             </div>
           </div>
         </div>
