@@ -27,6 +27,20 @@ export function isAndroidOfflineMode() {
   return typeof window !== 'undefined' && window.FREEPLAY_ANDROID_OFFLINE === true;
 }
 
+export function isAndroidApp() {
+  if (typeof window === 'undefined') return false;
+  if (Boolean(window.FreeplayAndroid)) return true;
+  if (window.FREEPLAY_ANDROID_OFFLINE === true) return true;
+  if (typeof navigator !== 'undefined' && /FREEPLAY-Android/i.test(navigator.userAgent || '')) return true;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('app') === 'android' || params.get('platform') === 'android' || params.has('android')) {
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
 export function saveOfflineLibrary(user, games, etag) {
   try {
     if (user) window.localStorage.setItem(USER_KEY, JSON.stringify(user));

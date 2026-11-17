@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Gamepad2, Compass, Download, Heart, Settings, ChevronDown, History, Layers } from 'lucide-react';
 import { formatConsoleName } from '../utils/consoles';
+import { isAndroidApp } from '../utils/offlineGames';
 
 export default function Sidebar({
   currentView,
@@ -15,6 +16,7 @@ export default function Sidebar({
   isMobileLandscape1080 = false
 }) {
   const [libraryOpen, setLibraryOpen] = useState(true);
+  const defaultHomeView = isAndroidApp() ? 'library' : 'discover';
 
   const navItems = [
     { id: 'discover', label: "What's New", icon: Compass },
@@ -41,7 +43,7 @@ export default function Sidebar({
     <>
       {/* Mobile Top App Bar (Hidden in 1080p mobile landscape) */}
       <header className="mobile-header">
-        <div className="mobile-title" onClick={() => setCurrentView('library')} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div className="mobile-title" onClick={() => setCurrentView(defaultHomeView)} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <div className="adobe-app-badge" style={{ width: 24, height: 24, borderRadius: 3 }}>
             <span className="adobe-app-badge-text" style={{ fontSize: 11 }}>Fp</span>
           </div>
@@ -69,7 +71,7 @@ export default function Sidebar({
         <div className="sidebar-header-row">
           <div
             className="sidebar-brand-wrapper"
-            onClick={() => setCurrentView('library')}
+            onClick={() => setCurrentView(defaultHomeView)}
             title="Freeplay Games Workstation"
           >
             <div className="adobe-app-badge">

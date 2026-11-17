@@ -15,6 +15,7 @@ import { isValidConsoleKey } from './utils/consoles';
 import {
   cacheGameForOffline,
   isAndroidOfflineMode,
+  isAndroidApp,
   loadOfflineLibrary,
   requestOfflineStorage,
   saveOfflineLibrary
@@ -50,11 +51,30 @@ function checkMobileLandscape1080() {
   return isDirect1080 || isScaled1080 || isInner1080;
 }
 
+function getInitialView() {
+  if (typeof window === 'undefined') return 'discover';
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const viewParam = urlParams.get('view');
+    if (viewParam && ['discover', 'library', 'recent', 'favorites', 'downloads', 'settings'].includes(viewParam)) {
+      return viewParam;
+    }
+  } catch (_) {}
+
+  // If launched from the Android app, default to the library page (like it is currently)
+  if (isAndroidApp() || isAndroidOfflineMode()) {
+    return 'library';
+  }
+
+  // Otherwise, default to "What's New" (discover)
+  return 'discover';
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [authChecking, setAuthChecking] = useState(true);
   const [authError, setAuthError] = useState(null);
-  const [currentView, setCurrentView] = useState('library');
+  const [currentView, setCurrentView] = useState(getInitialView);
   const [libraryConsole, setLibraryConsole] = useState('');
   const [games, setGames] = useState([]);
   const [loadingGames, setLoadingGames] = useState(false);
