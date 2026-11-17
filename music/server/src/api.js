@@ -162,6 +162,8 @@ export const api = {
     return get(`/api/music/whats-new/torrents?${params.toString()}`, { signal });
   },
   downloadMusicTorrent: (item) => post('/api/music/torrent/download', item),
+  musicTorrentSettings: () => get('/api/music/torrents/settings'),
+  saveMusicTorrentSettings: (data) => post('/api/music/torrents/settings', data),
   albumTracks: (playlistId) =>
     get(`/api/music/album/tracks?playlistId=${encodeURIComponent(playlistId)}`),
   downloadAlbum: (album) => post('/api/music/album/download', album),

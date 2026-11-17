@@ -54,7 +54,9 @@ export const DEFAULT_SETTINGS = {
   youtubeCookiesBrowser: '',
   autoStitchAudiobooks: false,
   autoStitchBitrate: '64k',
-  autoStitchDeleteSource: true
+  autoStitchDeleteSource: true,
+  musicTorrentsInterval: 30,
+  musicTorrentsRetentionMonths: 3
 };
 
 // In-memory cache: userId -> { audiobooks, music, user, dirty: { audiobooks, music, user }, mtime: { audiobooks, music, user } }

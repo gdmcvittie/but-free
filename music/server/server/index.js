@@ -531,20 +531,59 @@ app.get('/api/music/whats-new/torrents', async (req, res) => {
     const refresh = req.query.refresh === 'true';
     const q = req.query.q ? String(req.query.q).trim() : '';
 
+    const settings = req.user ? db.getSettings(req.user.id) : db._defaults;
+    const retentionMonths = Math.max(1, parseInt(req.query.retentionMonths || settings.musicTorrentsRetentionMonths, 10) || 3);
+
     let releases = [];
     if (q) {
       const cat = feed === 'mp3' ? 101 : 104;
       releases = await musicTorrents.searchTorrents(q, cat);
-    } else if (feed === 'mp3') {
-      releases = await musicTorrents.fetchApibayTop(101, refresh);
     } else {
-      // Default: 104 (FLAC Lossless)
-      releases = await musicTorrents.fetchApibayTop(104, refresh);
+      const cat = feed === 'mp3' ? 101 : 104;
+      releases = await musicTorrents.fetchAndAccumulate(cat, { retentionMonths, forceRefresh: refresh });
     }
-    return res.json({ releases, feed });
+    return res.json({ releases, feed, retentionMonths });
   } catch (err) {
     return res.status(502).json({ error: err.message });
   }
+});
+
+app.get('/api/music/torrents/settings', (req, res) => {
+  const settings = req.user ? db.getSettings(req.user.id) : db._defaults;
+  const retentionMonths = Math.max(1, parseInt(settings.musicTorrentsRetentionMonths, 10) || 3);
+  const intervalMinutes = Math.max(5, parseInt(settings.musicTorrentsInterval, 10) || 30);
+  const stats = musicTorrents.getStats(retentionMonths);
+  return res.json({
+    success: true,
+    intervalMinutes,
+    retentionMonths,
+    ...stats
+  });
+});
+
+app.post('/api/music/torrents/settings', async (req, res) => {
+  const { intervalMinutes, retentionMonths, refreshNow } = req.body || {};
+  const patch = {};
+  if (intervalMinutes !== undefined) {
+    patch.musicTorrentsInterval = Math.max(5, parseInt(intervalMinutes, 10) || 30);
+  }
+  if (retentionMonths !== undefined) {
+    patch.musicTorrentsRetentionMonths = Math.max(1, parseInt(retentionMonths, 10) || 3);
+  }
+  if (req.user?.id) {
+    db.saveSettings(req.user.id, patch);
+  }
+  if (refreshNow) {
+    await musicTorrents.triggerImmediateSweep({ retentionMonths: patch.musicTorrentsRetentionMonths });
+  }
+  const finalRetention = patch.musicTorrentsRetentionMonths || 3;
+  const stats = musicTorrents.getStats(finalRetention);
+  return res.json({
+    success: true,
+    intervalMinutes: patch.musicTorrentsInterval || 30,
+    retentionMonths: finalRetention,
+    ...stats
+  });
 });
 
 app.post('/api/music/torrent/download', async (req, res) => {
@@ -1810,6 +1849,19 @@ const server = app.listen(config.port, () => {
     youtubeMusic.resumePendingQueue();
   } catch (err) {
     console.warn('[Queue] Resume failed:', err.message);
+  }
+
+  // Initialize background sweeper for music torrent feeds (Apibay FLAC & MP3)
+  try {
+    musicTorrents.initBackgroundSweeper({
+      getSettings: () => {
+        const users = Object.values(db.raw().users);
+        const admin = users.find((u) => isAdminUser(u)) || users[0];
+        return admin ? db.getSettings(admin.id) : db._defaults;
+      }
+    });
+  } catch (err) {
+    console.warn('[MusicTorrents] Background sweeper init failed:', err.message);
   }
 
   // Re-attach Drive metadata for anyone who has folders configured, so state

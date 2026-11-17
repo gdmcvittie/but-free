@@ -1,16 +1,76 @@
 /**
  * Music Torrent Feeds & Search Provider
  *
- * Integrates high-quality music torrent top feeds:
+ * Integrates high-quality music torrent top feeds with persistent disk caching:
  * 1. Apibay Top 100 Category 104: Lossless FLAC releases
  * 2. Apibay Top 100 Category 101: Top MP3 releases
  * 3. Apibay Music Search: Search lossless or all music torrents
- * 4. Cover art resolution: iTunes Search API cache
+ * 4. Persistent local cache: stored in DATA_DIR/music_torrents_cache.json
+ * 5. Retention filter: retains releases for X months (default 3) across overnight sweeps
+ * 6. Background sweeper: sweeps Apibay on a configurable interval (default 30m)
+ * 7. Cover art resolution: iTunes Search API with persistent disk caching
  */
 
-const FEED_CACHE_MS = 15 * 60 * 1000; // 15 minutes cache
-const feedCache = new Map(); // key -> { time, data }
-const coverCache = new Map(); // "artist::album" or query -> url
+import fs from 'node:fs';
+import path from 'node:path';
+import { DATA_DIR } from './config.js';
+
+const CACHE_FILE = path.join(DATA_DIR, 'music_torrents_cache.json');
+
+let cacheLoaded = false;
+let cacheStore = {
+  lastSwept: 0,
+  lastFetched: { 104: 0, 101: 0 },
+  items: {
+    104: [],
+    101: []
+  }
+};
+
+const coverCache = new Map(); // "artist::album" -> url
+
+function loadCache() {
+  if (cacheLoaded) return cacheStore;
+  try {
+    if (fs.existsSync(CACHE_FILE)) {
+      const raw = fs.readFileSync(CACHE_FILE, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        cacheStore = {
+          lastSwept: parsed.lastSwept || 0,
+          lastFetched: parsed.lastFetched || { 104: 0, 101: 0 },
+          items: {
+            104: Array.isArray(parsed.items?.['104']) ? parsed.items['104'] : [],
+            101: Array.isArray(parsed.items?.['101']) ? parsed.items['101'] : []
+          }
+        };
+
+        // Prepopulate coverCache from disk items
+        for (const cat of ['104', '101']) {
+          for (const it of cacheStore.items[cat]) {
+            if (it?.coverUrl && it?.artist && it?.album) {
+              const k = `${it.artist}::${it.album}`.toLowerCase().trim();
+              coverCache.set(k, it.coverUrl);
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[MusicTorrents] Failed to read disk cache:', err.message);
+  }
+  cacheLoaded = true;
+  return cacheStore;
+}
+
+function saveCache() {
+  try {
+    fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
+    fs.writeFileSync(CACHE_FILE, JSON.stringify(cacheStore, null, 2), 'utf8');
+  } catch (err) {
+    console.warn('[MusicTorrents] Failed to write disk cache:', err.message);
+  }
+}
 
 function formatBytes(bytes) {
   const b = parseInt(bytes, 10);
@@ -98,63 +158,167 @@ async function resolveCoverArt(artist, album) {
   return null;
 }
 
-export async function fetchApibayTop(category = 104, refresh = false) {
-  const cacheKey = `apibay_${category}`;
-  const now = Date.now();
-  if (!refresh && feedCache.has(cacheKey)) {
-    const hit = feedCache.get(cacheKey);
-    if (now - hit.time < FEED_CACHE_MS) return hit.data;
+function mergeAndPruneItems(category, newlyFetched, retentionMonths = 3) {
+  const catKey = String(category);
+  const existing = cacheStore.items[catKey] || [];
+  const map = new Map();
+
+  // Load existing items into map
+  for (const item of existing) {
+    if (!item) continue;
+    const key = item.infoHash || item.id;
+    if (key) map.set(key, item);
   }
 
-  const url = `https://apibay.org/precompiled/data_top100_${category}.json`;
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (FraudioMusic/1.0)' },
-    signal: AbortSignal.timeout(10000)
+  // Merge newly fetched items
+  for (const item of newlyFetched) {
+    if (!item) continue;
+    const key = item.infoHash || item.id;
+    if (!key) continue;
+    const prev = map.get(key);
+    if (prev) {
+      map.set(key, {
+        ...prev,
+        ...item,
+        firstSeenAt: prev.firstSeenAt || Date.now(),
+        coverUrl: prev.coverUrl || item.coverUrl || null
+      });
+    } else {
+      map.set(key, {
+        ...item,
+        firstSeenAt: Date.now()
+      });
+    }
+  }
+
+  // Retention filter: prune items older than retentionMonths
+  const cutoffMs = Date.now() - (retentionMonths * 30 * 24 * 60 * 60 * 1000);
+  const merged = [];
+
+  for (const item of map.values()) {
+    let t = 0;
+    if (item.firstSeenAt) {
+      t = item.firstSeenAt;
+    } else if (item.added) {
+      t = item.added * 1000;
+    }
+    if (isNaN(t) || t <= 0) t = Date.now();
+    if (t >= cutoffMs) {
+      merged.push(item);
+    }
+  }
+
+  // Sort: newest firstSeenAt first, then by seeders
+  merged.sort((a, b) => {
+    const timeA = a.firstSeenAt || (a.added ? a.added * 1000 : 0);
+    const timeB = b.firstSeenAt || (b.added ? b.added * 1000 : 0);
+    if (timeB !== timeA) return timeB - timeA;
+    return (b.seeders || 0) - (a.seeders || 0);
   });
 
-  if (!res.ok) throw new Error(`Apibay returned HTTP ${res.status}`);
-  const list = await res.json();
-  if (!Array.isArray(list)) return [];
+  cacheStore.items[catKey] = merged;
+  saveCache();
+  return merged;
+}
 
-  const items = list
-    .filter((item) => item && item.id !== 0 && item.id !== '0' && item.name !== 'No results returned')
-    .map((item) => {
-      const parsed = parseMusicRelease(item.name);
-      const infoHash = String(item.info_hash || '').toLowerCase();
-      const magnet = `magnet:?xt=urn:btih:${infoHash}&dn=${encodeURIComponent(item.name)}`;
-      return {
-        id: `apibay_${item.id}`,
-        title: item.name,
-        artist: parsed.artist,
-        album: parsed.album,
-        year: parsed.year,
-        format: parsed.format,
-        size: formatBytes(item.size),
-        sizeBytes: parseInt(item.size, 10) || 0,
-        seeders: parseInt(item.seeders, 10) || 0,
-        leechers: parseInt(item.leechers, 10) || 0,
-        infoHash,
-        magnet,
-        coverUrl: null,
-        source: 'apibay',
-        category
-      };
-    });
-
-  // Batch-resolve cover art for first 25 items so the UI loads crisp covers fast
-  const topSlice = items.slice(0, 25);
+async function resolveMissingCovers(items) {
+  const missing = items.filter((i) => !i.coverUrl).slice(0, 30);
+  if (!missing.length) return;
+  let updated = false;
   await Promise.allSettled(
-    topSlice.map(async (item) => {
-      item.coverUrl = await resolveCoverArt(item.artist, item.album);
+    missing.map(async (item) => {
+      const cover = await resolveCoverArt(item.artist, item.album);
+      if (cover) {
+        item.coverUrl = cover;
+        updated = true;
+      }
     })
   );
+  if (updated) {
+    saveCache();
+  }
+}
 
-  feedCache.set(cacheKey, { time: now, data: items });
-  return items;
+export async function fetchAndAccumulate(category = 104, options = {}) {
+  loadCache();
+  const catKey = String(category);
+  const retentionMonths = Math.max(1, parseInt(options.retentionMonths, 10) || 3);
+  const forceRefresh = options.forceRefresh === true || options.force === true;
+  const now = Date.now();
+  const lastTime = cacheStore.lastFetched?.[catKey] || 0;
+
+  // If not forcing refresh and fetched recently (< 10 min), return pruned cached items
+  if (!forceRefresh && cacheStore.items[catKey]?.length > 0 && (now - lastTime < 10 * 60 * 1000)) {
+    const cutoffMs = now - (retentionMonths * 30 * 24 * 60 * 60 * 1000);
+    return (cacheStore.items[catKey] || []).filter((item) => {
+      const t = item.firstSeenAt || (item.added ? item.added * 1000 : now);
+      return t >= cutoffMs;
+    });
+  }
+
+  // Fetch remote items from Apibay
+  let newRawItems = [];
+  try {
+    const url = `https://apibay.org/precompiled/data_top100_${category}.json`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (FraudioMusic/1.0)' },
+      signal: AbortSignal.timeout(10000)
+    });
+
+    if (res.ok) {
+      const list = await res.json();
+      if (Array.isArray(list)) {
+        newRawItems = list
+          .filter((item) => item && item.id !== 0 && item.id !== '0' && item.name !== 'No results returned')
+          .map((item) => {
+            const parsed = parseMusicRelease(item.name);
+            const infoHash = String(item.info_hash || '').toLowerCase();
+            const magnet = `magnet:?xt=urn:btih:${infoHash}&dn=${encodeURIComponent(item.name)}`;
+            return {
+              id: `apibay_${item.id}`,
+              title: item.name,
+              artist: parsed.artist,
+              album: parsed.album,
+              year: parsed.year,
+              format: parsed.format,
+              size: formatBytes(item.size),
+              sizeBytes: parseInt(item.size, 10) || 0,
+              seeders: parseInt(item.seeders, 10) || 0,
+              leechers: parseInt(item.leechers, 10) || 0,
+              infoHash,
+              magnet,
+              added: item.added ? parseInt(item.added, 10) : 0,
+              coverUrl: null,
+              source: 'apibay',
+              category: parseInt(category, 10)
+            };
+          });
+      }
+    }
+  } catch (err) {
+    console.warn(`[MusicTorrents] Remote fetch failed for cat ${category}:`, err.message);
+  }
+
+  // If remote returned items, merge into persistent cache
+  if (newRawItems.length > 0) {
+    if (!cacheStore.lastFetched) cacheStore.lastFetched = {};
+    cacheStore.lastFetched[catKey] = now;
+    const merged = mergeAndPruneItems(category, newRawItems, retentionMonths);
+    resolveMissingCovers(merged).catch(() => {});
+    return merged;
+  }
+
+  // Fallback to cache if remote failed
+  const cutoffMs = now - (retentionMonths * 30 * 24 * 60 * 60 * 1000);
+  return (cacheStore.items[catKey] || []).filter((item) => {
+    const t = item.firstSeenAt || (item.added ? item.added * 1000 : now);
+    return t >= cutoffMs;
+  });
 }
 
 export async function searchTorrents(query, category = 104) {
   if (!query || typeof query !== 'string' || !query.trim()) return [];
+  loadCache();
 
   const url = `https://apibay.org/q.php?q=${encodeURIComponent(query.trim())}&cat=${category}`;
   const res = await fetch(url, {
@@ -166,11 +330,18 @@ export async function searchTorrents(query, category = 104) {
   const list = await res.json();
   if (!Array.isArray(list)) return [];
 
+  const catKey = String(category);
+  const cachedMap = new Map();
+  for (const item of (cacheStore.items[catKey] || [])) {
+    if (item.infoHash) cachedMap.set(item.infoHash.toLowerCase(), item);
+  }
+
   const items = list
     .filter((item) => item && item.id !== 0 && item.id !== '0' && item.name !== 'No results returned')
     .map((item) => {
       const parsed = parseMusicRelease(item.name);
       const infoHash = String(item.info_hash || '').toLowerCase();
+      const cached = cachedMap.get(infoHash);
       const magnet = `magnet:?xt=urn:btih:${infoHash}&dn=${encodeURIComponent(item.name)}`;
       return {
         id: `apibay_${item.id}`,
@@ -185,13 +356,13 @@ export async function searchTorrents(query, category = 104) {
         leechers: parseInt(item.leechers, 10) || 0,
         infoHash,
         magnet,
-        coverUrl: null,
+        coverUrl: cached?.coverUrl || null,
         source: 'apibay'
       };
     });
 
-  // Resolve cover art for top 10 search results
-  const topSlice = items.slice(0, 10);
+  // Resolve cover art for top 10 search results lacking a cover
+  const topSlice = items.filter((i) => !i.coverUrl).slice(0, 10);
   await Promise.allSettled(
     topSlice.map(async (item) => {
       item.coverUrl = await resolveCoverArt(item.artist, item.album);
@@ -201,9 +372,86 @@ export async function searchTorrents(query, category = 104) {
   return items;
 }
 
+// -------------------------------------------------------------
+// Background Sweeper
+// -------------------------------------------------------------
+let sweeperTimer = null;
+let lastSweepTime = 0;
+
+export function initBackgroundSweeper(options = {}) {
+  if (sweeperTimer) clearInterval(sweeperTimer);
+
+  loadCache();
+
+  const getSettings = options.getSettings || (() => ({}));
+
+  async function sweep() {
+    try {
+      const settings = getSettings() || {};
+      const intervalMinutes = Math.max(5, parseInt(settings.musicTorrentsInterval, 10) || 30);
+      const retentionMonths = Math.max(1, parseInt(settings.musicTorrentsRetentionMonths, 10) || 3);
+      const intervalMs = intervalMinutes * 60 * 1000;
+      const now = Date.now();
+
+      if (now - lastSweepTime >= intervalMs) {
+        lastSweepTime = now;
+        cacheStore.lastSwept = now;
+        console.log(`[MusicTorrents] Running background feed sweep (interval: ${intervalMinutes}m, retention: ${retentionMonths}mo)…`);
+
+        const flac = await fetchAndAccumulate(104, { retentionMonths, forceRefresh: true });
+        const mp3 = await fetchAndAccumulate(101, { retentionMonths, forceRefresh: true });
+
+        console.log(`[MusicTorrents] Background sweep complete: ${flac.length} FLAC, ${mp3.length} MP3 cached.`);
+      }
+    } catch (err) {
+      console.warn('[MusicTorrents] Background sweeper error:', err.message);
+    }
+  }
+
+  // Initial sweep shortly after startup (15s)
+  setTimeout(sweep, 15 * 1000);
+
+  // Periodic interval check (every 60s)
+  sweeperTimer = setInterval(sweep, 60 * 1000);
+}
+
+export function triggerImmediateSweep(options = {}) {
+  const retentionMonths = Math.max(1, parseInt(options.retentionMonths, 10) || 3);
+  return Promise.allSettled([
+    fetchAndAccumulate(104, { retentionMonths, forceRefresh: true }),
+    fetchAndAccumulate(101, { retentionMonths, forceRefresh: true })
+  ]).then(() => {
+    cacheStore.lastSwept = Date.now();
+    saveCache();
+  });
+}
+
+export function getStats(retentionMonths = 3) {
+  loadCache();
+  const cutoffMs = Date.now() - (retentionMonths * 30 * 24 * 60 * 60 * 1000);
+  const flac = (cacheStore.items['104'] || []).filter((i) => {
+    const t = i.firstSeenAt || (i.added ? i.added * 1000 : 0);
+    return t >= cutoffMs;
+  });
+  const mp3 = (cacheStore.items['101'] || []).filter((i) => {
+    const t = i.firstSeenAt || (i.added ? i.added * 1000 : 0);
+    return t >= cutoffMs;
+  });
+  return {
+    lastSwept: cacheStore.lastSwept || 0,
+    lastFetchedFlac: cacheStore.lastFetched?.['104'] || 0,
+    lastFetchedMp3: cacheStore.lastFetched?.['101'] || 0,
+    countFlac: flac.length,
+    countMp3: mp3.length
+  };
+}
+
 export default {
-  fetchApibayTop,
+  fetchAndAccumulate,
   searchTorrents,
+  initBackgroundSweeper,
+  triggerImmediateSweep,
+  getStats,
   resolveCoverArt,
   parseMusicRelease
 };

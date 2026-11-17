@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Music4, Download, FolderOpen, RefreshCw, Check, AlertTriangle, Search as SearchIcon, X, User, Heart, ListMusic, Loader2, Zap, Disc, Users } from 'lucide-react';
+import { Music4, Download, FolderOpen, RefreshCw, Check, AlertTriangle, Search as SearchIcon, X, User, Heart, ListMusic, Loader2, Zap, Disc, Users, Settings as SettingsIcon } from 'lucide-react';
 import { api, subscribeToEvents } from './api';
 import { useSwipeBack } from './swipeBack';
 import { formatDuration, formatLengthShort, isSameTrack, isSameAlbum, stripTrackNumber } from './format';
@@ -31,6 +31,17 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
   const [torrentRefreshing, setTorrentRefreshing] = useState(false);
   const [torrentError, setTorrentError] = useState(null);
   const [torrentDetail, setTorrentDetail] = useState(null);
+
+  // ---- torrent feed settings & retention -------------------------------
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [torrentSettings, setTorrentSettings] = useState({
+    intervalMinutes: 30,
+    retentionMonths: 3,
+    countFlac: 0,
+    countMp3: 0,
+    lastSwept: 0
+  });
+  const [savingTorrentSettings, setSavingTorrentSettings] = useState(false);
 
   // ---- search ---------------------------------------------------------
   const [query, setQuery] = useState(initialQuery);
@@ -128,6 +139,42 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
       setTorrentRefreshing(false);
     }
   }, [feedType]);
+
+  const loadTorrentSettings = useCallback(async () => {
+    try {
+      const res = await api.musicTorrentSettings();
+      if (res && res.success) {
+        setTorrentSettings((prev) => ({ ...prev, ...res }));
+      }
+    } catch { /* best effort */ }
+  }, []);
+
+  useEffect(() => {
+    loadTorrentSettings();
+  }, [loadTorrentSettings]);
+
+  const saveTorrentSettings = async (refreshNow = false) => {
+    setSavingTorrentSettings(true);
+    try {
+      const res = await api.saveMusicTorrentSettings({
+        intervalMinutes: torrentSettings.intervalMinutes,
+        retentionMonths: torrentSettings.retentionMonths,
+        refreshNow
+      });
+      if (res && res.success) {
+        setTorrentSettings((prev) => ({ ...prev, ...res }));
+      }
+      notify('Settings saved', 'Music torrent feed schedule and retention updated.');
+      if (refreshNow && feedType !== 'yt') {
+        loadTorrents(feedType, true, query);
+      }
+      setSettingsModalOpen(false);
+    } catch (err) {
+      notify('Failed to save settings', err.message, true);
+    } finally {
+      setSavingTorrentSettings(false);
+    }
+  };
 
   useEffect(() => {
     if (feedType !== 'yt') {
@@ -397,10 +444,11 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
     setDetailLoading(false);
   }, []);
 
-  // Album/torrent detail takeover view swipe back
-  useSwipeBack(Boolean(detail || torrentDetail), () => {
+  // Album/torrent/settings takeover view swipe back
+  useSwipeBack(Boolean(detail || torrentDetail || settingsModalOpen), () => {
     if (detail) closeDetail();
-    else setTorrentDetail(null);
+    else if (torrentDetail) setTorrentDetail(null);
+    else setSettingsModalOpen(false);
   });
 
   const startDownload = useCallback(async (album) => {
@@ -594,6 +642,17 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
               >
                 <ListMusic size={14} />
                 Playlist
+              </button>
+            )}
+            {feedType !== 'yt' && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setSettingsModalOpen(true)}
+                title="Configure feed check frequency and release retention"
+              >
+                <SettingsIcon size={14} />
+                Feed Settings
               </button>
             )}
             <button
@@ -1250,6 +1309,122 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
                   {isTorrentDownloading(torrentDetail) ? 'Queued / Downloading' : 'Download to Drive'}
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {settingsModalOpen && (
+        <div className="modal-backdrop" onClick={() => setSettingsModalOpen(false)}>
+          <div className="modal-container" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <SettingsIcon size={18} style={{ color: 'var(--accent-color)' }} />
+                <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Feed &amp; Retention Settings</h2>
+              </div>
+              <button type="button" className="modal-close-btn" onClick={() => setSettingsModalOpen(false)} aria-label="Close">✕</button>
+            </div>
+
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
+              <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                Configure background check frequency and release retention. Releases are accumulated across overnight background checks and stored locally in disk cache.
+              </div>
+
+              <div style={{ background: 'rgba(255,255,255,0.03)', padding: '0.8rem 1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                <div style={{ fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Cached Releases:</span>
+                  <strong style={{ color: 'var(--text-primary)' }}>
+                    {torrentSettings.countFlac || 0} FLAC &bull; {torrentSettings.countMp3 || 0} MP3
+                  </strong>
+                </div>
+                <div style={{ fontSize: '0.76rem', display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Last Background Sweep:</span>
+                  <span>{torrentSettings.lastSwept ? new Date(torrentSettings.lastSwept).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Pending'}</span>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.4rem' }}>
+                  Feed Check Frequency
+                </label>
+                <select
+                  value={torrentSettings.intervalMinutes || 30}
+                  onChange={(e) => setTorrentSettings((prev) => ({ ...prev, intervalMinutes: parseInt(e.target.value, 10) }))}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    fontSize: '0.85rem',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'rgba(0,0,0,0.4)',
+                    border: '1px solid var(--border-color)',
+                    color: 'var(--text-primary)'
+                  }}
+                >
+                  <option value="15">Every 15 minutes</option>
+                  <option value="30">Every 30 minutes (Default - Recommended)</option>
+                  <option value="60">Every 1 hour</option>
+                  <option value="120">Every 2 hours</option>
+                  <option value="360">Every 6 hours</option>
+                  <option value="720">Every 12 hours</option>
+                  <option value="1440">Every 24 hours</option>
+                </select>
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                  How often the background worker sweeps for new music releases.
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.4rem' }}>
+                  Release Retention Period
+                </label>
+                <select
+                  value={torrentSettings.retentionMonths || 3}
+                  onChange={(e) => setTorrentSettings((prev) => ({ ...prev, retentionMonths: parseInt(e.target.value, 10) }))}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    fontSize: '0.85rem',
+                    borderRadius: 'var(--radius-sm)',
+                    background: 'rgba(0,0,0,0.4)',
+                    border: '1px solid var(--border-color)',
+                    color: 'var(--text-primary)'
+                  }}
+                >
+                  <option value="1">1 Month</option>
+                  <option value="2">2 Months</option>
+                  <option value="3">3 Months (Default - Recommended)</option>
+                  <option value="6">6 Months</option>
+                  <option value="12">12 Months (1 Year)</option>
+                </select>
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                  Releases are accumulated across refreshes and retained up to this cutoff.
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-footer" style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setSettingsModalOpen(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => saveTorrentSettings(true)}
+                disabled={savingTorrentSettings}
+                title="Save settings and sweep feeds immediately"
+              >
+                {savingTorrentSettings ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />}
+                Save &amp; Sweep Now
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => saveTorrentSettings(false)}
+                disabled={savingTorrentSettings}
+              >
+                {savingTorrentSettings ? <Loader2 size={13} className="spin" /> : null}
+                Save Settings
+              </button>
             </div>
           </div>
         </div>
