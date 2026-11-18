@@ -75,6 +75,43 @@ local function tr(text)
 end
 
 -- ----------------------------------------------------------------------------
+-- Progress UI helpers (Plugin API 16)
+-- ----------------------------------------------------------------------------
+-- Modeless progress cards keep navigation and playback available while a
+-- download runs. Check the capabilities for older firmware and degrade to
+-- toasts when the card cannot be shown.
+local has_progress_ui = plugin.has_capability and plugin.has_capability("ui.progress") or false
+local has_download_progress = plugin.has_capability and plugin.has_capability("network.http.download_progress") or false
+
+local function format_bytes(n)
+    n = tonumber(n) or 0
+    if n >= 1024 * 1024 then
+        return string.format("%.1f MB", n / (1024 * 1024))
+    elseif n >= 1024 then
+        return string.format("%.0f KB", n / 1024)
+    end
+    return string.format("%d B", math.floor(n))
+end
+
+local function show_progress_card(title, message, fraction)
+    if not has_progress_ui then return nil end
+    local ok, handle = pcall(plugin.show_progress, title, message, fraction)
+    if ok and handle then return handle end
+    return nil
+end
+
+local function update_progress_card(handle, message, fraction)
+    if not handle or not has_progress_ui then return false end
+    local ok, visible = pcall(plugin.update_progress, handle, message, fraction)
+    return ok and visible == true
+end
+
+local function close_progress_card(handle)
+    if not handle or not has_progress_ui then return end
+    pcall(plugin.close_progress, handle)
+end
+
+-- ----------------------------------------------------------------------------
 -- Constants & State
 -- ----------------------------------------------------------------------------
 local DEFAULT_SERVER = "https://music.butfree.online"
@@ -614,8 +651,6 @@ local function cancel_pairing()
 end
 
 local function show_pairing_code_screen(code, pair_url)
-    active_pair_code = code
-
     local function poll_tick()
         if not active_pair_code then return end
         api_pair_poll_status(active_pair_code, function(status, token, email)
@@ -633,7 +668,11 @@ local function show_pairing_code_screen(code, pair_url)
         end)
     end
 
+    -- Cancel any previous pairing attempt first: cancel_pairing() clears
+    -- active_pair_code, so the code must be assigned afterwards. Otherwise
+    -- every poll_tick returns early and the screen waits forever.
     cancel_pairing()
+    active_pair_code = code
     pair_poll_timer = plugin.set_interval(2, poll_tick)
 
     local items = {
@@ -1332,16 +1371,147 @@ local function search_podcast_results(data)
     end)
 end
 
+-- Transfer the files of a finished server job to the SD card one at a time.
+-- Only four HTTP requests may be active at once on the player, so starting an
+-- entire album of downloads in parallel would fail; a queue also gives the
+-- progress card a meaningful byte count.
+local function transfer_job_files(job_id, title, target_folder, files, job_entry, progress)
+    local sd = plugin.sd_root()
+    if not sd then
+        close_progress_card(progress)
+        job_entry.status = "error"
+        plugin.show_toast(tr("No SD card found"))
+        return
+    end
+
+    local queue = {}
+    local total_bytes = 0
+    for _, f in ipairs(files or {}) do
+        local fn = sanitize_filename(f.filename or "track.mp3")
+        local dest = string.format("%s/%s/%s", sd, target_folder, fn)
+        ensure_parent_dirs(dest)
+        local size = tonumber(f.size) or 0
+        if size > 0 then total_bytes = total_bytes + size end
+        table.insert(queue, {
+            name = fn,
+            url = string.format("%s/api/device/jobs/%s/file/%d",
+                get_server_url(), url_encode(job_id), f.index or 0),
+            dest = dest,
+            size = size,
+            bytes = 0
+        })
+    end
+
+    if #queue == 0 then
+        close_progress_card(progress)
+        job_entry.status = "done"
+        plugin.show_toast(tr("No files to transfer"))
+        return
+    end
+
+    local done_count = 0
+    local failed_count = 0
+    local next_index = 1
+    local current = nil
+    local xfer_timer = nil
+
+    local function refresh_progress()
+        local downloaded = 0
+        for _, item in ipairs(queue) do
+            downloaded = downloaded + item.bytes
+        end
+
+        local message, fraction
+        if total_bytes > 0 then
+            fraction = math.max(0, math.min(1, downloaded / total_bytes))
+            message = string.format(tr("Saving %s · %s / %s"), title,
+                format_bytes(downloaded), format_bytes(total_bytes))
+        else
+            fraction = done_count / #queue
+            message = string.format(tr("Saving %s · %d / %d files"), title, done_count, #queue)
+        end
+
+        if not update_progress_card(progress, message, fraction) then
+            -- The user dismissed the card or another job replaced it; keep
+            -- downloading, but stop trying to update a stale handle.
+            progress = nil
+        end
+    end
+
+    local function start_next()
+        if next_index > #queue then
+            if xfer_timer then plugin.clear_interval(xfer_timer) end
+            close_progress_card(progress)
+            progress = nil
+            job_entry.status = (failed_count > 0) and "partial" or "done"
+            job_entry.percent = 100
+            if failed_count > 0 then
+                plugin.show_toast(string.format(tr("Saved %d/%d files, %d failed: %s"),
+                    done_count, #queue, failed_count, title))
+            else
+                plugin.show_toast(string.format(tr("Saved %d files to SD: %s"), done_count, title))
+            end
+            return
+        end
+
+        local item = queue[next_index]
+        next_index = next_index + 1
+
+        local handle = nil
+        handle = plugin.download_file_async(item.url, item.dest, true, function(saved, _err)
+            if current == handle then current = nil end
+            if saved then
+                item.bytes = (item.size > 0) and item.size or item.bytes
+                done_count = done_count + 1
+            else
+                failed_count = failed_count + 1
+                plugin.show_toast(string.format(tr("Failed to save: %s"), item.name))
+            end
+            refresh_progress()
+            start_next()
+        end)
+
+        if not handle then
+            failed_count = failed_count + 1
+            plugin.show_toast(string.format(tr("Could not start download: %s"), item.name))
+            refresh_progress()
+            start_next()
+            return
+        end
+        current = handle
+    end
+
+    if has_download_progress then
+        xfer_timer = plugin.set_interval(1, function()
+            if not current or not progress then return end
+            local ok, snapshot = pcall(plugin.get_download_progress, current)
+            if ok and snapshot and snapshot.downloaded then
+                local item = queue[next_index - 1]
+                if item then
+                    item.bytes = math.max(item.bytes, tonumber(snapshot.downloaded) or 0)
+                end
+                refresh_progress()
+            end
+        end)
+    end
+
+    refresh_progress()
+    start_next()
+end
+
 function track_server_job(job_id, title, target_folder)
     local job_entry = {
         jobId = job_id,
         title = title,
         status = "queued",
         percent = 0,
-        phase = "Queued",
+        phase = tr("Queued"),
         folder = target_folder
     }
     table.insert(active_jobs, job_entry)
+
+    local progress = show_progress_card(tr("Fraudio Download"),
+        string.format(tr("Queued: %s"), title), 0)
     plugin.show_toast(string.format(tr("Job queued: %s"), title))
 
     local timer = nil
@@ -1349,35 +1519,31 @@ function track_server_job(job_id, title, target_folder)
         api_poll_job(job_id, function(ok, data)
             if not ok or not data then return end
             job_entry.status = data.status
-            job_entry.percent = data.percent or 0
+            job_entry.percent = tonumber(data.percent) or 0
             job_entry.phase = data.phase or data.status
 
+            if data.status == "error" then
+                plugin.clear_interval(timer)
+                timer = nil
+                close_progress_card(progress)
+                job_entry.status = "error"
+                plugin.show_toast(string.format(tr("Download failed: %s"),
+                    tostring(data.error or tr("Error"))))
+                return
+            end
+
             if data.status == "ready" then
-                if timer then plugin.clear_interval(timer) end
-                plugin.show_toast(string.format(tr("Files ready! Transferring %s..."), title))
+                plugin.clear_interval(timer)
+                timer = nil
+                transfer_job_files(job_id, title, target_folder, data.files, job_entry, progress)
+                return
+            end
 
-                local sd = plugin.sd_root()
-                if not sd then return end
-
-                local files = data.files or {}
-                for _, f in ipairs(files) do
-                    local f_idx = f.index or 0
-                    local fn = sanitize_filename(f.filename or "track.mp3")
-                    local dest_path = string.format("%s/%s/%s", sd, target_folder, fn)
-                    ensure_parent_dirs(dest_path)
-
-                    local f_url = string.format("%s/api/device/jobs/%s/file/%d",
-                        get_server_url(), url_encode(job_id), f_idx)
-
-                    plugin.download_file_async(f_url, dest_path, true, function(saved, err)
-                        if saved then
-                            plugin.show_toast(string.format(tr("Saved to SD: %s"), fn))
-                        end
-                    end)
-                end
-            elseif data.status == "error" then
-                if timer then plugin.clear_interval(timer) end
-                plugin.show_toast(string.format(tr("Job failed: %s"), tostring(data.error or "Error")))
+            -- Server-side phase: percent is the real overall job progress.
+            local pct = math.max(0, math.min(1, job_entry.percent / 100))
+            local message = string.format("%s · %d%%", job_entry.phase, job_entry.percent)
+            if not update_progress_card(progress, message, pct) then
+                progress = nil
             end
         end)
     end)

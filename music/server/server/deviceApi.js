@@ -193,6 +193,44 @@ async function downloadYoutubeToDir(videoId, targetDir, { title, artist, album }
   return path.join(targetDir, audioFile);
 }
 
+/**
+ * cPanel/shared hosts cannot execute a downloaded yt-dlp binary. The web app
+ * already handles that by downloading through the VPS node into Google Drive,
+ * so device jobs reuse those saved library items as their deliverable files
+ * (served from Drive by the job file endpoint).
+ */
+function jobFilesFromItems(job, user, itemIds) {
+  const files = [];
+  (itemIds || []).forEach((id) => {
+    const item = db.getItem(user.id, id);
+    if (!item?.googleFileId) return;
+    const ext = String(item.format || 'mp3').toLowerCase();
+    const filename = `${String(files.length + 1).padStart(2, '0')} ${safePart(item.title || 'track')}.${ext}`;
+    const artist = safePart(item.artist || item.author || 'Unknown Artist');
+    const album = safePart(item.album || 'Album');
+    files.push({
+      index: files.length,
+      path: `Music/${artist}/${album}/${filename}`,
+      filename,
+      size: Number(item.sizeBytes) || 0,
+      itemId: id
+    });
+  });
+  if (!files.length) throw new Error('Download finished but no playable files were saved.');
+  job.files = files;
+}
+
+/** Relay the web download pipeline's progress onto a device job. */
+function driveProgress(job) {
+  return (p = {}) => {
+    if (p.phase) job.phase = p.phase;
+    if (Number.isFinite(p.percent)) {
+      // Keep the final slice for the player's own transfer of the files.
+      job.percent = Math.max(job.percent, Math.min(90, Math.round(p.percent * 0.9)));
+    }
+  };
+}
+
 /** Background processor for single song download */
 async function processSongJob(job) {
   try {
@@ -200,7 +238,24 @@ async function processSongJob(job) {
     job.phase = 'Downloading audio';
     job.percent = 20;
 
-    const { videoId, title, artist, album } = job.meta;
+    const { videoId, title, artist, album, userId } = job.meta;
+
+    if (!binManager.isYtDlpAvailable()) {
+      const user = userId ? db.getUser(userId) : null;
+      if (!user) throw new Error('Pair the player with Google Drive before downloading.');
+      job.phase = 'Downloading on VPS';
+      const result = await youtubeMusic.downloadSongs(
+        user,
+        [{ videoId, title, artist, album }],
+        driveProgress(job)
+      );
+      jobFilesFromItems(job, user, result?.itemIds);
+      job.status = 'ready';
+      job.phase = 'Ready';
+      job.percent = 100;
+      return;
+    }
+
     const downloadedPath = await downloadYoutubeToDir(videoId, job.stagingDir, { title, artist, album });
 
     job.percent = 80;
@@ -248,8 +303,25 @@ async function processAlbumJob(job) {
     job.phase = 'Fetching tracklist';
     job.percent = 5;
 
-    const { playlistId, browseId, title: albumTitle, artist: albumArtist } = job.meta;
+    const { playlistId, browseId, title: albumTitle, artist: albumArtist, userId } = job.meta;
     const albumRef = playlistId || browseId;
+
+    if (!binManager.isYtDlpAvailable()) {
+      const user = userId ? db.getUser(userId) : null;
+      if (!user) throw new Error('Pair the player with Google Drive before downloading.');
+      job.phase = 'Downloading on VPS';
+      const result = await youtubeMusic.downloadAlbum(
+        user,
+        { playlistId: albumRef, title: albumTitle, artist: albumArtist },
+        driveProgress(job)
+      );
+      jobFilesFromItems(job, user, result?.itemIds);
+      job.status = 'ready';
+      job.phase = 'Ready';
+      job.percent = 100;
+      return;
+    }
+
     let tracks = await youtubeMusic.albumTracks(albumRef);
     if (!tracks || !tracks.length) {
       throw new Error('No tracks found for this album.');
@@ -1342,16 +1414,22 @@ export function registerDeviceRoutes(app) {
         return res.status(400).json({ ok: false, error: 'Missing download type (song, album, audiobook, or podcast)' });
       }
 
+      // A paired device carries its token on every request. On hosts where the
+      // local yt-dlp cannot run, the download goes through Drive, so the job
+      // needs to know which account's Drive to use.
+      const user = authenticateDevice(req);
+      const account = user ? { userId: user.id } : {};
+
       let job;
       if (type === 'song') {
         const videoId = id || req.body.videoId;
         if (!videoId) return res.status(400).json({ ok: false, error: 'Missing videoId for song download' });
-        job = createJob('song', { videoId, title, artist, album });
+        job = createJob('song', { videoId, title, artist, album, ...account });
         processSongJob(job);
       } else if (type === 'album') {
         const pId = playlistId || browseId || id;
         if (!pId) return res.status(400).json({ ok: false, error: 'Missing playlistId for album download' });
-        job = createJob('album', { playlistId: pId, browseId, title, artist });
+        job = createJob('album', { playlistId: pId, browseId, title, artist, ...account });
         processAlbumJob(job);
       } else if (type === 'audiobook') {
         if (!postUrl && !infoHash) {
@@ -1407,7 +1485,7 @@ export function registerDeviceRoutes(app) {
   });
 
   // 7. Download file from completed job
-  app.get('/api/device/jobs/:jobId/file/:fileIndex', (req, res) => {
+  app.get('/api/device/jobs/:jobId/file/:fileIndex', async (req, res) => {
     const job = jobs.get(req.params.jobId);
     if (!job) {
       return res.status(404).send('Job not found');
@@ -1415,7 +1493,29 @@ export function registerDeviceRoutes(app) {
 
     const fileIndex = parseInt(req.params.fileIndex, 10);
     const file = job.files.find((f) => f.index === fileIndex);
-    if (!file || !file.localPath || !fs.existsSync(file.localPath)) {
+    if (!file) {
+      return res.status(404).send('File not found');
+    }
+
+    // Downloaded through the VPS node into Drive (no local yt-dlp on this host).
+    if (file.itemId) {
+      const user = job.meta?.userId ? db.getUser(job.meta.userId) : null;
+      const item = user ? db.getItem(user.id, file.itemId) : null;
+      if (!user || !item?.googleFileId) {
+        return res.status(404).send('File not found');
+      }
+      try {
+        res.setHeader('Content-Disposition',
+          `attachment; filename="${encodeURIComponent(file.filename || item.title || 'track.mp3')}"`);
+        return await googleDrive.streamFile(user, item.googleFileId, req, res);
+      } catch (err) {
+        console.error('[DeviceApi] Job Drive file stream error:', err.message);
+        if (!res.headersSent) res.status(500).send(err.message || 'Drive stream error');
+        return;
+      }
+    }
+
+    if (!file.localPath || !fs.existsSync(file.localPath)) {
       return res.status(404).send('File not found');
     }
 

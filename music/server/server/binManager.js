@@ -358,4 +358,4 @@ export async function toolStatus() {
   };
 }
 
-export default { resolveFfmpeg, resolveFfmpegDir, ensureYtDlp, runProcess, toolStatus, ffmpegVersion, ytDlpVersion };
+export default { resolveFfmpeg, resolveFfmpegDir, isYtDlpAvailable, ensureYtDlp, runProcess, toolStatus, ffmpegVersion, ytDlpVersion };
