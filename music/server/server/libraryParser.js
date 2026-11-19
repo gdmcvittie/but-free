@@ -73,6 +73,68 @@ export function sanitizeTitle(name) {
   return sanitizeSegment(name, 'Untitled');
 }
 
+// Credits separator: comma/semicolon lists, "feat./ft./featuring/with", "&" and " x ".
+export const FEATURED_ARTIST_RE = /(?:\s*[,;]\s*|\s+(?:feat\.?|ft\.?|featuring|with)\s+|\s*&\s*|\s+x\s+).*$/i;
+
+/**
+ * YouTube Music packs every credited artist into one `artist` string, e.g.
+ *   "Cal Scruby, Artist 2"   or   "Cal Scruby feat. Artist 2 & Artist 3"
+ * A tidy library keys its Artist/Album/Song tree on the primary artist only, so
+ * this keeps the first name and drops the featuring/collaboration tail. The same
+ * rule is applied to the embedded ID3 artist/album-artist tags (see below).
+ *
+ * The companion regex below is written for Python's `re` (used by yt-dlp's
+ * `--replace-in-metadata`), so the two patterns must stay in sync.
+ */
+export function primaryArtist(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return text.replace(FEATURED_ARTIST_RE, '').trim();
+}
+
+// yt-dlp metadata modifiers that force TPE1/TPE2 to the primary artist *before*
+// the file is written. `--replace-in-metadata` strips the tail from `artist`;
+// the following `--parse-metadata` then copies that clean value into
+// `album_artist` (covering files where YouTube omitted an album artist).
+// NOTE: yt-dlp applies these in command-line order, so keep them in this order.
+export const YTDLP_PRIMARY_ARTIST_ARGS = [
+  '--replace-in-metadata', 'artist', '(?i)(?:\\s*[,;]\\s*|\\s+(?:feat\\.?|ft\\.?|featuring|with)\\s+|\\s*&\\s*|\\s+x\\s+).*$', '',
+  '--parse-metadata', 'artist:(?P<album_artist>(?!NA$).+)'
+];
+
+/**
+ * "Presenting Mac Miller" is a curated playlist for one artist, so the whole
+ * playlist should be tagged/foldered under that artist rather than each track's
+ * own performer. Returns '' for titles that are not "Presenting <name>".
+ */
+export function presentingArtistFromTitle(title) {
+  const match = /^presenting[\s:.…,–—-]*(.+)$/i.exec(String(title || '').trim());
+  return match ? match[1].trim() : '';
+}
+
+/**
+ * Forces literal ID3 values for a curated download (e.g. a "Presenting X"
+ * playlist: artist = X, album = the playlist title) instead of the per-track
+ * values YouTube supplies. The `parse-metadata` steps guarantee the fields
+ * exist, then `replace-in-metadata` overwrites the whole value. Use `.+`
+ * (not `.*`) so the regex cannot also match an empty string at the end and
+ * append the literal twice. Pass these AFTER YTDLP_PRIMARY_ARTIST_ARGS so the
+ * forced values win. yt-dlp applies metadata actions in command-line order.
+ */
+export function ytdlpTagOverrideArgs({ artist, album } = {}) {
+  const args = [];
+  const override = (field, value) => {
+    args.push('--parse-metadata', `title:(?P<${field}>.+)`);
+    args.push('--replace-in-metadata', field, '(?s).+', value);
+  };
+  if (artist) {
+    override('artist', artist);
+    override('album_artist', artist);
+  }
+  if (album) override('album', album);
+  return args;
+}
+
 /** Drops a trailing "[ABC123]" ASIN / "[ID]" marker and other release-group noise. */
 function stripReleaseNoise(value) {
   return String(value || '')
@@ -479,10 +541,31 @@ export function formatBytes(bytes) {
 }
 
 /**
+ * Playlist files are expected in <root>/Playlists while the audio library lives
+ * in <root>/Music/<Artist>/<Album>/<file>, so each entry is written relative to
+ * the playlist's own folder: ../Music/<Artist>/<Album>/<file>.
+ *
+ * Stored drivePath values vary by source (plain library paths, root-relative
+ * paths that already include a Music folder, Windows separators, old `../`
+ * prefixes). Normalise them first so we never emit `../Music/Music/...`.
+ */
+export function m3uTrackPath(drivePath = '') {
+  let rel = String(drivePath || '').trim().replace(/\\/g, '/');
+
+  // A path that already carries a Music folder: keep only what follows it.
+  const marker = /(?:^|\/)Music\//i.exec(rel);
+  if (marker) {
+    rel = rel.slice(marker.index + marker[0].length);
+  } else {
+    rel = rel.replace(/^(?:(?:\.\.\/)+|\.\/|\/)+/, '');
+  }
+  return `../Music/${rel.replace(/^\/+/, '')}`;
+}
+
+/**
  * Formats a playlist and its track items into an Extended M3U8 string.
- * Uses UTF-8 encoding with forward-slash relative file paths matching the
- * directory structure inside the Google Drive music root and the SD card
- * directory (/Music/FRAUDIO/<Artist>/<Album>/<file>) on Compas Player / HiBy R1.
+ * Uses UTF-8 encoding with forward-slash paths relative to the Playlists folder
+ * (see m3uTrackPath), for Compas Player / HiBy R1 and other M3U8 readers.
  */
 export function formatPlaylistM3u8(playlist, items = []) {
   const name = playlist?.name || 'Playlist';
@@ -501,7 +584,7 @@ export function formatPlaylistM3u8(playlist, items = []) {
       const fName = item.fileName || `${sanitizeSegment(title, 'Track')}.mp3`;
       relPath = `${artSeg}/${albSeg}/${fName}`;
     }
-    lines.push(relPath.replace(/\\/g, '/'));
+    lines.push(m3uTrackPath(relPath));
   }
   return lines.join('\n') + '\n';
 }

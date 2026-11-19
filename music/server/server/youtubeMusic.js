@@ -6,7 +6,7 @@ import googleDrive from './googleDrive.js';
 import { ensureYtDlp, isYtDlpAvailable, resolveFfmpegDir, runProcess } from './binManager.js';
 import youtubeApi from './youtubeApi.js';
 import { parseBuffer } from 'music-metadata';
-import { sanitizeSegment, sanitizeTitle, isImageFile, extensionOf, stripTrackNumberPrefix, inferGenreFromText } from './libraryParser.js';
+import { sanitizeSegment, sanitizeTitle, isImageFile, extensionOf, stripTrackNumberPrefix, inferGenreFromText, primaryArtist, YTDLP_PRIMARY_ARTIST_ARGS, ytdlpTagOverrideArgs, presentingArtistFromTitle } from './libraryParser.js';
 import { broadcast } from './events.js';
 import torrentNode from './torrentNode.js';
 
@@ -572,6 +572,163 @@ export async function newReleases({ force = false } = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// "Presenting" featured playlists (YouTube Music search)
+// ---------------------------------------------------------------------------
+
+const PRESENTING_URL = process.env.YTM_PRESENTING_URL
+  || 'https://music.youtube.com/search?q=presenting';
+const PRESENTING_TTL_MS = 30 * 60 * 1000;
+// The search API returns 20 playlists per page with a continuation token; walk
+// several pages so the section shows the whole Featured set, not just page one.
+const PRESENTING_MAX_PAGES = Math.max(1, parseInt(process.env.YTM_PRESENTING_PAGES || '12', 10) || 12);
+let presentingCache = { at: 0, playlists: null };
+let presentingInFlight = null;
+
+function toPresentingPlaylist(renderer, { requirePlaylistLabel = false } = {}) {
+  const columns = (renderer?.flexColumns || [])
+    .map((c) => c.musicResponsiveListItemFlexColumnRenderer?.text)
+    .filter(Boolean);
+  const title = textOf(columns[0]);
+  const subtitle = textOf(columns[1]);
+  if (!title) return null;
+  // The static search page labels rows "Playlist •"; the filtered API rows do
+  // not, but both credit YouTube Music as the owner.
+  if (requirePlaylistLabel && !/^playlist\b/i.test(subtitle)) return null;
+  if (!/\byoutube music\b/i.test(subtitle)) return null;
+
+  const playlistId = rowPlaylistId(renderer);
+  if (!playlistId) return null;
+
+  const songMatch = /(\d+)\s+songs?/i.exec(subtitle);
+  return {
+    id: playlistId,
+    playlistId,
+    title,
+    artist: presentingArtistFromTitle(title) || 'YouTube Music',
+    album: title,
+    owner: 'YouTube Music',
+    songCount: songMatch ? Number(songMatch[1]) : null,
+    thumbnail: bestThumb(renderer),
+    url: `https://music.youtube.com/playlist?list=${encodeURIComponent(playlistId)}`
+  };
+}
+
+/** Pulls the ytcfg values and the Featured-filter token out of the search page. */
+function presentingSearchConfig(html, roots) {
+  const key = /"INNERTUBE_API_KEY":"([^"]+)"/.exec(html)?.[1];
+  const clientVersion = /"INNERTUBE_CLIENT_VERSION":"([^"]+)"/.exec(html)?.[1];
+  const hl = /"HL":"([^"]+)"/.exec(html)?.[1] || 'en';
+  const gl = /"GL":"([^"]+)"/.exec(html)?.[1] || 'US';
+  let params = null;
+  for (const wrapper of collectAll(roots, (n) => Boolean(n?.chipCloudChipRenderer))) {
+    const chip = wrapper.chipCloudChipRenderer;
+    const label = String(chip?.uniqueId || textOf(chip?.text) || '').toLowerCase();
+    if (label.includes('featured')) {
+      params = chip?.navigationEndpoint?.searchEndpoint?.params || null;
+      break;
+    }
+  }
+  return { key, clientVersion, hl, gl, params };
+}
+
+/** Calls the same internal endpoint the YouTube Music UI uses for search. */
+async function youtubeiSearch({ key, clientVersion, hl, gl, payload }) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(`https://music.youtube.com/youtubei/v1/search?key=${encodeURIComponent(key)}&prettyPrint=false`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': UA,
+        'X-Youtube-Client-Name': '67',
+        'X-Youtube-Client-Version': clientVersion,
+        'Origin': 'https://music.youtube.com',
+        'Referer': 'https://music.youtube.com/'
+      },
+      body: JSON.stringify({
+        context: { client: { clientName: 'WEB_REMIX', clientVersion, hl, gl } },
+        ...payload
+      }),
+      signal: controller.signal
+    });
+    if (!res.ok) throw new Error(`YouTube Music search API returned HTTP ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error('YouTube Music search API did not respond in time.');
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function continuationTokenOf(data) {
+  const hits = collectAll(data, (n) => Boolean(n?.nextContinuationData?.continuation)
+    || (typeof n?.continuation === 'string' && n.continuation));
+  for (const hit of hits) {
+    const token = hit?.nextContinuationData?.continuation
+      || (typeof hit?.continuation === 'string' ? hit.continuation : null);
+    if (token) return token;
+  }
+  return null;
+}
+
+/**
+ * Featured "Presenting" playlists. The server-rendered search HTML holds only
+ * ~29 unfiltered rows, so we read its ytcfg/Featured-filter token and use the
+ * internal search API (with continuations) to get the full, filtered list.
+ */
+export async function presentingPlaylists({ force = false } = {}) {
+  if (!force && presentingCache.playlists && Date.now() - presentingCache.at < PRESENTING_TTL_MS) {
+    return presentingCache.playlists;
+  }
+  if (presentingInFlight) return presentingInFlight;
+
+  presentingInFlight = (async () => {
+    const html = await fetchHtml(PRESENTING_URL);
+    const roots = extractEmbeddedJson(html);
+    const config = presentingSearchConfig(html, roots);
+    const playlists = [];
+    const seen = new Set();
+    const add = (found) => {
+      for (const playlist of found) {
+        if (!playlist || seen.has(playlist.id)) continue;
+        seen.add(playlist.id);
+        playlists.push(playlist);
+      }
+    };
+
+    if (config.key && config.clientVersion) {
+      let payload = {
+        query: 'presenting',
+        ...(config.params ? { params: config.params } : {})
+      };
+      for (let page = 0; page < PRESENTING_MAX_PAGES; page += 1) {
+        const data = await youtubeiSearch({ ...config, payload });
+        add(collectAll(data, (n) => Boolean(n?.musicResponsiveListItemRenderer))
+          .map((wrapper) => toPresentingPlaylist(wrapper.musicResponsiveListItemRenderer)));
+        const token = continuationTokenOf(data);
+        if (!token) break;
+        payload = { continuation: token };
+      }
+    }
+
+    // Static-page fallback (usually just the first few official playlists).
+    if (!playlists.length) {
+      add(collectAll(roots, (n) => Boolean(n?.musicResponsiveListItemRenderer))
+        .map((wrapper) => toPresentingPlaylist(wrapper.musicResponsiveListItemRenderer, { requirePlaylistLabel: true })));
+    }
+    if (!playlists.length) {
+      throw new Error('No featured "Presenting" playlists found on YouTube Music. The page layout may have changed.');
+    }
+    presentingCache = { at: Date.now(), playlists };
+    return playlists;
+  })().finally(() => { presentingInFlight = null; });
+
+  return presentingInFlight;
+}
+
+// ---------------------------------------------------------------------------
 // Track listing + download (yt-dlp)
 // ---------------------------------------------------------------------------
 
@@ -1059,8 +1216,8 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function downloadTracksRemote(user, entries, meta = {}, onProgress = () => {}) {
   const folderId = user?.musicFolderId;
-  const albumDir = safeName(meta.album || 'Singles', 'Album');
-  const artistDir = safeName(meta.artist || 'Unknown Artist', 'Unknown Artist');
+  const albumDir = safeName(meta.tagAlbum || meta.album || 'Singles', 'Album');
+  const artistDir = safeName(primaryArtist(meta.tagArtist || meta.artist) || 'Unknown Artist', 'Unknown Artist');
 
   // Check for tracks already in library
   const libraryTracks = db.getUserItems(user.id, 'track');
@@ -1132,8 +1289,13 @@ async function downloadTracksRemote(user, entries, meta = {}, onProgress = () =>
     id: remoteJobId,
     userId: user.id,
     title: meta.album || meta.artist || needed[0]?.title || 'Music',
-    artist: meta.artist || needed[0]?.artist || 'Unknown Artist',
-    album: meta.album || 'Singles',
+    // The node keys Artist/Album folders from this value, so send the primary
+    // artist only - no "feat." lists leaking into the folder tree.
+    artist: primaryArtist(meta.tagArtist || meta.artist || needed[0]?.artist) || 'Unknown Artist',
+    album: meta.tagAlbum || meta.album || 'Singles',
+    // Curated playlists force these literal ID3 values on the download node.
+    tagArtist: primaryArtist(meta.tagArtist) || null,
+    tagAlbum: meta.tagAlbum || null,
     coverUrl: meta.coverUrl || needed[0]?.thumbnail || null,
     format: (settings.musicAudioFormat || 'mp3').toLowerCase(),
     quality: settings.musicAudioBitrate || '320',
@@ -1194,16 +1356,18 @@ async function downloadTracksRemote(user, entries, meta = {}, onProgress = () =>
       const itemIds = [];
 
       for (const track of results) {
+        const trackArtist = primaryArtist(meta.tagArtist || track.artist || meta.artist) || 'Unknown Artist';
+        const trackAlbum = meta.tagAlbum || track.album || meta.album || 'Singles';
         const saved = db.upsertItem(user.id, {
           kind: 'track',
           googleFileId: track.driveFileId,
           driveFolderId: track.driveFolderId,
           title: stripTrackNumberPrefix(track.title),
-          author: track.artist || meta.artist || 'Unknown Artist',
-          artist: track.artist || meta.artist || 'Unknown Artist',
-          album: track.album || meta.album || 'Singles',
+          author: trackArtist,
+          artist: trackArtist,
+          album: trackAlbum,
           genre: track.genre || meta.genre || inferGenreFromText([meta.album, track.album, track.artist, meta.artist, track.title].filter(Boolean).join(' ')) || '',
-          albumArtist: track.artist || meta.artist || 'Unknown Artist',
+          albumArtist: trackArtist,
           trackNumber: track.trackNumber,
           durationSec: track.durationSec,
           format: track.format || 'MP3',
@@ -1220,8 +1384,8 @@ async function downloadTracksRemote(user, entries, meta = {}, onProgress = () =>
       const existingIds = entries.filter((e) => existingMap.has(e.videoId || e.title)).map((e) => existingMap.get(e.videoId || e.title)?.id).filter(Boolean);
 
       return {
-        artist: meta.artist || 'Unknown Artist',
-        album: meta.album || 'Singles',
+        artist: primaryArtist(meta.tagArtist || meta.artist) || 'Unknown Artist',
+        album: meta.tagAlbum || meta.album || 'Singles',
         uploaded: results.length,
         skipped: existingMap.size,
         itemIds: [...itemIds, ...existingIds],
@@ -1286,8 +1450,15 @@ export async function downloadTracks(user, entries, meta = {}, onProgress = () =
 
   onProgress({ phase: 'Listing tracks', percent: 5 });
 
-  const albumDir = safeName(meta.album || 'Singles', 'Album');
-  const artistDir = safeName(meta.artist || 'Unknown Artist', 'Unknown Artist');
+  // An album download is keyed on the album's own artist/album so every track
+  // lands in one Artist/Album folder, even when individual tracks credit guests.
+  // Other flows (songs, playlists, liked) still group by each file's tags.
+  const sharedArtist = meta.groupAlbumFolder && meta.artist ? primaryArtist(meta.artist) : '';
+  const sharedAlbum = meta.groupAlbumFolder && meta.album ? meta.album : '';
+  const forcedArtist = primaryArtist(meta.tagArtist) || '';
+  const forcedAlbum = meta.tagAlbum || '';
+  const albumDir = safeName(forcedAlbum || sharedAlbum || meta.album || 'Singles', 'Album');
+  const artistDir = safeName(forcedArtist || sharedArtist || primaryArtist(meta.artist) || 'Unknown Artist', 'Unknown Artist');
 
   // Check for tracks that already exist in the user's library so we don't re-download them
   const libraryTracks = db.getUserItems(user.id, 'track');
@@ -1356,6 +1527,12 @@ export async function downloadTracks(user, entries, meta = {}, onProgress = () =
       // every consumer - our tag read, the Drive scanner, the player UI - sees
       // an empty artist and falls back to folder names.
       '--embed-metadata', ...embedThumbnail,
+      // YouTube credits every collaborator in `artist`; keep only the primary
+      // name in both TPE1 and TPE2 so tags and folders agree.
+      ...YTDLP_PRIMARY_ARTIST_ARGS,
+      // Curated playlists (e.g. "Presenting X") force the artist/album tags to
+      // the playlist itself rather than the per-track values.
+      ...ytdlpTagOverrideArgs({ artist: meta.tagArtist, album: meta.tagAlbum }),
       ...audio.args,
       // No pinned `player_client` list: the tv/android/web_embedded bypasses
       // hardcoded here in 2024/2025 were shut by YouTube, and pinning clients
@@ -1412,11 +1589,12 @@ export async function downloadTracks(user, entries, meta = {}, onProgress = () =
 
     // Folder layout is `Artist/Album/NN Title.<ext>`. The file's own tags win
     // over the search row: rows carry a bare year where the artist belongs, and
-    // the track artist is often a "feat." list. TPE2 (albumartist) keys the
-    // folder so the tree groups by the primary artist.
-    const performer = pickName(tags?.albumartist, tags?.artist, entry.artist, meta.artist) || 'Unknown Artist';
+    // the track artist is often a "feat." list. Only the primary artist is used
+    // for both the folder and the tags; an album batch shares one folder.
+    const performer = forcedArtist || sharedArtist
+      || primaryArtist(pickName(tags?.albumartist, tags?.artist, entry.artist, meta.artist)) || 'Unknown Artist';
     const trackArtistDir = safeName(performer, 'Unknown Artist');
-    const trackAlbum = pickName(tags?.album, entry.album, meta.album) || 'Singles';
+    const trackAlbum = forcedAlbum || sharedAlbum || pickName(tags?.album, entry.album, meta.album) || 'Singles';
     const trackAlbumDir = safeName(trackAlbum, 'Album');
 
     onProgress({ phase: `Uploading ${index + 1}/${entries.length}`, current: displayTitle, percent });
@@ -1460,7 +1638,7 @@ export async function downloadTracks(user, entries, meta = {}, onProgress = () =
       driveFolderId: destFolderId,
       title: displayTitle,
       author: performer,
-      artist: pickName(tags?.artist, tags?.albumartist, entry.artist, meta.artist) || performer,
+      artist: forcedArtist || primaryArtist(pickName(tags?.artist, tags?.albumartist, entry.artist, meta.artist)) || performer,
       album: trackAlbum,
       genre: tags?.genre ? (Array.isArray(tags.genre) ? tags.genre.join(', ') : String(tags.genre)) : '',
       albumArtist: performer,
@@ -1547,7 +1725,9 @@ export async function downloadAlbum(user, album, onProgress = () => {}) {
 
   return downloadTracks(user, entries, {
     album: album.album || album.title,
-    artist: album.artist,
+    artist: album.artist || entries[0]?.artist || '',
+    // Keep the whole album in one Artist/Album folder, keyed on the primary artist.
+    groupAlbumFolder: true,
     coverUrl: album.coverUrl || album.thumbnail
   }, onProgress);
 }
@@ -1567,7 +1747,7 @@ export async function downloadSongs(user, songs, onProgress = () => {}, options 
     thumbnail: song.thumbnail,
     trackNumber: song.trackNumber ?? null
   })), {
-    artist: single?.artist || list[0].artist,
+    artist: primaryArtist(single?.artist || list[0].artist),
     album: single?.album || 'Singles',
     coverUrl: null
   }, onProgress);
@@ -1598,7 +1778,7 @@ export async function downloadSongs(user, songs, onProgress = () => {}, options 
  * naturally) and mirrors the playlist into the user's FRAUDIO playlists - by
  * creating one named after the playlist, or appending to a same-named one.
  */
-export async function downloadPlaylist(user, { url, name }, onProgress = () => {}) {
+export async function downloadPlaylist(user, { url, name, artist, album }, onProgress = () => {}) {
   if (!user?.musicFolderId) {
     throw new Error('Pick a music folder in Settings before downloading.');
   }
@@ -1606,9 +1786,13 @@ export async function downloadPlaylist(user, { url, name }, onProgress = () => {
   onProgress({ phase: 'Reading playlist', percent: 3 });
   const preview = await playlistPreview(listId, { userId: user.id });
   const title = String(name || preview.title || 'YouTube playlist').trim().slice(0, 120) || 'YouTube playlist';
+  // Curated imports (e.g. "Presenting Mac Miller") tag every track with the
+  // playlist's artist and album instead of the per-track YouTube values.
+  const tagArtist = primaryArtist(artist) || '';
+  const tagAlbum = String(album || '').trim();
   // Surface the resolved playlist in the queue entry so the footer and Downloads
   // view show something meaningful before the first track starts.
-  onProgress({ title, artist: preview.uploader, current: `${preview.count} tracks` });
+  onProgress({ title, artist: tagArtist || preview.uploader, current: `${preview.count} tracks` });
 
   const result = await downloadTracks(user, preview.tracks.map((t, i) => ({
     videoId: t.videoId,
@@ -1616,7 +1800,13 @@ export async function downloadPlaylist(user, { url, name }, onProgress = () => {
     durationSec: t.durationSec,
     thumbnail: t.thumbnail,
     trackNumber: i + 1
-  })), { album: '', artist: '', coverUrl: null }, onProgress);
+  })), {
+    album: tagAlbum,
+    artist: tagArtist,
+    tagArtist: tagArtist || null,
+    tagAlbum: tagAlbum || null,
+    coverUrl: null
+  }, onProgress);
 
   const savedIds = (result.itemIds || []).filter(Boolean);
   onProgress({ phase: 'Updating playlist', percent: 96 });
@@ -1940,12 +2130,12 @@ export function startSongDownload(user, songs, options = {}) {
 }
 
 /** Enqueues a pasted-playlist import. The title is resolved inside the job. */
-export function startPlaylistDownload(user, { url, name }) {
+export function startPlaylistDownload(user, { url, name, artist, album }) {
   return startDownload(
     user,
-    { title: name || 'YouTube playlist', artist: '', kind: 'playlist' },
-    (onProgress) => downloadPlaylist(user, { url, name }, onProgress),
-    { kind: 'playlist', args: { url, name } }
+    { title: name || 'YouTube playlist', artist: artist || '', kind: 'playlist' },
+    (onProgress) => downloadPlaylist(user, { url, name, artist, album }, onProgress),
+    { kind: 'playlist', args: { url, name, artist, album } }
   );
 }
 
@@ -1961,6 +2151,7 @@ export function startLikedImport(user) {
 
 export default {
   newReleases,
+  presentingPlaylists,
   search,
   artistBrowse,
   albumTracks,

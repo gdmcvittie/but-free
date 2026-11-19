@@ -127,6 +127,14 @@ export function sanitizeName(value, fallback = '') {
   return cleaned || fallback;
 }
 
+/** Keep only the first credited artist from a YTM "A, B feat. C" style value. */
+export function primaryArtist(value) {
+  return String(value ?? '')
+    .trim()
+    .replace(/(?:\s*[,;]\s*|\s+(?:feat\.?|ft\.?|featuring|with)\s+|\s*&\s*|\s+x\s+).*$/i, '')
+    .trim();
+}
+
 /**
  * Downloads sometimes include covers, nfo files, or sample clips next to the
  * audio. Parts must look like real book files, not artwork.

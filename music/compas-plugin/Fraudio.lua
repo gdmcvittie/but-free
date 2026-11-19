@@ -240,6 +240,28 @@ local function sanitize_filename(name)
     return clean
 end
 
+-- YouTube Music credits all collaborators in one string ("Cal Scruby, Artist 2").
+-- The SD card tree is keyed on the primary artist only, in step with the server.
+local function primary_artist(name)
+    if not name then return "" end
+    local s = tostring(name)
+    s = s:gsub("%s*[,;]%s*.*$", "")
+    s = s:gsub("%s+[Ff][Ee][Aa][Tt][Uu][Rr][Ii][Nn][Gg]%s+.*$", "")
+    s = s:gsub("%s+[Ff][Ee][Aa][Tt]%.?%s+.*$", "")
+    s = s:gsub("%s+[Ff][Tt]%.?%s+.*$", "")
+    s = s:gsub("%s+[Ww][Ii][Tt][Hh]%s+.*$", "")
+    s = s:gsub("%s*&%s*.*$", "")
+    s = s:gsub("%s+[Xx]%s+.*$", "")
+    s = s:gsub("^%s+", ""):gsub("%s+$", "")
+    return s
+end
+
+local function folder_artist(name)
+    local artist = primary_artist(name)
+    if artist == "" then artist = "Unknown Artist" end
+    return sanitize_filename(artist)
+end
+
 local function ensure_parent_dirs(full_path)
     if not full_path then return end
     local parts = {}
@@ -556,7 +578,7 @@ local function download_drive_track_to_sd(track, on_finish)
         return
     end
 
-    local artist = sanitize_filename(track.artist or "Unknown Artist")
+    local artist = folder_artist(track.artist)
     local album = sanitize_filename(track.album or "Unknown Album")
     local filename = sanitize_filename(track.filename or ((track.title or "track") .. ".mp3"))
     if not filename:lower():match("%.%w+$") then
@@ -954,7 +976,7 @@ local function sync_drive_playlist_to_sd(playlist, on_finish)
 
             local queued_count = 0
             for _, t in ipairs(tracks) do
-                local artist = sanitize_filename(t.artist or "Unknown Artist")
+                local artist = folder_artist(t.artist)
                 local album = sanitize_filename(t.album or "Unknown Album")
                 local song_file = sanitize_filename(t.filename or ((t.title or "track") .. ".mp3"))
                 local track_path = string.format("%s/Music/FRAUDIO/%s/%s/%s", sd, artist, album, song_file)

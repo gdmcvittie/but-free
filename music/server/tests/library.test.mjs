@@ -8,11 +8,51 @@ process.env.DATA_DIR = DATA_DIR;
 const db = (await import('../server/db.js')).default;
 const { inferLegacyPlaylistKind } = await import('../server/db.js');
 const metaStore = (await import('../server/metaStore.js')).default;
-const { parseMusicName } = await import('../server/libraryParser.js');
+const { parseMusicName, primaryArtist, m3uTrackPath, formatPlaylistM3u8, presentingArtistFromTitle, ytdlpTagOverrideArgs } = await import('../server/libraryParser.js');
 
 let passed = 0;
 const ok = (cond, msg) => { assert.ok(cond, msg); passed += 1; };
 const eq = (a, b, msg) => { assert.deepEqual(a, b, msg); passed += 1; };
+
+// ---- primary artist: only the main name survives into tags and folders ------
+eq(primaryArtist('Cal Scruby'), 'Cal Scruby', 'plain artist unchanged');
+eq(primaryArtist('Cal Scruby, Artist 2'), 'Cal Scruby', 'comma-separated feature dropped');
+eq(primaryArtist('Cal Scruby; Artist 2'), 'Cal Scruby', 'semicolon-separated feature dropped');
+eq(primaryArtist('Cal Scruby feat. Artist 2 & Artist 3'), 'Cal Scruby', 'feat. tail dropped');
+eq(primaryArtist('Cal Scruby ft. Artist 2'), 'Cal Scruby', 'ft. tail dropped');
+eq(primaryArtist('Cal Scruby Featuring Artist 2'), 'Cal Scruby', 'featuring tail dropped');
+eq(primaryArtist('Cal Scruby with Artist 2'), 'Cal Scruby', 'with tail dropped');
+eq(primaryArtist('Cal Scruby x Artist 2'), 'Cal Scruby', 'x collaboration dropped');
+eq(primaryArtist(''), '', 'empty artist stays empty');
+eq(primaryArtist(null), '', 'missing artist stays empty');
+
+// ---- M3U8 paths: relative to the Playlists folder, into Music/ -------------
+eq(m3uTrackPath('Cal Scruby/Album 1/01 Song.mp3'), '../Music/Cal Scruby/Album 1/01 Song.mp3', 'plain library path');
+eq(m3uTrackPath('Music/Cal Scruby/Album 1/01 Song.mp3'), '../Music/Cal Scruby/Album 1/01 Song.mp3', 'Music prefix not doubled');
+eq(m3uTrackPath('/Music/Cal Scruby/Album 1/01 Song.mp3'), '../Music/Cal Scruby/Album 1/01 Song.mp3', 'root-relative Music prefix normalised');
+eq(m3uTrackPath('Cal Scruby\\Album 1\\01 Song.mp3'), '../Music/Cal Scruby/Album 1/01 Song.mp3', 'Windows separators converted');
+eq(m3uTrackPath('../Music/Cal Scruby/Album 1/01 Song.mp3'), '../Music/Cal Scruby/Album 1/01 Song.mp3', 'already-relative path stays single');
+eq(m3uTrackPath('../../Cal Scruby/Album 1/01 Song.mp3'), '../Music/Cal Scruby/Album 1/01 Song.mp3', 'legacy leading traversal stripped');
+
+const m3u = formatPlaylistM3u8(
+  { name: 'Road Trip' },
+  [{ title: 'Song 2', artist: 'Cal Scruby', durationSec: 183, drivePath: 'Cal Scruby/Album 1/02 Song 2.mp3' }]
+);
+ok(m3u.startsWith('#EXTM3U\n#PLAYLIST:Road Trip\n'), 'm3u8 header and playlist name');
+ok(m3u.includes('#EXTINF:183,Cal Scruby - Song 2\n'), 'm3u8 EXTINF line');
+ok(m3u.includes('../Music/Cal Scruby/Album 1/02 Song 2.mp3\n'), 'm3u8 track path');
+
+// ---- Presenting playlists: artist comes from the playlist title ------------
+eq(presentingArtistFromTitle('Presenting Mac Miller'), 'Mac Miller', 'presenting artist');
+eq(presentingArtistFromTitle('Presenting… Glenn Miller'), 'Glenn Miller', 'presenting artist with ellipsis');
+eq(presentingArtistFromTitle('Presenting: TWICE'), 'TWICE', 'presenting artist with colon');
+eq(presentingArtistFromTitle('Greatest Hits'), '', 'non-presenting title has no artist');
+
+const overrideArgs = ytdlpTagOverrideArgs({ artist: 'Mac Miller', album: 'Presenting Mac Miller' });
+ok(overrideArgs.includes('Mac Miller'), 'tag override carries the artist');
+ok(overrideArgs.includes('Presenting Mac Miller'), 'tag override carries the album');
+ok(overrideArgs.includes('album_artist'), 'tag override sets the album artist');
+eq(ytdlpTagOverrideArgs({}).length, 0, 'no override args without values');
 
 const USER = 'user-test';
 db.upsertUser({ id: USER, email: 'test@local' }, {});

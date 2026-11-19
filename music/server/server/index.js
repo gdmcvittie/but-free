@@ -525,6 +525,16 @@ app.get('/api/music/whats-new', async (req, res) => {
   }
 });
 
+/** Featured "Presenting" playlists from the YouTube Music search page. */
+app.get('/api/music/presenting', async (req, res) => {
+  try {
+    const playlists = await youtubeMusic.presentingPlaylists({ force: req.query.refresh === 'true' });
+    return res.json({ playlists });
+  } catch (err) {
+    return res.status(502).json({ error: err.message });
+  }
+});
+
 app.get('/api/music/whats-new/torrents', async (req, res) => {
   try {
     const feed = req.query.feed || 'flac';
@@ -700,7 +710,7 @@ app.get('/api/music/playlist/info', async (req, res) => {
 
 /** Queue every track of a pasted playlist, creating a matching FRAUDIO playlist. */
 app.post('/api/music/playlist/download', (req, res) => {
-  const { url, name } = req.body || {};
+  const { url, name, artist, album } = req.body || {};
   if (!url) return res.status(400).json({ error: 'Playlist URL is required.' });
   if (!req.user.musicFolderId) {
     return res.status(400).json({ error: 'Pick a music folder in Settings before downloading.' });
@@ -708,7 +718,7 @@ app.post('/api/music/playlist/download', (req, res) => {
   try {
     // Parse before queueing so a bad URL fails with a useful message immediately.
     youtubeMusic.parsePlaylistRef(String(url));
-    const job = youtubeMusic.startPlaylistDownload(req.user, { url, name });
+    const job = youtubeMusic.startPlaylistDownload(req.user, { url, name, artist, album });
     return res.json({ job });
   } catch (err) {
     return res.status(400).json({ error: err.message });

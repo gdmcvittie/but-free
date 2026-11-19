@@ -6,7 +6,8 @@ import {
   infoHashOf,
   listAudioParts,
   looksLikeAudioPart,
-  sanitizeName
+  sanitizeName,
+  primaryArtist
 } from './util.js';
 import {
   resolveAudiobookFolder,
@@ -285,8 +286,12 @@ export function addYoutubeJob(options) {
     userId: options.userId || 'default',
     type: 'youtube',
     title: options.title || options.album || options.artist || entries[0].title || 'Music Download',
-    artist: options.artist || entries[0].artist || '',
+    // Drive folders are keyed on this - never let a "feat." list split an album.
+    artist: primaryArtist(options.artist || entries[0].artist) || '',
     album: options.album || entries[0].album || 'Singles',
+    // Curated playlist tag overrides (e.g. "Presenting Mac Miller").
+    tagArtist: options.tagArtist || null,
+    tagAlbum: options.tagAlbum || null,
     entries,
     coverUrl: options.coverUrl || null,
     format: options.format || 'mp3',
@@ -659,7 +664,9 @@ async function runYoutubePhase(job) {
       dl = await downloadYoutubeTrack(entry, {
         destDir: trackDir,
         format: job.format,
-        quality: job.quality
+        quality: job.quality,
+        tagArtist: job.tagArtist,
+        tagAlbum: job.tagAlbum
       });
     } catch (err) {
       lastError = err.message;
@@ -698,8 +705,8 @@ async function runYoutubePhase(job) {
       videoId: entry.videoId,
       fileName: uploadName,
       title: trackTitle,
-      artist: entry.artist || job.artist || 'Unknown Artist',
-      album: entry.album || job.album || 'Singles',
+      artist: primaryArtist(job.tagArtist || entry.artist || job.artist) || 'Unknown Artist',
+      album: job.tagAlbum || entry.album || job.album || 'Singles',
       trackNumber: trackNum,
       durationSec: entry.durationSec || null,
       format: ext.toUpperCase(),

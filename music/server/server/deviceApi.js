@@ -9,7 +9,7 @@ import torrentNode from './torrentNode.js';
 import db from './db.js';
 import googleAuth from './googleAuth.js';
 import googleDrive from './googleDrive.js';
-import { sanitizeTitle, sanitizeSegment, extensionOf, formatPlaylistM3u8 } from './libraryParser.js';
+import { sanitizeTitle, sanitizeSegment, extensionOf, formatPlaylistM3u8, primaryArtist, YTDLP_PRIMARY_ARTIST_ARGS } from './libraryParser.js';
 
 const DEVICE_DOWNLOADS_DIR = path.join(DATA_DIR, 'device_downloads');
 try {
@@ -168,6 +168,8 @@ async function downloadYoutubeToDir(videoId, targetDir, { title, artist, album }
     '--audio-format', 'mp3',
     '--audio-quality', '0',
     '--embed-metadata',
+    // Only the primary artist belongs in the ID3 tags (and the SD-card folder).
+    ...YTDLP_PRIMARY_ARTIST_ARGS,
     '--embed-thumbnail',
     ...ffmpegLocation,
     '-o', outTemplate,
@@ -206,7 +208,7 @@ function jobFilesFromItems(job, user, itemIds) {
     if (!item?.googleFileId) return;
     const ext = String(item.format || 'mp3').toLowerCase();
     const filename = `${String(files.length + 1).padStart(2, '0')} ${safePart(item.title || 'track')}.${ext}`;
-    const artist = safePart(item.artist || item.author || 'Unknown Artist');
+    const artist = safePart(primaryArtist(item.artist || item.author), 'Unknown Artist');
     const album = safePart(item.album || 'Album');
     files.push({
       index: files.length,
@@ -262,7 +264,7 @@ async function processSongJob(job) {
     job.phase = 'Finalizing';
 
     const ext = extensionOf(downloadedPath) || 'mp3';
-    const artistName = safePart(artist, 'Unknown Artist');
+    const artistName = safePart(primaryArtist(artist), 'Unknown Artist');
     const albumName = safePart(album, 'Singles');
     const cleanTitle = safePart(title || path.basename(downloadedPath, `.${ext}`));
     const finalFilename = `${cleanTitle}.${ext}`;
@@ -327,7 +329,7 @@ async function processAlbumJob(job) {
       throw new Error('No tracks found for this album.');
     }
 
-    const artistName = safePart(albumArtist, 'Unknown Artist');
+    const artistName = safePart(primaryArtist(albumArtist), 'Unknown Artist');
     const albumName = safePart(albumTitle, 'Album');
 
     const files = [];

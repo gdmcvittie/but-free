@@ -154,6 +154,8 @@ export const api = {
   // ---- music: YouTube Music & Torrent new releases ---------------------
   musicWhatsNew: (refresh = false) =>
     get(`/api/music/whats-new${refresh ? '?refresh=true' : ''}`),
+  musicPresenting: (refresh = false) =>
+    get(`/api/music/presenting${refresh ? '?refresh=true' : ''}`),
   musicWhatsNewTorrents: (feed = 'flac', refresh = false, q = '', signal) => {
     const params = new URLSearchParams();
     if (feed) params.set('feed', feed);
@@ -179,7 +181,7 @@ export const api = {
   // ---- music: playlist imports ---------------------------------------
   musicPlaylistInfo: (url, refresh = false, signal) =>
     get(`/api/music/playlist/info?url=${encodeURIComponent(url)}${refresh ? '&refresh=true' : ''}`, { signal }),
-  downloadPlaylist: ({ url, name }) => post('/api/music/playlist/download', { url, name }),
+  downloadPlaylist: ({ url, name, artist, album }) => post('/api/music/playlist/download', { url, name, artist, album }),
 
   // ---- music: Liked Music via the YouTube Data API (OAuth, no cookies) --
   youtubeLiked: () => get('/api/youtube/liked'),

@@ -68,6 +68,11 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
   const [plError, setPlError] = useState('');
   const plAbortRef = useRef(null);
 
+  // ---- YouTube Presenting (featured playlists) ----------------------------
+  const [presenting, setPresenting] = useState([]);
+  const [presentingLoading, setPresentingLoading] = useState(false);
+  const [presentingError, setPresentingError] = useState(null);
+
   // ---- Liked Music via the YouTube Data API (no cookies needed) ----------
   const [likedBusy, setLikedBusy] = useState(false);
   const [likedInfo, setLikedInfo] = useState(null);
@@ -183,6 +188,23 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
   }, [feedType, loadTorrents]);
 
   useEffect(() => { load(); }, [load, libraryVersion]);
+
+  const loadPresenting = useCallback(async (force = false) => {
+    setPresentingLoading(true);
+    setPresentingError(null);
+    try {
+      const data = await api.musicPresenting(force);
+      setPresenting(Array.isArray(data?.playlists) ? data.playlists : []);
+    } catch (err) {
+      setPresentingError(err.message || 'Could not load YouTube Presenting playlists.');
+    } finally {
+      setPresentingLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (feedType === 'yt') loadPresenting();
+  }, [loadPresenting, feedType, libraryVersion]);
 
   useEffect(() => {
     setQuery(initialQuery);
@@ -577,6 +599,26 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
     }
   }, [notify]);
 
+  const downloadPresenting = useCallback(async (p) => {
+    if (!hasMusicFolder) {
+      notify('Pick a music folder first', 'Downloads need somewhere to land in Drive.', true);
+      onOpenDrivePicker('music');
+      return;
+    }
+    try {
+      const data = await api.downloadPlaylist({
+        url: p.playlistId,
+        name: p.title,
+        artist: p.artist,
+        album: p.album || p.title
+      });
+      if (data.job?.id) setEntityJobs((prev) => ({ ...prev, [`playlist:${p.playlistId}`]: data.job.id }));
+      notify('Playlist queued', `${p.title} — every track will be tagged as ${p.artist}.`);
+    } catch (err) {
+      notify('Could not queue playlist', err.message, true);
+    }
+  }, [hasMusicFolder, notify, onOpenDrivePicker]);
+
   useEffect(() => {
     if (!plOpen) return;
     if (!likedLoaded && !likedBusy) loadLiked();
@@ -756,6 +798,86 @@ export default function MusicWhatsNew({ user, libraryVersion, initialQuery = '',
             Retry
           </button>
         </div>
+      )}
+
+      {feedType === 'yt' && !artist && !searched && (
+        <section style={{ marginBottom: '1.75rem' }}>
+          <div className="section-head">
+            <span className="section-title">YouTube Presenting</span>
+            <span className="section-count">{presenting.length}</span>
+            <button
+              type="button"
+              className="btn btn-secondary btn-xs"
+              style={{ marginLeft: '0.5rem' }}
+              onClick={() => loadPresenting(true)}
+              disabled={presentingLoading}
+            >
+              <RefreshCw size={12} className={presentingLoading ? 'spin' : undefined} />
+              Refresh
+            </button>
+          </div>
+          {presentingError ? (
+            <div className="error-banner">
+              <AlertTriangle size={15} style={{ verticalAlign: '-2px', marginRight: '0.4rem' }} />
+              {presentingError}
+              <button type="button" className="btn btn-secondary btn-xs" style={{ marginLeft: '0.75rem' }} onClick={() => loadPresenting(true)}>
+                Retry
+              </button>
+            </div>
+          ) : presentingLoading && presenting.length === 0 ? (
+            <div className="loading-state">
+              <div className="spinner" />
+              <p>Loading featured playlists…</p>
+            </div>
+          ) : presenting.length === 0 ? (
+            <div className="empty-state">
+              <ListMusic size={36} style={{ color: 'var(--text-muted)', margin: '0 auto 1rem' }} />
+              <p>No featured Presenting playlists right now.</p>
+            </div>
+          ) : (
+            <div className="media-grid">
+              {presenting.map((p) => {
+                const job = jobByKey(`playlist:${p.playlistId}`);
+                return (
+                  <div key={p.id} className="media-card">
+                    <div className="media-cover">
+                      {p.thumbnail
+                        ? <img src={p.thumbnail} alt="" loading="lazy" referrerPolicy="no-referrer" />
+                        : <div className="row-thumb-placeholder" style={{ width: '100%', height: '100%' }}>
+                            <ListMusic size={22} />
+                          </div>}
+                      <div className="media-play-overlay">
+                        <div className="media-play-button" onClick={() => downloadPresenting(p)}>
+                          <Download size={19} />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="media-title">{p.title}</div>
+                    <div className="media-subtitle">
+                      {p.artist}{p.songCount ? ` • ${p.songCount} songs` : ''}
+                    </div>
+                    <div style={{ marginTop: '0.4rem', textAlign: 'right' }}>
+                      <button
+                        type="button"
+                        className={`btn ${job ? 'btn-secondary' : 'btn-primary'} btn-xs`}
+                        onClick={() => downloadPresenting(p)}
+                        disabled={Boolean(job)}
+                        title={`Save "${p.title}" — all tracks tagged as ${p.artist}`}
+                      >
+                        {job
+                          ? <Loader2 size={11} className="spin" />
+                          : <Download size={11} />}
+                        {job
+                          ? (job.status === 'running' ? `${Math.round(job.percent || 0)}%` : 'Queued')
+                          : 'Get'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
       )}
 
       {feedType !== 'yt' ? (

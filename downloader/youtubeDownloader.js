@@ -6,6 +6,27 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BIN_DIR = path.resolve(process.env.BIN_DIR || path.join(__dirname, 'bin'));
 
+// YouTube Music packs every collaborator into one `artist` value ("Cal Scruby,
+// Artist 2"). Keep only the primary name in TPE1 and TPE2. Written for Python's
+// `re` because yt-dlp applies it via --replace-in-metadata; keep in sync with
+// the server-side copy in music/server/server/libraryParser.js.
+const PRIMARY_ARTIST_REGEX = '(?i)(?:\\s*[,;]\\s*|\\s+(?:feat\\.?|ft\\.?|featuring|with)\\s+|\\s*&\\s*|\\s+x\\s+).*$';
+
+/** Force literal ID3 values for curated playlists ("Presenting <Artist>"). */
+function tagOverrideArgs({ tagArtist, tagAlbum } = {}) {
+  const args = [];
+  const override = (field, value) => {
+    args.push('--parse-metadata', `title:(?P<${field}>.+)`);
+    args.push('--replace-in-metadata', field, '(?s).+', value);
+  };
+  if (tagArtist) {
+    override('artist', tagArtist);
+    override('album_artist', tagArtist);
+  }
+  if (tagAlbum) override('album', tagAlbum);
+  return args;
+}
+
 const isWindows = process.platform === 'win32';
 const ytDlpName = isWindows ? 'yt-dlp.exe' : 'yt-dlp';
 const ffmpegName = isWindows ? 'ffmpeg.exe' : 'ffmpeg';
@@ -361,6 +382,10 @@ export async function downloadYoutubeTrack(entry, options = {}) {
     '--audio-format', format,
     '--audio-quality', quality,
     '--embed-metadata',
+    // Only the primary artist goes into the ID3 tags; guests are dropped.
+    '--replace-in-metadata', 'artist', PRIMARY_ARTIST_REGEX, '',
+    '--parse-metadata', 'artist:(?P<album_artist>(?!NA$).+)',
+    ...tagOverrideArgs(options),
     '--embed-thumbnail',
     '--convert-thumbnails', 'jpg',
     '-o', path.join(destDir, '%(title)s.%(ext)s')
