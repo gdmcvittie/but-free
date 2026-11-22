@@ -244,34 +244,48 @@ export async function fetchSteamripFeed({
     function() {
       const items = [];
       const seen = new Set();
-      document.querySelectorAll('.post-item, article.post').forEach(el => {
-        const a = el.querySelector('h2.post-title a, h3.post-title a, a.post-thumb, a');
+      document.querySelectorAll('.post-element, .post-item, article.post, .slide, .entry').forEach(el => {
+        const a = el.querySelector('.the-post-title a, .thumb-title a, a.all-over-thumb-link, h2 a, h3 a, a.post-thumb, a');
         if (!a || !a.href || !a.href.includes('steamrip.com')) return;
         const href = a.href;
         if (seen.has(href)) return;
         seen.add(href);
 
-        const thumbA = el.querySelector('a.post-thumb');
-        const rawTitle = (thumbA && thumbA.getAttribute('aria-label')) ||
+        const rawTitle = (el.querySelector('.screen-reader-text') || {}).textContent ||
+                         (el.querySelector('.thumb-title') || {}).textContent ||
+                         (el.querySelector('.the-post-title') || {}).textContent ||
                          (el.querySelector('.post-title') || {}).textContent ||
+                         (el.querySelector('a.post-thumb') ? el.querySelector('a.post-thumb').getAttribute('aria-label') : null) ||
+                         a.getAttribute('aria-label') ||
                          a.textContent || '';
 
-        const img = el.querySelector('img');
+        // Extract thumbnail: check img tag, data-back attribute, or background-image style
         let imgSrc = '';
+        const img = el.querySelector('img');
         if (img) {
           imgSrc = img.getAttribute('data-src') || img.getAttribute('data-src-webp') || img.src || '';
-          if (imgSrc.startsWith('data:image')) {
-            imgSrc = img.getAttribute('data-src') || '';
+        }
+        if (!imgSrc || imgSrc.startsWith('data:image')) {
+          const backEl = el.querySelector('[data-back]') || el;
+          imgSrc = (backEl && backEl.getAttribute('data-back')) || '';
+        }
+        if (!imgSrc || imgSrc.startsWith('data:image')) {
+          const style = (el.querySelector('[style*="background-image"]') || el).getAttribute('style') || '';
+          const bgMatch = style.match(/background-image:\\s*url\\([\"']?([^\"')]+)[\"']?\\)/i);
+          if (bgMatch && bgMatch[1] && !bgMatch[1].startsWith('data:image')) {
+            imgSrc = bgMatch[1];
           }
         }
 
         // Game size: look for "73.1 GB" or "588 MB"
         let size = '';
-        const sizeMatch = (el.textContent || '').match(/(\\d+(?:\\.\\d+)?\\s*(?:GB|MB|TB))/i);
+        const metaLine = el.querySelector('.game-meta-line');
+        const textToMatch = metaLine ? metaLine.textContent : (el.textContent || '');
+        const sizeMatch = textToMatch.match(/(\\d+(?:\\.\\d+)?\\s*(?:GB|MB|TB))/i);
         if (sizeMatch) size = sizeMatch[1];
 
         // Categories / tags
-        const cats = Array.from(el.querySelectorAll('.post-cat, .category a, .post-cat-wrap span')).map(c => c.textContent.trim()).filter(Boolean);
+        const cats = Array.from(el.querySelectorAll('.post-cat, .category a, .post-cat-wrap span, .tagmetafield')).map(c => c.textContent.trim()).filter(Boolean);
 
         items.push({
           rawTitle: rawTitle.trim(),
