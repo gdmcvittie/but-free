@@ -230,14 +230,9 @@ export async function fetchSteamripFeed({
       ? `https://steamrip.com/page/${page}/?s=${encodeURIComponent(cleanQ)}`
       : `https://steamrip.com/?s=${encodeURIComponent(cleanQ)}`;
   } else if (cleanCat === 'top-games' || cleanCat === 'top') {
-    targetUrl = 'https://steamrip.com/top-games/';
-  } else if (cleanCat === 'updates' || cleanCat === 'updated-games') {
-    targetUrl = 'https://steamrip.com/updated-games/';
-  } else if (cleanCat) {
-    const catSlug = cleanCat.replace(/\s+/g, '-');
     targetUrl = page > 1
-      ? `https://steamrip.com/category/${catSlug}/page/${page}/`
-      : `https://steamrip.com/category/${catSlug}/`;
+      ? `https://steamrip.com/top-games/page/${page}/`
+      : 'https://steamrip.com/top-games/';
   } else if (page > 1) {
     targetUrl = `https://steamrip.com/page/${page}/`;
   }
