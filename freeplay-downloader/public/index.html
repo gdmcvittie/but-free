@@ -2728,8 +2728,9 @@
       }
     }
 
-    function updatePcTorrentProgressUI(info) {
-      if (!info) return;
+    function updatePcTorrentProgressUI(raw) {
+      if (!raw) return;
+      var info = (raw && raw.data) ? raw.data : raw;
       var fill = document.getElementById('pcActiveDlFill');
       var progSpan = document.getElementById('pcActiveDlProgress');
       var speedSpan = document.getElementById('pcActiveDlSpeed');
@@ -2881,14 +2882,26 @@
 
         evtSource.addEventListener('torrent_progress', function(e) {
           try {
-            var info = JSON.parse(e.data);
+            var payload = JSON.parse(e.data);
+            var info = (payload && payload.data) ? payload.data : payload;
             updatePcTorrentProgressUI(info);
+          } catch (_) {}
+        });
+
+        evtSource.addEventListener('torrent_queue_update', function(e) {
+          try {
+            var payload = JSON.parse(e.data);
+            var d = (payload && payload.data) ? payload.data : payload;
+            if (d && d.active) {
+              updatePcTorrentProgressUI(d.active);
+            }
           } catch (_) {}
         });
 
         evtSource.addEventListener('torrent_completed', function(e) {
           try {
-            var d = JSON.parse(e.data);
+            var payload = JSON.parse(e.data);
+            var d = (payload && payload.data) ? payload.data : payload;
             showToast('Finished downloading "' + (d.title || 'Game') + '"!', 'success');
             refreshPcTorrentQueueUI();
           } catch (_) {}
