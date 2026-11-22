@@ -1,6 +1,6 @@
 {
   "name": "freeplay-downloader",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "type": "module",
   "description": "FitGirl / Steam repack downloader - slimmed down from my-games-server",
