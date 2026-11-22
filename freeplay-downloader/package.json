@@ -36,7 +36,8 @@
       "electron-main.js",
       "lib/**/*",
       "stream/**/*",
-      "public/**/*"
+      "public/**/*",
+      "scripts/**/*"
     ],
     "protocols": [
       {

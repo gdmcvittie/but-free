@@ -12,6 +12,10 @@ const __dirname = path.dirname(__filename);
 const baseDir = path.resolve(__dirname, '..');
 
 export function patchWebTorrent() {
+  // If running inside packaged read-only asar, skip patching
+  if (__dirname.includes('app.asar')) {
+    return false;
+  }
   let changed = false;
 
   // 1. Patch uint8-util/dist/src/node.js

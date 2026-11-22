@@ -175,14 +175,22 @@ function createWindow(port) {
     mainWindow.webContents.session.clearCache();
   } catch (_) {}
 
-  // Give server.js a handle to the main window so its native picker can be modal
+  const targetUrl = `http://localhost:${port}?electron=1`;
+
+  // Start the backend server and ensure it is ready before loading or retry until ready
   import('./server.js')
     .then((serverModule) => {
+      console.log('[Electron Main] Backend server module loaded');
       if (typeof serverModule.setMainWindow === 'function') {
         serverModule.setMainWindow(mainWindow);
       }
+      if (mainWindow && !mainWindow.isDestroyed() && !windowFinishedLoading) {
+        mainWindow.loadURL(targetUrl);
+      }
     })
-    .catch((err) => console.error('[Electron Main] setMainWindow failed:', err.message));
+    .catch((err) => {
+      console.error('[Electron Main] Failed to load backend server:', err);
+    });
 
   windowFinishedLoading = false;
   mainWindow.webContents.on('did-finish-load', () => {
@@ -194,13 +202,25 @@ function createWindow(port) {
     }
   });
 
+  // Auto-retry on connection refused in case Express is still binding port
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, _errorDescription, validatedURL) => {
+    if (validatedURL && validatedURL.includes('localhost') && errorCode === -102 /* ERR_CONNECTION_REFUSED */) {
+      console.log('[Electron Main] Connection refused on load; retrying in 400ms...');
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed() && !windowFinishedLoading) {
+          mainWindow.loadURL(targetUrl);
+        }
+      }, 400);
+    }
+  });
+
   // Default external links open in system default browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: 'deny' };
   });
 
-  mainWindow.loadURL(`http://localhost:${port}?electron=1`);
+  mainWindow.loadURL(targetUrl);
 
   mainWindow.on('closed', () => {
     mainWindow = null;

@@ -2,9 +2,11 @@
 // ONLY the PC FitGirl / Steam repack downloading features. The user picks a
 // downloads folder once; every torrent / direct download lands there.
 
-import { patchWebTorrent } from './scripts/patch-webtorrent.js';
 try {
-  patchWebTorrent();
+  const patchModule = await import('./scripts/patch-webtorrent.js').catch(() => null);
+  if (patchModule && typeof patchModule.patchWebTorrent === 'function') {
+    patchModule.patchWebTorrent();
+  }
 } catch (_) {}
 
 import express from 'express';
