@@ -7,8 +7,9 @@
   "main": "electron-main.js",
   "scripts": {
     "postinstall": "node scripts/patch-webtorrent.js",
-    "start": "node server.js",
-    "dev": "node server.js",
+    "start": "electron .",
+    "dev": "electron .",
+    "server": "node server.js",
     "electron:dev": "electron .",
     "electron:build": "electron-builder --win && node scripts/post-electron-build.js",
     "build:electron": "npm run electron:build",
