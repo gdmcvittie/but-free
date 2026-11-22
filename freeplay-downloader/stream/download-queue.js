@@ -397,10 +397,10 @@ export function createDownloadQueue({ getDownloadsFolder, broadcastEvent, torren
           res.on('data', (chunk) => {
             downloadedBytes += chunk.length;
             const now = Date.now();
-            if (now - lastReport >= 350) {
+            if (now - lastReport >= 300) {
               const deltaBytes = downloadedBytes - lastBytes;
-              const speed = deltaBytes / ((now - lastReport) / 1000);
-              const percent = totalBytes > 0 ? Math.min(100, Math.round((downloadedBytes / totalBytes) * 100)) : 0;
+              const speed = deltaBytes / (Math.max(1, now - lastReport) / 1000);
+              const percent = totalBytes > 0 ? Math.min(100, Math.round((downloadedBytes / totalBytes) * 1000) / 10) : 0;
               if (typeof onProgress === 'function') {
                 onProgress({
                   id: itemId,
@@ -416,6 +416,15 @@ export function createDownloadQueue({ getDownloadsFolder, broadcastEvent, torren
           });
 
           fileStream.on('finish', () => {
+            if (typeof onProgress === 'function') {
+              onProgress({
+                id: itemId,
+                downloadedBytes,
+                totalBytes: totalBytes || downloadedBytes,
+                percent: 100,
+                speed: 0
+              });
+            }
             fileStream.close();
             resolve(destPath);
           });
@@ -646,6 +655,8 @@ export function createDownloadQueue({ getDownloadsFolder, broadcastEvent, torren
         item.downloadedBytes = progData.downloadedBytes || 0;
         item.totalBytes = progData.totalBytes || item.totalBytes || 0;
         item.downloadSpeed = progData.speed || 0;
+        item.downloaded = item.downloadedBytes;
+        item.total = item.totalBytes;
         broadcastEvent('torrent_progress', {
           id: item.id,
           title: item.title,
@@ -654,8 +665,10 @@ export function createDownloadQueue({ getDownloadsFolder, broadcastEvent, torren
           numPeers: 0,
           downloadedBytes: item.downloadedBytes,
           totalBytes: item.totalBytes,
+          downloaded: item.downloadedBytes,
+          total: item.totalBytes,
           isDirect: true,
-          hoster: item.hoster
+          hoster: item.hoster || 'Direct'
         });
       }
     })
@@ -976,7 +989,10 @@ export function createDownloadQueue({ getDownloadsFolder, broadcastEvent, torren
           downloadSpeed: next.downloadSpeed,
           numPeers: next.numPeers,
           downloadedBytes: next.downloadedBytes,
-          totalBytes: next.totalBytes
+          totalBytes: next.totalBytes,
+          downloaded: next.downloadedBytes,
+          total: next.totalBytes,
+          isDirect: false
         });
       }, 1000);
 

@@ -590,6 +590,18 @@
       transition: width 0.2s ease;
     }
 
+    .progress-bar-fill.indeterminate {
+      width: 100% !important;
+      background: linear-gradient(90deg, #0078d4 0%, #38bdf8 50%, #0078d4 100%);
+      background-size: 200% 100%;
+      animation: indeterminate-bar 1.5s linear infinite;
+    }
+
+    @keyframes indeterminate-bar {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
     .pc-rss-queue-list {
       display: flex;
       flex-direction: column;
@@ -2724,25 +2736,58 @@
       var peersSpan = document.getElementById('pcActiveDlPeers');
       var bytesSpan = document.getElementById('pcActiveDlBytes');
 
-      var pct = (info.progress != null) ? Math.round(info.progress * 100) : 0;
-      if (pct > 100) pct = 100;
-      if (fill) fill.style.width = pct + '%';
-      if (progSpan) progSpan.textContent = pct + '%';
+      var downloaded = (info.downloadedBytes != null ? info.downloadedBytes : info.downloaded) || 0;
+      var total = (info.totalBytes != null ? info.totalBytes : info.total) || 0;
+
+      // Determine progress percent
+      var pct = 0;
+      var isIndeterminate = false;
+
+      if (total > 0 && downloaded >= 0) {
+        pct = Math.min(100, Math.round((downloaded / total) * 1000) / 10);
+      } else if (info.progress != null && !isNaN(info.progress) && Number(info.progress) > 0) {
+        var raw = Number(info.progress);
+        pct = (raw <= 1 && total > 1) ? Math.round(raw * 1000) / 10 : Math.round(raw * 10) / 10;
+        if (pct > 100) pct = 100;
+        if (pct < 0) pct = 0;
+      } else if (downloaded > 0 && total === 0) {
+        isIndeterminate = true;
+      }
+
+      if (fill) {
+        if (isIndeterminate) {
+          fill.classList.add('indeterminate');
+          fill.style.width = '100%';
+        } else {
+          fill.classList.remove('indeterminate');
+          fill.style.width = pct + '%';
+        }
+      }
+
+      if (progSpan) {
+        if (isIndeterminate) {
+          progSpan.textContent = 'Streaming...';
+        } else {
+          progSpan.textContent = pct.toFixed(1) + '%';
+        }
+      }
+
+      if (speedSpan) {
+        speedSpan.textContent = formatSpeed(info.downloadSpeed || 0);
+      }
 
       if (info.isDirect) {
-        if (speedSpan) speedSpan.textContent = formatSpeed(info.downloadSpeed || 0);
         if (peersSpan) peersSpan.textContent = '🌐 ' + (info.hoster || 'Direct');
         if (bytesSpan) {
-          var downStr = formatBytes(info.downloaded || 0);
-          var totStr = info.total ? (' / ' + formatBytes(info.total)) : '';
+          var downStr = formatBytes(downloaded);
+          var totStr = total > 0 ? (' / ' + formatBytes(total)) : ' downloaded';
           bytesSpan.textContent = downStr + totStr;
         }
       } else {
-        if (speedSpan) speedSpan.textContent = formatSpeed(info.downloadSpeed || 0);
         if (peersSpan) peersSpan.textContent = (info.numPeers || 0) + ' peers';
         if (bytesSpan) {
-          var down = formatBytes(info.downloaded || 0);
-          var tot = info.total ? (' / ' + formatBytes(info.total)) : '';
+          var down = formatBytes(downloaded);
+          var tot = total > 0 ? (' / ' + formatBytes(total)) : '';
           bytesSpan.textContent = down + tot;
         }
       }
