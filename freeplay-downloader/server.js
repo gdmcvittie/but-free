@@ -1,7 +1,6 @@
 // Freeplay Downloader - slimmed down version of my-games-server that keeps
 // ONLY the PC FitGirl / Steam repack downloading features. The user picks a
-// downloads folder once; every torrent / direct download lands there and is
-// auto-extracted when it finishes.
+// downloads folder once; every torrent / direct download lands there.
 
 import { patchWebTorrent } from './scripts/patch-webtorrent.js';
 try {

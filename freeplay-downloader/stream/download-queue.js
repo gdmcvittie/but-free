@@ -11,7 +11,6 @@ import fs from 'fs';
 import http from 'http';
 import https from 'https';
 import { execFile } from 'child_process';
-import { unpack7z, detectArchiveFileType } from './archive.js';
 import { isFuckingFastLandingPage, resolveFuckingFastUrl } from './fuckingfast-resolver.js';
 import { isFileKeeperLandingPage, resolveFileKeeperUrl } from './filekeeper-resolver.js';
 import { isDataNodesLandingPage, resolveDataNodesUrl } from './datanodes-resolver.js';
@@ -90,281 +89,9 @@ export function sanitizeFilename(name) {
     .replace(/^[.\s]+|[.\s]+$/g, '');
 }
 
-// ── Automatic Archive Extraction & Cleanup ─────────────────────────────────
-
-// Module-level broadcast hook, bound by createDownloadQueue(). Kept at module
-// scope because autoExtractAndCleanGameFolder is defined before the factory.
-let _broadcastEvent = () => {};
-
-function getDirSizeBytes(dirPath) {
-  let total = 0;
-  try {
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    for (const e of entries) {
-      const full = path.join(dirPath, e.name);
-      if (e.isFile()) {
-        try { total += fs.statSync(full).size; } catch (_) {}
-      } else if (e.isDirectory()) {
-        total += getDirSizeBytes(full);
-      }
-    }
-  } catch (_) {}
-  return total;
-}
-
-function findArchiveSetsInDir(dirPath) {
-  let fileNames = [];
-  try {
-    fileNames = fs.readdirSync(dirPath);
-  } catch (e) {
-    return [];
-  }
-
-  const archiveSets = [];
-  const handledFiles = new Set();
-
-  // 1. Multipart RAR with .part<num>.rar (e.g. Game.part1.rar, Game.part01.rar)
-  const partRarMap = new Map();
-  for (const name of fileNames) {
-    const match = name.match(/^(.+?)\.part(\d+)\.rar$/i);
-    if (match) {
-      const baseKey = match[1].toLowerCase();
-      if (!partRarMap.has(baseKey)) partRarMap.set(baseKey, []);
-      partRarMap.get(baseKey).push({ file: name, num: parseInt(match[2], 10) });
-      handledFiles.add(name);
-    }
-  }
-  for (const [baseKey, items] of partRarMap.entries()) {
-    items.sort((a, b) => a.num - b.num);
-    const entryPoint = items[0].file;
-    const sourceFiles = items.map(i => path.join(dirPath, i.file));
-    archiveSets.push({
-      type: 'multipart_rar_part',
-      entryPoint: path.join(dirPath, entryPoint),
-      sourceFiles,
-      dir: dirPath
-    });
-  }
-
-  // 2. Split numeric volumes (e.g. Game.7z.001 or Game.001)
-  const numSplitMap = new Map();
-  for (const name of fileNames) {
-    if (handledFiles.has(name)) continue;
-    const match = name.match(/^(.+?)\.(\d{3})$/i);
-    if (match) {
-      const baseKey = match[1].toLowerCase();
-      if (!numSplitMap.has(baseKey)) numSplitMap.set(baseKey, []);
-      numSplitMap.get(baseKey).push({ file: name, num: parseInt(match[2], 10) });
-      handledFiles.add(name);
-    }
-  }
-  for (const [baseKey, items] of numSplitMap.entries()) {
-    items.sort((a, b) => a.num - b.num);
-    const entryPoint = items[0].file;
-    const sourceFiles = items.map(i => path.join(dirPath, i.file));
-    archiveSets.push({
-      type: 'split_numeric',
-      entryPoint: path.join(dirPath, entryPoint),
-      sourceFiles,
-      dir: dirPath
-    });
-  }
-
-  // 3. Old style RAR with .rar and .r00, .r01...
-  const oldRarMap = new Map();
-  for (const name of fileNames) {
-    if (handledFiles.has(name)) continue;
-    const match = name.match(/^(.+?)\.r(\d{2})$/i);
-    if (match) {
-      const baseKey = match[1].toLowerCase();
-      if (!oldRarMap.has(baseKey)) oldRarMap.set(baseKey, []);
-      oldRarMap.get(baseKey).push(name);
-      handledFiles.add(name);
-    }
-  }
-  for (const [baseKey, rFiles] of oldRarMap.entries()) {
-    const mainRar = fileNames.find(n => n.toLowerCase() === baseKey + '.rar');
-    const sourceFiles = rFiles.map(f => path.join(dirPath, f));
-    let entryPoint = rFiles[0];
-    if (mainRar) {
-      handledFiles.add(mainRar);
-      sourceFiles.unshift(path.join(dirPath, mainRar));
-      entryPoint = mainRar;
-    }
-    archiveSets.push({
-      type: 'old_multipart_rar',
-      entryPoint: path.join(dirPath, entryPoint),
-      sourceFiles,
-      dir: dirPath
-    });
-  }
-
-  // 4. Split ZIP with .zip and .z01, .z02...
-  const splitZipMap = new Map();
-  for (const name of fileNames) {
-    if (handledFiles.has(name)) continue;
-    const match = name.match(/^(.+?)\.z(\d{2})$/i);
-    if (match) {
-      const baseKey = match[1].toLowerCase();
-      if (!splitZipMap.has(baseKey)) splitZipMap.set(baseKey, []);
-      splitZipMap.get(baseKey).push(name);
-      handledFiles.add(name);
-    }
-  }
-  for (const [baseKey, zFiles] of splitZipMap.entries()) {
-    const mainZip = fileNames.find(n => n.toLowerCase() === baseKey + '.zip');
-    const sourceFiles = zFiles.map(f => path.join(dirPath, f));
-    let entryPoint = zFiles[0];
-    if (mainZip) {
-      handledFiles.add(mainZip);
-      sourceFiles.unshift(path.join(dirPath, mainZip));
-      entryPoint = mainZip;
-    }
-    archiveSets.push({
-      type: 'split_zip',
-      entryPoint: path.join(dirPath, entryPoint),
-      sourceFiles,
-      dir: dirPath
-    });
-  }
-
-  // 5. Standalone archives: .zip, .rar, .7z
-  for (const name of fileNames) {
-    if (handledFiles.has(name)) continue;
-    const lower = name.toLowerCase();
-    if (lower.endsWith('.zip') || lower.endsWith('.rar') || lower.endsWith('.7z')) {
-      handledFiles.add(name);
-      archiveSets.push({
-        type: 'single',
-        entryPoint: path.join(dirPath, name),
-        sourceFiles: [path.join(dirPath, name)],
-        dir: dirPath
-      });
-    }
-  }
-
-  // 6. Standalone archives without extensions or with unfamiliar extensions (detected via magic bytes)
-  for (const name of fileNames) {
-    if (handledFiles.has(name)) continue;
-    const fullP = path.join(dirPath, name);
-    try {
-      const stat = fs.statSync(fullP);
-      if (stat.isFile() && stat.size > 20) {
-        const detected = detectArchiveFileType(fullP);
-        if (detected) {
-          handledFiles.add(name);
-          archiveSets.push({
-            type: 'single',
-            entryPoint: fullP,
-            sourceFiles: [fullP],
-            dir: dirPath
-          });
-        }
-      }
-    } catch (_) {}
-  }
-
-  return archiveSets;
-}
-
-async function autoExtractAndCleanGameFolder(gameFolder, gameTitle = '') {
-  if (!gameFolder || !fs.existsSync(gameFolder)) {
-    return false;
-  }
-
-  console.log(`[Auto-Extract] Checking for archives in "${gameTitle || path.basename(gameFolder)}": ${gameFolder}`);
-
-  let sets = findArchiveSetsInDir(gameFolder);
-
-  // Check 1 level of subdirectories if no archives found at top level
-  if (sets.length === 0) {
-    try {
-      const subEntries = fs.readdirSync(gameFolder, { withFileTypes: true });
-      for (const sub of subEntries) {
-        if (sub.isDirectory()) {
-          const subDir = path.join(gameFolder, sub.name);
-          const subSets = findArchiveSetsInDir(subDir);
-          if (subSets.length > 0) {
-            sets = sets.concat(subSets);
-          }
-        }
-      }
-    } catch (_) {}
-  }
-
-  if (sets.length === 0) {
-    console.log(`[Auto-Extract] No archives (.zip, .rar, .7z) found in "${gameFolder}". Skipping extraction.`);
-    return false;
-  }
-
-  console.log(`[Auto-Extract] Found ${sets.length} archive set(s) for "${gameTitle}". Starting extraction...`);
-  _broadcastEvent('torrent_extracting', {
-    title: gameTitle || path.basename(gameFolder),
-    folder: gameFolder,
-    totalSets: sets.length
-  });
-
-  let anyExtracted = false;
-
-  for (let i = 0; i < sets.length; i++) {
-    const s = sets[i];
-    console.log(`[Auto-Extract] Extracting set ${i + 1}/${sets.length}: ${path.basename(s.entryPoint)} (${s.sourceFiles.length} file(s)) -> ${s.dir}`);
-
-    try {
-      await unpack7z(s.entryPoint, s.dir);
-      console.log(`[Auto-Extract] Extraction completed successfully for: ${path.basename(s.entryPoint)}`);
-      anyExtracted = true;
-
-      // Completely extracted! Delete the source zip/rar file(s)
-      for (const srcFile of s.sourceFiles) {
-        try {
-          if (fs.existsSync(srcFile)) {
-            fs.unlinkSync(srcFile);
-            console.log(`[Auto-Extract] Deleted source archive: ${path.basename(srcFile)}`);
-          }
-        } catch (delErr) {
-          console.warn(`[Auto-Extract] Notice: Could not delete ${srcFile}: ${delErr.message}`);
-        }
-      }
-    } catch (extractErr) {
-      console.error(`[Auto-Extract] Extraction failed for ${s.entryPoint}: ${extractErr.message}`);
-      console.warn(`[Auto-Extract] Preserving source files due to extraction failure.`);
-    }
-  }
-
-  // Second pass: handle nested archives (e.g. zip containing rar or secondary zips)
-  if (anyExtracted) {
-    const secondPassSets = findArchiveSetsInDir(gameFolder);
-    if (secondPassSets.length > 0) {
-      console.log(`[Auto-Extract] Nested archives found (${secondPassSets.length} sets). Extracting second pass...`);
-      for (const s of secondPassSets) {
-        try {
-          await unpack7z(s.entryPoint, s.dir);
-          for (const srcFile of s.sourceFiles) {
-            try {
-              if (fs.existsSync(srcFile)) {
-                fs.unlinkSync(srcFile);
-                console.log(`[Auto-Extract] Deleted nested source archive: ${path.basename(srcFile)}`);
-              }
-            } catch (_) {}
-          }
-        } catch (nestErr) {
-          console.warn(`[Auto-Extract] Nested archive extraction notice: ${nestErr.message}`);
-        }
-      }
-    }
-  }
-
-  console.log(`[Auto-Extract] Extraction workflow finished for "${gameTitle}".`);
-  return anyExtracted;
-}
-
 // ── Download Queue Factory ────────────────────────────────────────────────
 
-export function createDownloadQueue({ getDownloadsFolder, broadcastEvent: broadcast, torrentQueuePath }) {
-  // Bind the module-level broadcast hook used by autoExtractAndCleanGameFolder.
-  _broadcastEvent = broadcast || (() => {});
-  let broadcastEvent = _broadcastEvent;
+export function createDownloadQueue({ getDownloadsFolder, broadcastEvent, torrentQueuePath }) {
   let torrentQueue = [];
   let activeTorrentItem = null;
   let activeTorrentHandle = null;
@@ -978,18 +705,11 @@ export function createDownloadQueue({ getDownloadsFolder, broadcastEvent: broadc
       // ALL files for this game in the queue have finished downloading!
       console.log(`[Direct Download Queue] All files for "${finishedTitle}" have finished downloading!`);
 
-      // Auto-extract archives (.zip, .rar, multipart rar) into the same folder and delete source archives
-      try {
-        await autoExtractAndCleanGameFolder(gameFolder, finishedTitle);
-      } catch (extractErr) {
-        console.error(`[PC Games] Error during auto-extract for "${finishedTitle}":`, extractErr.message);
-      }
-
       broadcastEvent('torrent_completed', {
         id: finishedId,
         title: finishedTitle,
         folder: downloadsFolder,
-        message: `Finished downloading and extracting "${finishedTitle}" into your Downloads folder!`
+        message: `Finished downloading "${finishedTitle}" into your Downloads folder!`
       });
       broadcastEvent('torrent_queue_update', { queue: torrentQueue, active: null });
 
@@ -1195,20 +915,11 @@ export function createDownloadQueue({ getDownloadsFolder, broadcastEvent: broadc
         }
         saveTorrentQueue();
 
-        // Automatically extract archives (.zip, .rar, multipart rar) in the torrent's folder if any are present
-        const torrentFolder = path.join(downloadsFolder, sanitizeFolderName(torrent.name || cleanPcGameTitle(next.title) || next.title));
-        const targetExtractFolder = fs.existsSync(torrentFolder) ? torrentFolder : downloadsFolder;
-        try {
-          await autoExtractAndCleanGameFolder(targetExtractFolder, finishedTitle);
-        } catch (extractErr) {
-          console.error(`[PC Games] Error during auto-extract for torrent "${finishedTitle}":`, extractErr.message);
-        }
-
         broadcastEvent('torrent_completed', {
           id: finishedId,
           title: finishedTitle,
           folder: downloadsFolder,
-          message: `Finished downloading and extracting "${finishedTitle}" into your Downloads folder!`
+          message: `Finished downloading "${finishedTitle}" into your Downloads folder!`
         });
         broadcastEvent('torrent_queue_update', { queue: torrentQueue, active: null });
 
@@ -1625,5 +1336,3 @@ export function createDownloadQueue({ getDownloadsFolder, broadcastEvent: broadc
 
   return queueApi;
 }
-
-export { autoExtractAndCleanGameFolder };

@@ -725,7 +725,7 @@
             <span class="brand-title">FREEPLAY</span>
             <span class="brand-subtitle">DOWNLOADER</span>
           </div>
-          <span class="brand-desc">FitGirl repacks &bull; SteamRIP PC &bull; Romslab Switch ROMs &bull; 1 download at a time &bull; auto-extract</span>
+          <span class="brand-desc">FitGirl repacks &bull; SteamRIP PC &bull; Romslab Switch ROMs &bull; 1 download at a time</span>
         </div>
       </div>
 
@@ -754,7 +754,7 @@
           <span id="pcTorrentQueueBadge" style="font-size: 11px; padding: 1px 6px; border-radius: 2px; background: #1c2b3d; border: 1px solid #31a8ff; color: #5ec5ff; font-family: 'JetBrains Mono', monospace; font-weight: 700;">0</span>
         </div>
         <span style="font-size: 11px; color: var(--text-muted);">
-          Folder: <code id="queueFolderLabel" style="color: #31a8ff; font-family: 'JetBrains Mono', monospace;">Downloads</code> &bull; 1 download at a time &bull; auto-extracts when complete
+          Folder: <code id="queueFolderLabel" style="color: #31a8ff; font-family: 'JetBrains Mono', monospace;">Downloads</code> &bull; 1 download at a time
         </span>
       </div>
 
@@ -1114,7 +1114,7 @@
         <button class="btn btn-secondary btn-sm" onclick="closeDownloadsFolderModal()">✕ Close</button>
       </div>
       <div style="font-size: 11.5px; color: var(--text-muted);">
-        Choose where all downloads are saved. Torrents and direct downloads land in a sub-folder per game, and archives are auto-extracted.
+        Choose where all downloads are saved. Torrents and direct downloads land in your downloads folder.
       </div>
       <div class="input-group" style="margin-top: 4px;">
         <input type="text" id="downloadsFolderInput" placeholder="C:\Users\you\Downloads\Games" onkeydown="if(event.key==='Enter') saveDownloadsFolderFromInput()" style="flex: 1;">
@@ -2845,22 +2845,6 @@
           try {
             var d = JSON.parse(e.data);
             showToast('Finished downloading "' + (d.title || 'Game') + '"!', 'success');
-            refreshPcTorrentQueueUI();
-          } catch (_) {}
-        });
-
-        evtSource.addEventListener('extraction_progress', function(e) {
-          try {
-            var d = JSON.parse(e.data);
-            var titleSpan = document.getElementById('pcActiveDlTitle');
-            if (titleSpan) titleSpan.textContent = '📦 Extracting: ' + (d.title || '') + ' (' + (d.progress || 0) + '%)';
-          } catch (_) {}
-        });
-
-        evtSource.addEventListener('extraction_complete', function(e) {
-          try {
-            var d = JSON.parse(e.data);
-            showToast('Auto-extracted "' + (d.title || 'Game') + '" into your downloads folder!', 'success');
             refreshPcTorrentQueueUI();
           } catch (_) {}
         });

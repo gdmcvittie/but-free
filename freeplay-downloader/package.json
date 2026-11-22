@@ -16,9 +16,6 @@
     "build": "npm run electron:build"
   },
   "dependencies": {
-    "7zip-bin": "^5.2.0",
-    "7zip-min": "^3.0.1",
-    "adm-zip": "^0.6.0",
     "express": "^5.2.1",
     "webtorrent": "^2.6.2"
   },
@@ -39,9 +36,7 @@
       "electron-main.js",
       "lib/**/*",
       "stream/**/*",
-      "public/**/*",
-      "node_modules/7zip-bin/**/*",
-      "node_modules/7zip-min/**/*"
+      "public/**/*"
     ],
     "protocols": [
       {
@@ -50,7 +45,6 @@
       }
     ],
     "asar": true,
-    "asarUnpack": ["**/node_modules/7zip-bin/**/*"],
     "win": {
       "target": ["portable", "nsis"],
       "requestedExecutionLevel": "asInvoker"
