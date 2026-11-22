@@ -404,6 +404,8 @@
     .badge-wii, .badge-wiiu { background: #14222b; color: #bae6fd; border: 1px solid #21455c; }
     .badge-3ds, .badge-nds { background: #26141c; color: #fecdd3; border: 1px solid #571e35; }
     .badge-gba, .badge-gbc, .badge-gb { background: #1e1a2b; color: #b8b1f5; border: 1px solid #43376e; }
+    .badge-steamrip { background: #14241e; color: #86efac; border: 1px solid #166534; }
+    .badge-size { background: #261c14; color: #fdba74; border: 1px solid #7c2d12; }
 
     /* ── Feed Grid ── */
     .pc-rss-grid {
@@ -723,7 +725,7 @@
             <span class="brand-title">FREEPLAY</span>
             <span class="brand-subtitle">DOWNLOADER</span>
           </div>
-          <span class="brand-desc">FitGirl repacks &bull; Romslab Switch ROMs &bull; 1 download at a time &bull; auto-extract</span>
+          <span class="brand-desc">FitGirl repacks &bull; SteamRIP PC &bull; Romslab Switch ROMs &bull; 1 download at a time &bull; auto-extract</span>
         </div>
       </div>
 
@@ -793,10 +795,10 @@
       <!-- Manual Direct Link / Magnet / Romslab link input -->
       <div style="background: #181818; border: 1px solid #2d2d2d; border-radius: 3px; padding: 9px 12px; margin-top: 4px;">
         <div style="font-size: 11px; font-weight: 700; color: #a0a0a0; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.3px;">
-          🔗 Paste magnet, direct file mirror, or Romslab game page URL (handled by freeplayDL://):
+          🔗 Paste magnet, direct file mirror, SteamRIP, or Romslab game page URL (handled by freeplayDL://):
         </div>
         <div class="input-group" style="margin-bottom: 0;">
-          <input type="text" id="manualLinkInput" placeholder="magnet:?xt=urn:btih:... or https://romslab.com/... or https://fuckingfast.co/..." onkeydown="if(event.key==='Enter') queueManualLink()" style="flex: 1;">
+          <input type="text" id="manualLinkInput" placeholder="magnet:?xt=urn:btih:... or https://steamrip.com/... or https://romslab.com/... or https://bzzhr.to/..." onkeydown="if(event.key==='Enter') queueManualLink()" style="flex: 1;">
           <button class="btn btn-primary btn-sm" id="btnQueueManual" onclick="queueManualLink()">📥 Add to Queue</button>
         </div>
       </div>
@@ -804,12 +806,16 @@
 
     <!-- ── Discovery Repository Card ── -->
     <div class="card" id="pcRssSection">
-      <!-- Top Source Selector (FitGirl vs Romslab) -->
+      <!-- Top Source Selector (FitGirl vs SteamRIP vs Romslab) -->
       <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; border-bottom: 1px solid #2d2d2d; padding-bottom: 12px;">
         <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
           <button class="filter-chip active" id="tabModeFitgirl" onclick="switchFeedMode('fitgirl')">
             <span class="console-key">💻 FITGIRL REPACKS (PC)</span>
             <span class="filter-chip-count" id="badgeFitgirlCount">0</span>
+          </button>
+          <button class="filter-chip" id="tabModeSteamrip" onclick="switchFeedMode('steamrip')">
+            <span class="console-key">⚡ STEAMRIP (PRE-INSTALLED PC)</span>
+            <span class="filter-chip-count" id="badgeSteamripCount">0</span>
           </button>
           <button class="filter-chip" id="tabModeRomslab" onclick="switchFeedMode('romslab')">
             <span class="console-key">🕹️ ROMSLAB ROMS (SWITCH &amp; CONSOLES)</span>
@@ -908,6 +914,67 @@
         <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap;">
           <span style="font-size: 11px; color: var(--text-muted);">Romslab Nintendo Switch &amp; Console ROMs feed</span>
           <span id="romslabItemsCount" style="font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;">0 ROMs</span>
+        </div>
+      </div>
+
+      <!-- SteamRIP Controls Bar -->
+      <div id="steamripControls" style="display: none;">
+        <!-- SteamRIP Category Filter Chips -->
+        <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 10px;">
+          <span style="font-size: 10.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-right: 4px;">CATEGORIES:</span>
+          <button class="filter-chip steamrip-cat-chip active" data-category="top-games" onclick="setSteamripCategory('top-games')">
+            <span class="console-key">⭐ TOP GAMES</span>
+          </button>
+          <button class="filter-chip steamrip-cat-chip" data-category="updates" onclick="setSteamripCategory('updates')">
+            <span class="console-key">🔄 RECENT UPDATES</span>
+          </button>
+          <button class="filter-chip steamrip-cat-chip" data-category="" onclick="setSteamripCategory('')">
+            <span class="console-key">ALL GAMES</span>
+          </button>
+          <button class="filter-chip steamrip-cat-chip" data-category="action" onclick="setSteamripCategory('action')">
+            <span class="console-key">ACTION</span>
+          </button>
+          <button class="filter-chip steamrip-cat-chip" data-category="adventure" onclick="setSteamripCategory('adventure')">
+            <span class="console-key">ADVENTURE</span>
+          </button>
+          <button class="filter-chip steamrip-cat-chip" data-category="rpg" onclick="setSteamripCategory('rpg')">
+            <span class="console-key">RPG</span>
+          </button>
+          <button class="filter-chip steamrip-cat-chip" data-category="strategy" onclick="setSteamripCategory('strategy')">
+            <span class="console-key">STRATEGY</span>
+          </button>
+          <button class="filter-chip steamrip-cat-chip" data-category="indie" onclick="setSteamripCategory('indie')">
+            <span class="console-key">INDIE</span>
+          </button>
+          <button class="filter-chip steamrip-cat-chip" data-category="open-world" onclick="setSteamripCategory('open-world')">
+            <span class="console-key">OPEN WORLD</span>
+          </button>
+          <button class="filter-chip steamrip-cat-chip" data-category="shooting" onclick="setSteamripCategory('shooting')">
+            <span class="console-key">FPS / SHOOTERS</span>
+          </button>
+          <button class="filter-chip steamrip-cat-chip" data-category="simulation" onclick="setSteamripCategory('simulation')">
+            <span class="console-key">SIMULATION</span>
+          </button>
+          <button class="filter-chip steamrip-cat-chip" data-category="vr" onclick="setSteamripCategory('vr')">
+            <span class="console-key">VR</span>
+          </button>
+        </div>
+
+        <!-- SteamRIP Search Input -->
+        <div style="background: #1a1a1a; border: 1px solid #2d2d2d; border-radius: 3px; padding: 10px 12px; margin-bottom: 8px;">
+          <div style="font-size: 11px; font-weight: 700; color: #31a8ff; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+            <span>⚡ SEARCH STEAMRIP PRE-INSTALLED PC GAMES:</span>
+            <button class="btn btn-secondary btn-sm" onclick="clearSteamripSearch()" style="padding: 2px 7px; font-size: 10.5px;">✕ Clear Search</button>
+          </div>
+          <div class="input-group">
+            <input type="text" id="steamripSearchInput" placeholder="Search SteamRIP (e.g. Cyberpunk, God of War, Elden Ring, Black Myth, GTA, Hades)..." onkeydown="if(event.key==='Enter') searchSteamrip()" style="flex: 1;">
+            <button class="btn btn-primary btn-sm" id="btnSteamripSearch" onclick="searchSteamrip()">🔍 Search SteamRIP</button>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap;">
+          <span style="font-size: 11px; color: var(--text-muted);">SteamRIP Pre-installed PC Games feed (Buzzheavier &amp; Direct Mirrors)</span>
+          <span id="steamripItemsCount" style="font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;">0 Games</span>
         </div>
       </div>
 
@@ -1342,44 +1409,56 @@
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // Mode Switcher: FitGirl vs Romslab
+    // Mode Switcher: FitGirl vs SteamRIP vs Romslab
     // ══════════════════════════════════════════════════════════════════════
-    var activeFeedMode = 'fitgirl'; // 'fitgirl' or 'romslab'
+    var activeFeedMode = 'fitgirl'; // 'fitgirl', 'steamrip', or 'romslab'
     var pcRssFeedItems = [];
     var romslabFeedItems = [];
+    var steamripFeedItems = [];
     var romslabPlatform = '';
     var romslabSearchQuery = '';
+    var steamripCategory = 'top-games';
+    var steamripSearchQuery = '';
 
     function switchFeedMode(mode) {
       activeFeedMode = mode;
       var tabFg = document.getElementById('tabModeFitgirl');
+      var tabSr = document.getElementById('tabModeSteamrip');
       var tabRom = document.getElementById('tabModeRomslab');
       var fgControls = document.getElementById('fitgirlControls');
+      var srControls = document.getElementById('steamripControls');
       var romControls = document.getElementById('romslabControls');
 
-      if (mode === 'romslab') {
-        if (tabFg) tabFg.classList.remove('active');
-        if (tabRom) tabRom.classList.add('active');
-        if (fgControls) fgControls.style.display = 'none';
-        if (romControls) romControls.style.display = 'block';
+      [tabFg, tabSr, tabRom].forEach(function(t) { if (t) t.classList.remove('active'); });
+      [fgControls, srControls, romControls].forEach(function(c) { if (c) c.style.display = 'none'; });
 
+      if (mode === 'steamrip') {
+        if (tabSr) tabSr.classList.add('active');
+        if (srControls) srControls.style.display = 'block';
+        if (steamripFeedItems.length === 0) {
+          loadSteamripFeed();
+        } else {
+          renderSteamripGrid(steamripFeedItems);
+        }
+      } else if (mode === 'romslab') {
+        if (tabRom) tabRom.classList.add('active');
+        if (romControls) romControls.style.display = 'block';
         if (romslabFeedItems.length === 0) {
           loadRomslabFeed();
         } else {
           renderRomslabGrid(romslabFeedItems);
         }
       } else {
-        if (tabRom) tabRom.classList.remove('active');
         if (tabFg) tabFg.classList.add('active');
-        if (romControls) romControls.style.display = 'none';
         if (fgControls) fgControls.style.display = 'block';
-
         applyPcRssFiltersAndRender();
       }
     }
 
     function refreshCurrentFeed() {
-      if (activeFeedMode === 'romslab') {
+      if (activeFeedMode === 'steamrip') {
+        loadSteamripFeed(true);
+      } else if (activeFeedMode === 'romslab') {
         loadRomslabFeed(true);
       } else {
         loadPcRssFeed(null, true);
@@ -1627,6 +1706,170 @@
     }
 
     // ══════════════════════════════════════════════════════════════════════
+    // SteamRIP Controller (Pre-installed Steam PC Games)
+    // ══════════════════════════════════════════════════════════════════════
+    async function loadSteamripFeed(force) {
+      var grid = document.getElementById('pcRssGrid');
+      var btn = document.getElementById('btnSteamripSearch');
+
+      if (activeFeedMode === 'steamrip') {
+        grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 40px 20px; color: var(--text-muted);">' +
+                         '<div style="font-size: 26px; margin-bottom: 6px;">⏳</div>Fetching SteamRIP pre-installed games...</div>';
+      }
+
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ Searching...';
+      }
+
+      try {
+        var params = new URLSearchParams();
+        if (steamripSearchQuery) params.set('q', steamripSearchQuery);
+        if (steamripCategory) params.set('category', steamripCategory);
+        if (force) params.set('refresh', 'true');
+        var qs = params.toString() ? ('?' + params.toString()) : '';
+
+        var res = await fetch('/api/steamrip/feed' + qs);
+        var data = await res.json();
+
+        if (!data || !data.success || !data.feed) {
+          throw new Error((data && data.error) ? data.error : 'Failed to fetch SteamRIP feed');
+        }
+
+        steamripFeedItems = data.feed.items || [];
+        var countBadge = document.getElementById('badgeSteamripCount');
+        if (countBadge) countBadge.textContent = steamripFeedItems.length;
+
+        var countLabel = document.getElementById('steamripItemsCount');
+        if (countLabel) countLabel.textContent = steamripFeedItems.length + ' Games';
+
+        if (activeFeedMode === 'steamrip') {
+          renderSteamripGrid(steamripFeedItems);
+        }
+      } catch (err) {
+        if (activeFeedMode === 'steamrip') {
+          grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 30px 20px; color: #f87171;">' +
+                           '<div style="font-size: 26px; margin-bottom: 6px;">⚠️</div>Failed to load SteamRIP feed: ' + err.message + '</div>';
+        }
+        showToast('Error loading SteamRIP feed: ' + err.message, 'error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '🔍 Search SteamRIP';
+        }
+      }
+    }
+
+    function searchSteamrip() {
+      var input = document.getElementById('steamripSearchInput');
+      steamripSearchQuery = input ? input.value.trim() : '';
+      loadSteamripFeed();
+    }
+
+    function clearSteamripSearch() {
+      var input = document.getElementById('steamripSearchInput');
+      if (input) input.value = '';
+      steamripSearchQuery = '';
+      loadSteamripFeed();
+    }
+
+    function setSteamripCategory(catKey) {
+      steamripCategory = catKey;
+      document.querySelectorAll('.steamrip-cat-chip').forEach(function(chip) {
+        if (chip.dataset.category === catKey) {
+          chip.classList.add('active');
+        } else {
+          chip.classList.remove('active');
+        }
+      });
+      loadSteamripFeed();
+    }
+
+    function renderSteamripGrid(items) {
+      if (activeFeedMode !== 'steamrip') return;
+      var grid = document.getElementById('pcRssGrid');
+      if (!items || items.length === 0) {
+        grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 40px 20px; color: var(--text-muted);">' +
+                         'No SteamRIP releases found matching your search.</div>';
+        return;
+      }
+
+      grid.innerHTML = '';
+      items.forEach(function(item) {
+        var card = document.createElement('div');
+        card.className = 'pc-rss-card';
+
+        var mediaHtml = '';
+        if (item.thumbnail) {
+          var safeThumb = String(item.thumbnail).replace(/"/g, '&quot;');
+          var proxySrc = '/api/proxy-image?url=' + encodeURIComponent(item.thumbnail);
+          var safeProxy = proxySrc.replace(/"/g, '&quot;');
+          mediaHtml = '<div class="pc-rss-media-wrap">' +
+                      '  <img src="' + safeThumb + '" alt="" class="pc-rss-img" loading="lazy" referrerpolicy="no-referrer" data-proxy="' + safeProxy + '" onerror="handlePcRssImgError(this)" />' +
+                      '  <span class="pc-rss-console-tag badge-console badge-steamrip">STEAM PRE-INSTALLED</span>' +
+                      (item.size ? '<span class="pc-rss-date-badge" style="background:#261c14;color:#fdba74;border:1px solid #7c2d12;">' + item.size + '</span>' : '') +
+                      '</div>';
+        } else {
+          mediaHtml = '<div class="pc-rss-media-wrap" style="display:flex;align-items:center;justify-content:center;background:#181818;">' +
+                      '  <span style="font-size:36px;color:#555;">⚡</span>' +
+                      '  <span class="pc-rss-console-tag badge-console badge-steamrip">STEAM PRE-INSTALLED</span>' +
+                      (item.size ? '<span class="pc-rss-date-badge" style="background:#261c14;color:#fdba74;border:1px solid #7c2d12;">' + item.size + '</span>' : '') +
+                      '</div>';
+        }
+
+        var content = document.createElement('div');
+        content.className = 'pc-rss-content';
+
+        var metaRow = document.createElement('div');
+        metaRow.className = 'pc-rss-meta-row';
+        var catText = (item.categories && item.categories.length > 0) ? item.categories.slice(0, 2).join(' • ') : 'Pre-installed PC';
+        metaRow.innerHTML = '<span>' + catText + '</span><span>SteamRIP</span>';
+        content.appendChild(metaRow);
+
+        var titleEl = document.createElement('div');
+        titleEl.className = 'pc-rss-title';
+        titleEl.textContent = item.title || 'Untitled Steam Game';
+        titleEl.title = item.rawTitle || item.title || '';
+        content.appendChild(titleEl);
+
+        var descEl = document.createElement('div');
+        descEl.className = 'pc-rss-desc';
+        descEl.textContent = item.rawTitle || item.excerpt || 'Pre-installed Steam PC game with direct mirrors.';
+        content.appendChild(descEl);
+
+        var footer = document.createElement('div');
+        footer.className = 'pc-rss-footer';
+
+        var linksBtn = document.createElement('button');
+        linksBtn.className = 'btn btn-primary btn-sm';
+        linksBtn.textContent = '⚡ Mirrors';
+        linksBtn.title = 'Scrape direct Buzzheavier & FileDitch download mirrors from SteamRIP';
+        linksBtn.onclick = function() {
+          openPcScrapeModal(item.link, item.title, []);
+        };
+        footer.appendChild(linksBtn);
+
+        if (item.link) {
+          var extLink = document.createElement('a');
+          extLink.className = 'btn btn-secondary btn-sm';
+          extLink.style.marginLeft = 'auto';
+          extLink.style.padding = '4px 7px';
+          extLink.title = 'Open post in browser';
+          extLink.href = item.link;
+          extLink.target = '_blank';
+          extLink.rel = 'noopener noreferrer';
+          extLink.textContent = '↗';
+          footer.appendChild(extLink);
+        }
+
+        content.appendChild(footer);
+        card.innerHTML = mediaHtml;
+        card.appendChild(content);
+        grid.appendChild(card);
+      });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
     // Romslab Controller (Switch & Console ROMs)
     // ══════════════════════════════════════════════════════════════════════
     function getConsoleBadgeClass(platform) {
@@ -1825,7 +2068,8 @@
         if (selectedHoster !== 'all') {
           var isMag = l.isMagnet || (l.url && l.url.indexOf('magnet:') === 0);
           if (selectedHoster === 'magnet' && !isMag) return false;
-          if (selectedHoster !== 'magnet' && l.hoster !== selectedHoster) return false;
+          var hName = l.hosterName || l.hoster;
+          if (selectedHoster !== 'magnet' && l.hoster !== selectedHoster && hName !== selectedHoster) return false;
         }
         if (query) {
           var text = ((l.title || '') + ' ' + (l.hoster || '') + ' ' + (l.url || '')).toLowerCase();
@@ -1862,8 +2106,25 @@
         hosterTag.className = 'badge-console';
         hosterTag.style.fontSize = '10px';
         hosterTag.style.padding = '2px 5px';
-        hosterTag.textContent = l.hoster || (l.isMagnet ? 'MAGNET' : 'MIRROR');
+        hosterTag.textContent = l.hosterName || l.hoster || (l.isMagnet ? 'MAGNET' : 'MIRROR');
+        if (l.recommended) {
+          hosterTag.style.background = '#14241e';
+          hosterTag.style.color = '#86efac';
+          hosterTag.style.borderColor = '#166534';
+        }
         titleRow.appendChild(hosterTag);
+
+        if (l.badge) {
+          var badgeSpan = document.createElement('span');
+          badgeSpan.className = 'badge-console';
+          badgeSpan.style.fontSize = '9.5px';
+          badgeSpan.style.padding = '1px 5px';
+          badgeSpan.style.background = '#111e2e';
+          badgeSpan.style.color = '#38bdf8';
+          badgeSpan.style.borderColor = '#0369a1';
+          badgeSpan.textContent = l.badge;
+          titleRow.appendChild(badgeSpan);
+        }
 
         if (l.partLabel) {
           var partSpan = document.createElement('span');
@@ -1987,7 +2248,7 @@
       if (!sel) return;
       var counts = {};
       (links || []).forEach(function(l) {
-        var h = l.hoster || (l.isMagnet ? 'MAGNET' : 'Direct Link');
+        var h = l.hosterName || l.hoster || (l.isMagnet ? 'MAGNET' : 'Direct Link');
         counts[h] = (counts[h] || 0) + 1;
       });
 
@@ -2046,7 +2307,8 @@
         if (selectedHoster !== 'all') {
           var isMag = l.isMagnet || (l.url && l.url.indexOf('magnet:') === 0);
           if (selectedHoster === 'magnet' && !isMag) return false;
-          if (selectedHoster !== 'magnet' && l.hoster !== selectedHoster) return false;
+          var hName = l.hosterName || l.hoster;
+          if (selectedHoster !== 'magnet' && l.hoster !== selectedHoster && hName !== selectedHoster) return false;
         }
         if (query) {
           var text = ((l.title || '') + ' ' + (l.hoster || '') + ' ' + (l.url || '')).toLowerCase();

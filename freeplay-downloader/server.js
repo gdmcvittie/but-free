@@ -3,6 +3,11 @@
 // downloads folder once; every torrent / direct download lands there and is
 // auto-extracted when it finishes.
 
+import { patchWebTorrent } from './scripts/patch-webtorrent.js';
+try {
+  patchWebTorrent();
+} catch (_) {}
+
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
@@ -11,6 +16,7 @@ import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
 import { registerPcRssRoutes, fetchAndCacheFeed } from './stream/pc-rss.js';
 import { fetchRomslabFeed } from './stream/romslab.js';
+import { isSteamripUrl, fetchSteamripFeed } from './stream/steamrip.js';
 import { createDownloadQueue } from './stream/download-queue.js';
 import { electronBridge } from './lib/electron-bridge.js';
 
@@ -165,6 +171,9 @@ async function sweepRssFeeds() {
       lastRssSweep = Date.now();
       await fetchAndCacheFeed('https://fitgirl-repacks.site/feed/', { retentionMonths, forceRefresh: true });
       await fetchRomslabFeed({ retentionMonths, forceRefresh: true, pagesCount: 6, dataDir });
+      if (electronBridge.available()) {
+        await fetchSteamripFeed({ retentionMonths, forceRefresh: true, categoryFilter: 'top-games', dataDir }).catch(() => {});
+      }
     }
   } catch (err) {
     console.warn('[RSS Worker] Background sweep error:', err.message);
@@ -391,6 +400,7 @@ export function parseFreeplayDeepLink(rawUrl) {
 }
 
 function deepLinkLooksLikeDirectFile(url) {
+  if (isSteamripUrl(url)) return false;
   if (/^magnet:/i.test(url)) return true;
   if (/\.torrent([?#].*)?$/i.test(url)) return true;
   try {
@@ -399,7 +409,7 @@ function deepLinkLooksLikeDirectFile(url) {
     if (/\.(rar|zip|7z|iso|exe|msi|bin|img|apk|dmg|patch|rom|tar|gz|bz2|xz)([?#].*)?$/i.test(path)) return true;
     if (/\/dl\//i.test(path)) return true;
     if (/:8443\/d\//.test(url) || /datanodes\.to/.test(url) || /fuckingfast\.co/i.test(url) ||
-        /mediafire\.com|mega\.nz|1fichier\.com|rapidgator\.net|gofile\.io|krakenfiles\.com|pixeldrain\.com|buzzheavier\.com|multiupload\.io|multiupload\.biz|mirrorace\.org|dropgalaxy\.com|uploadhaven\.com|send\.cm|bowfile\.com|hexupload\.net|qiwi\.gg|filekeeper\.net/i.test(url)) return true;
+        /mediafire\.com|mega\.nz|1fichier\.com|rapidgator\.net|gofile\.io|krakenfiles\.com|pixeldrain\.com|buzzheavier\.com|bzzhr\.to|fileditch|itsfileditchfiles\.st|multiupload\.io|multiupload\.biz|mirrorace\.org|dropgalaxy\.com|uploadhaven\.com|send\.cm|bowfile\.com|hexupload\.net|qiwi\.gg|filekeeper\.net/i.test(url)) return true;
   } catch (_) {}
   return false;
 }

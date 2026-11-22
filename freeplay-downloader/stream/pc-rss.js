@@ -19,6 +19,11 @@ import {
   scrapeRomslabPost,
   isRomslabUrl
 } from './romslab.js';
+import {
+  fetchSteamripFeed,
+  scrapeSteamripPost,
+  isSteamripUrl
+} from './steamrip.js';
 
 const SCRAPE_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
@@ -363,6 +368,37 @@ export function registerPcRssRoutes(app, options = {}) {
     }
   });
 
+  // 1d. SteamRIP Feed: /api/steamrip/feed?query=...&category=...&page=...
+  app.get('/api/steamrip/feed', async (req, res) => {
+    try {
+      const forceRefresh = req.query.refresh === 'true' || req.query.force === 'true';
+      const query = (req.query.q || req.query.query || '').trim();
+      const categoryFilter = (req.query.category || req.query.cat || '').trim();
+      const retentionMonths = parseInt(req.query.retentionMonths || (options.getConfig && options.getConfig().rssRetentionMonths), 10) || 3;
+      const page = parseInt(req.query.page, 10) || 1;
+      const dataDir = options.dataDir;
+
+      const feed = await fetchSteamripFeed({ forceRefresh, query, categoryFilter, retentionMonths, page, dataDir });
+      res.json({ success: true, feed });
+    } catch (err) {
+      console.error('[SteamRIP API] Feed error:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 1e. SteamRIP Post Scraper: /api/steamrip/scrape?url=<postUrl>
+  app.get('/api/steamrip/scrape', async (req, res) => {
+    try {
+      const pageUrl = (req.query.url || '').trim();
+      if (!pageUrl) return res.status(400).json({ success: false, error: 'URL is required' });
+      const data = await scrapeSteamripPost(pageUrl);
+      res.json({ success: true, ...data });
+    } catch (err) {
+      console.error('[SteamRIP API] Scrape error:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // FitGirl Availability Cache & Matching
   const fitgirlAvailabilityCache = new Map();
   const FITGIRL_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
@@ -576,6 +612,18 @@ export function registerPcRssRoutes(app, options = {}) {
           gameSize: romslabData.size || null,
           gameSizeBytes: romslabData.size ? parseSizeStringToBytes(romslabData.size) : null,
           links: romslabData.links
+        });
+      }
+
+      if (isSteamripUrl(pageUrl)) {
+        const steamripData = await scrapeSteamripPost(pageUrl);
+        return res.json({
+          success: true,
+          url: pageUrl,
+          title: steamripData.title,
+          gameSize: steamripData.size || null,
+          gameSizeBytes: steamripData.size ? parseSizeStringToBytes(steamripData.size) : null,
+          links: steamripData.links
         });
       }
       async function fetchHtmlWithHeaders(url) {

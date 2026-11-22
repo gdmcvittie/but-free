@@ -15,6 +15,7 @@ import { unpack7z, detectArchiveFileType } from './archive.js';
 import { isFuckingFastLandingPage, resolveFuckingFastUrl } from './fuckingfast-resolver.js';
 import { isFileKeeperLandingPage, resolveFileKeeperUrl } from './filekeeper-resolver.js';
 import { isDataNodesLandingPage, resolveDataNodesUrl } from './datanodes-resolver.js';
+import { isBuzzheavierLandingPage, resolveBuzzheavierUrl } from './buzzheavier-resolver.js';
 import { classifyDownloadUrl, extractMagnetName } from './link-utils.js';
 import { getWebTorrentClient, resolveTorrentId, inspectTorrentFiles } from './torrent-engine.js';
 
@@ -578,6 +579,10 @@ export function createDownloadQueue({ getDownloadsFolder, broadcastEvent: broadc
           reqHeaders['Referer'] = 'https://fuckingfast.co/';
         } else if (parsedUrl.hostname && (parsedUrl.hostname.includes('filekeeper.net') || parsedUrl.hostname.includes('datanodes.to'))) {
           reqHeaders['Referer'] = 'https://romslab.com/';
+        } else if (parsedUrl.hostname && (parsedUrl.hostname.includes('bzzhr.to') || parsedUrl.hostname.includes('buzzheavier.com'))) {
+          reqHeaders['Referer'] = 'https://bzzhr.to/';
+        } else if (parsedUrl.hostname && (parsedUrl.hostname.includes('fileditch') || parsedUrl.hostname.includes('itsfileditchfiles.st'))) {
+          reqHeaders['Referer'] = 'https://steamrip.com/';
         }
 
         const req = client.get(parsedUrl, {
@@ -835,6 +840,46 @@ export function createDownloadQueue({ getDownloadsFolder, broadcastEvent: broadc
         console.warn(`[Direct Download Queue] FuckingFast auto-resolution failed for "${item.title}": ${resolveErr.message}`);
         item.status = 'error';
         item.errorMessage = 'FuckingFast link resolution failed. Click ↗ Open in Browser (click download twice to skip ad) then click 🔗 Paste Link.';
+        item.nextAttemptAt = null;
+        activeDirectPending = null;
+        activeTorrentItem = null;
+        saveTorrentQueue();
+        broadcastEvent('torrent_queue_update', { queue: torrentQueue, active: null });
+        broadcastEvent('torrent_failed', { id: item.id, title: item.title, message: item.errorMessage });
+        setTimeout(() => { processTorrentQueue(); }, 500);
+        return;
+      }
+    }
+
+    // 4. If this is a Buzzheavier landing page, automatically resolve to direct storage download link
+    if (isBuzzheavierLandingPage(item.url)) {
+      console.log(`[Direct Download Queue] Resolving Buzzheavier landing page for "${item.title}": ${item.url}`);
+      item.status = 'downloading';
+      item.errorMessage = 'Resolving Buzzheavier direct download link...';
+      saveTorrentQueue();
+      broadcastEvent('torrent_queue_update', { queue: torrentQueue, active: activeTorrentItem });
+
+      try {
+        const resolvedDirectUrl = await resolveBuzzheavierUrl(item.url);
+        if (cancelledDirectIds.has(item.id)) {
+          cancelledDirectIds.delete(item.id);
+          console.log(`[Direct Download Queue] Download cancelled during resolution for "${item.title}"`);
+          activeDirectPending = null;
+          activeTorrentItem = null;
+          setTimeout(() => { processTorrentQueue(); }, 200);
+          return;
+        }
+        if (resolvedDirectUrl && resolvedDirectUrl !== item.url) {
+          console.log(`[Direct Download Queue] Resolved Buzzheavier direct URL: ${resolvedDirectUrl}`);
+          item.url = resolvedDirectUrl;
+          item.errorMessage = null;
+          saveTorrentQueue();
+          broadcastEvent('torrent_queue_update', { queue: torrentQueue, active: activeTorrentItem });
+        }
+      } catch (resolveErr) {
+        console.warn(`[Direct Download Queue] Buzzheavier auto-resolution failed for "${item.title}": ${resolveErr.message}`);
+        item.status = 'error';
+        item.errorMessage = `Buzzheavier resolution: ${resolveErr.message}. Click ↗ Open in Browser to download or copy the direct stream URL.`;
         item.nextAttemptAt = null;
         activeDirectPending = null;
         activeTorrentItem = null;
