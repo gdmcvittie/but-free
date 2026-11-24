@@ -109,7 +109,7 @@ function saveSteamripCache(cache, dataDir) {
 /**
  * Loads a SteamRIP URL in an offscreen Electron window and runs extraction logic.
  */
-function runElectronPageExtraction(targetUrl, extractFnString, options = {}) {
+export function runElectronPageExtraction(targetUrl, extractFnString, options = {}) {
   return new Promise((resolve, reject) => {
     const electron = electronBridge?.electron;
     if (!electron || !electron.BrowserWindow) {

@@ -405,6 +405,13 @@
     .badge-3ds, .badge-nds { background: #26141c; color: #fecdd3; border: 1px solid #571e35; }
     .badge-gba, .badge-gbc, .badge-gb { background: #1e1a2b; color: #b8b1f5; border: 1px solid #43376e; }
     .badge-steamrip { background: #14241e; color: #86efac; border: 1px solid #166534; }
+    .badge-ovagames { background: #13271c; color: #86efac; border: 1px solid #166534; }
+    .badge-gload { background: #281d11; color: #fcd34d; border: 1px solid #78350f; }
+    .badge-onlinefix { background: #111e2f; color: #93c5fd; border: 1px solid #1e3a8a; }
+    .badge-scnlog { background: #241429; color: #d8b4fe; border: 1px solid #6b21a8; }
+    .badge-gogrev { background: #2b1322; color: #f472b6; border: 1px solid #831843; }
+    .badge-gogarchive { background: #17182e; color: #a5b4fc; border: 1px solid #3730a3; }
+    .badge-modernpc { background: #182226; color: #67e8f9; border: 1px solid #0e7490; }
     .badge-size { background: #261c14; color: #fdba74; border: 1px solid #7c2d12; }
 
     /* ── Feed Grid ── */
@@ -807,10 +814,10 @@
       <!-- Manual Direct Link / Magnet / Romslab link input -->
       <div style="background: #181818; border: 1px solid #2d2d2d; border-radius: 3px; padding: 9px 12px; margin-top: 4px;">
         <div style="font-size: 11px; font-weight: 700; color: #a0a0a0; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.3px;">
-          🔗 Paste magnet, direct file mirror, SteamRIP, or Romslab game page URL (handled by freeplayDL://):
+          🔗 Paste magnet, direct file mirror, SteamRIP, Romslab, OvaGames, GLOAD, or any DDL game page URL:
         </div>
         <div class="input-group" style="margin-bottom: 0;">
-          <input type="text" id="manualLinkInput" placeholder="magnet:?xt=urn:btih:... or https://steamrip.com/... or https://romslab.com/... or https://bzzhr.to/..." onkeydown="if(event.key==='Enter') queueManualLink()" style="flex: 1;">
+          <input type="text" id="manualLinkInput" placeholder="magnet:?xt=urn:btih:... or https://steamrip.com/... or https://ovagames.com/... or https://gload.cc/... or direct mirror..." onkeydown="if(event.key==='Enter') queueManualLink()" style="flex: 1;">
           <button class="btn btn-primary btn-sm" id="btnQueueManual" onclick="queueManualLink()">📥 Add to Queue</button>
         </div>
       </div>
@@ -818,7 +825,7 @@
 
     <!-- ── Discovery Repository Card ── -->
     <div class="card" id="pcRssSection">
-      <!-- Top Source Selector (FitGirl vs SteamRIP vs Romslab) -->
+      <!-- Top Source Selector (FitGirl vs SteamRIP vs Romslab vs Modern PC) -->
       <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; border-bottom: 1px solid #2d2d2d; padding-bottom: 12px;">
         <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
           <button class="filter-chip active" id="tabModeFitgirl" onclick="switchFeedMode('fitgirl')">
@@ -832,6 +839,10 @@
           <button class="filter-chip" id="tabModeRomslab" onclick="switchFeedMode('romslab')">
             <span class="console-key">🕹️ ROMSLAB ROMS (SWITCH &amp; CONSOLES)</span>
             <span class="filter-chip-count" id="badgeRomslabCount">0</span>
+          </button>
+          <button class="filter-chip" id="tabModeModernPc" onclick="switchFeedMode('modern-pc')">
+            <span class="console-key">🌐 MODERN PC DDL SITES</span>
+            <span class="filter-chip-count" id="badgeModernPcCount">21</span>
           </button>
         </div>
 
@@ -957,6 +968,40 @@
         <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap;">
           <span style="font-size: 11px; color: var(--text-muted);">SteamRIP Pre-installed PC Games feed (Buzzheavier &amp; Direct Mirrors)</span>
           <span id="steamripItemsCount" style="font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;">0 Games</span>
+        </div>
+      </div>
+
+      <!-- Modern PC Games DDL Controls Bar -->
+      <div id="modernPcControls" style="display: none;">
+        <!-- Modern PC Site Selector Row -->
+        <div style="background: #191919; border: 1px solid #2d2d2d; border-radius: 3px; padding: 10px 12px; margin-bottom: 10px;">
+          <div style="font-size: 10.5px; font-weight: 700; color: #31a8ff; text-transform: uppercase; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px;">
+            <span>🌐 SELECT MODERN PC DDL SOURCE (RENTRY MEGATHREAD):</span>
+            <span id="modernPcSourceMeta" style="font-size: 11px; color: #a0a0a0; font-weight: normal;"></span>
+          </div>
+          <div id="modernPcSiteChips" style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+            <!-- Populated dynamically with all 21 sites -->
+          </div>
+        </div>
+
+        <!-- Active Site Search & Info Bar -->
+        <div style="background: #1a1a1a; border: 1px solid #2d2d2d; border-radius: 3px; padding: 10px 12px; margin-bottom: 8px;">
+          <div style="font-size: 11px; font-weight: 700; color: #31a8ff; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+            <span id="modernPcSearchLabel">🔍 SEARCH PC GAMES:</span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <a id="modernPcOfficialLink" href="https://rentry.org/pgames#direct-download-ddl-sites" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" style="padding: 2px 7px; font-size: 10.5px;">↗ Visit Official Site</a>
+              <button class="btn btn-secondary btn-sm" onclick="clearModernPcSearch()" style="padding: 2px 7px; font-size: 10.5px;">✕ Reset to Latest</button>
+            </div>
+          </div>
+          <div class="input-group">
+            <input type="text" id="modernPcSearchInput" placeholder="Search modern PC games (e.g. Cyberpunk, Zelda, Elden Ring, GTA, Baldur's Gate)..." onkeydown="if(event.key==='Enter') searchModernPc()" style="flex: 1;">
+            <button class="btn btn-primary btn-sm" id="btnModernPcSearch" onclick="searchModernPc()">🔍 Search</button>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap;">
+          <span id="modernPcDescription" style="font-size: 11px; color: var(--text-muted);">Direct download PC game releases</span>
+          <span id="modernPcItemsCount" style="font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;">0 Games</span>
         </div>
       </div>
 
@@ -1393,7 +1438,7 @@
     // ══════════════════════════════════════════════════════════════════════
     // Mode Switcher: FitGirl vs SteamRIP vs Romslab
     // ══════════════════════════════════════════════════════════════════════
-    var activeFeedMode = 'fitgirl'; // 'fitgirl', 'steamrip', or 'romslab'
+    var activeFeedMode = 'fitgirl'; // 'fitgirl', 'steamrip', 'romslab', or 'modern-pc'
     var pcRssFeedItems = [];
     var romslabFeedItems = [];
     var steamripFeedItems = [];
@@ -1407,12 +1452,14 @@
       var tabFg = document.getElementById('tabModeFitgirl');
       var tabSr = document.getElementById('tabModeSteamrip');
       var tabRom = document.getElementById('tabModeRomslab');
+      var tabMod = document.getElementById('tabModeModernPc');
       var fgControls = document.getElementById('fitgirlControls');
       var srControls = document.getElementById('steamripControls');
       var romControls = document.getElementById('romslabControls');
+      var modControls = document.getElementById('modernPcControls');
 
-      [tabFg, tabSr, tabRom].forEach(function(t) { if (t) t.classList.remove('active'); });
-      [fgControls, srControls, romControls].forEach(function(c) { if (c) c.style.display = 'none'; });
+      [tabFg, tabSr, tabRom, tabMod].forEach(function(t) { if (t) t.classList.remove('active'); });
+      [fgControls, srControls, romControls, modControls].forEach(function(c) { if (c) c.style.display = 'none'; });
 
       if (mode === 'steamrip') {
         if (tabSr) tabSr.classList.add('active');
@@ -1430,6 +1477,15 @@
         } else {
           renderRomslabGrid(romslabFeedItems);
         }
+      } else if (mode === 'modern-pc') {
+        if (tabMod) tabMod.classList.add('active');
+        if (modControls) modControls.style.display = 'block';
+        initModernPcSites();
+        if (modernPcFeedItems.length === 0) {
+          loadModernPcFeed();
+        } else {
+          renderModernPcGrid(modernPcFeedItems);
+        }
       } else {
         if (tabFg) tabFg.classList.add('active');
         if (fgControls) fgControls.style.display = 'block';
@@ -1442,6 +1498,8 @@
         loadSteamripFeed(true);
       } else if (activeFeedMode === 'romslab') {
         loadRomslabFeed(true);
+      } else if (activeFeedMode === 'modern-pc') {
+        loadModernPcFeed(true);
       } else {
         loadPcRssFeed(null, true);
       }
@@ -2007,6 +2065,259 @@
         linksBtn.title = 'Deep scrape download links & mirrors from Romslab';
         linksBtn.onclick = function() {
           openPcScrapeModal(item.link, item.cleanTitle || item.title, []);
+        };
+        footer.appendChild(linksBtn);
+
+        if (item.link) {
+          var extLink = document.createElement('a');
+          extLink.className = 'btn btn-secondary btn-sm';
+          extLink.style.marginLeft = 'auto';
+          extLink.style.padding = '4px 7px';
+          extLink.title = 'Open post in browser';
+          extLink.href = item.link;
+          extLink.target = '_blank';
+          extLink.rel = 'noopener noreferrer';
+          extLink.textContent = '↗';
+          footer.appendChild(extLink);
+        }
+
+        content.appendChild(footer);
+        card.innerHTML = mediaHtml;
+        card.appendChild(content);
+        grid.appendChild(card);
+      });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // Modern PC Games DDL Controller (Rentry Megathread Sites)
+    // ══════════════════════════════════════════════════════════════════════
+    var activeModernPcSite = 'ovagames';
+    var modernPcFeedItems = [];
+    var modernPcSearchQuery = '';
+    var modernSitesList = [
+      { key: 'ovagames', name: 'OvaGames', badge: 'OVAGAMES', badgeColor: '#10b981', url: 'https://www.ovagames.com/', description: 'Pre-installed & ElAmigos PC Games (Google Drive, Datanodes, Mediafire)' },
+      { key: 'gload', name: 'GLOAD', badge: 'GLOAD', badgeColor: '#f59e0b', url: 'https://gload.cc/', description: 'Scene & P2P PC Game Releases (DDownload, Rapidgator, Buzzheavier)' },
+      { key: 'online-fix', name: 'Online-Fix', badge: 'ONLINE-FIX', badgeColor: '#3b82f6', url: 'https://online-fix.me/', description: 'Multiplayer & Co-op Steam/LAN Fixes and Game Releases' },
+      { key: 'steamrip', name: 'SteamRIP', badge: 'STEAMRIP', badgeColor: '#31a8ff', url: 'https://steamrip.com/', description: 'Pre-installed Steam PC Games (Buzzheavier & FileDitch Mirrors)' },
+      { key: 'scnlog', name: 'SCNLOG.ME', badge: 'SCNLOG', badgeColor: '#a855f7', url: 'https://scnlog.me/', description: 'Scene Release Logs & Direct Downloads (1fichier, Rapidgator)' },
+      { key: 'gog-rev', name: 'GoG Revived', badge: 'GOG REVIVED', badgeColor: '#ec4899', url: 'https://gog-rev.com/', description: 'DRM-Free GOG Installers, Goodies & Game Updates' },
+      { key: 'gog-archive', name: 'GOG Archive', badge: 'GOG ARCHIVE', badgeColor: '#6366f1', url: 'https://gog.squid.wtf/', description: 'Complete GOG Game Archive Directory (squid.wtf)' },
+      { key: 'ankergames', name: 'Ankergames', badge: 'ANKERGAMES', badgeColor: '#14b8a6', url: 'https://ankergames.net/', description: 'Direct PC Game Downloads & Repacks' },
+      { key: 'appnetica', name: 'Appnetica', badge: 'APPNETICA', badgeColor: '#8b5cf6', url: 'https://appnetica.com/', description: 'Clean PC Games and Software Downloads' },
+      { key: 'astralgames', name: 'AstralGames', badge: 'ASTRAL', badgeColor: '#06b6d4', url: 'https://astralgames.net/', description: 'Pre-installed & Repacked PC Game Downloads' },
+      { key: 'cracked-games', name: 'Cracked-Games', badge: 'CRACKED-G', badgeColor: '#ef4444', url: 'https://cracked-games.org/', description: 'Cracked PC Games & Scene Releases' },
+      { key: 'cs-rin-ru', name: 'CS.RIN.RU', badge: 'CS.RIN.RU', badgeColor: '#eab308', url: 'https://cs.rin.ru/forum/', description: 'Steam Underground Community Forum & Clean Steam Files' },
+      { key: 'cs-rin-gog', name: 'CS.RIN.RU GOG', badge: 'RIN GOG', badgeColor: '#ca8a04', url: 'https://cs.rin.ru/forum/viewtopic.php?f=38&t=136823', description: 'CS.RIN.RU GOG Games Complete Collection thread' },
+      { key: 'downloadha', name: 'DownloadHa', badge: 'DOWNLOADHA', badgeColor: '#10b981', url: 'https://www.downloadha.com/category/%d8%a8%d8%a7%d8%b2%db%8c-%da%a9%d8%a7%d9%85%d9%be%db%8c%d9%88%d8%aa%d8%b1-pc-computer-game/', description: 'PC Computer Game Direct Archive (Split RAR Mirrors)' },
+      { key: 'g4u', name: 'G4U', badge: 'G4U', badgeColor: '#f97316', url: 'https://g4u.to/', description: 'Games for You PC Scene Releases & Direct Mirrors' },
+      { key: 'gamebounty', name: 'GameBounty', badge: 'GAMEBOUNTY', badgeColor: '#84cc16', url: 'https://gamebounty.site/', description: 'PC Game Releases Direct Downloads' },
+      { key: 'rlsbb', name: 'RLSBB', badge: 'RLSBB', badgeColor: '#0ea5e9', url: 'https://rlsbb.ru/', description: 'Release BB Direct Download Mirrors & Scene Releases' },
+      { key: 'scene-cat', name: 'Scene.Cat', badge: 'SCENE.CAT', badgeColor: '#f43f5e', url: 'https://scene.cat/', description: 'Scene Releases & Fast Mirrors (formerly Gamesdrive)' },
+      { key: 'scene-rls', name: 'Scene Release', badge: 'SCENE-RLS', badgeColor: '#d946ef', url: 'https://scene-rls.net/', description: 'Scene Releases PC Game Mirrors' },
+      { key: 'torrminatorr', name: 'Torrminatorr', badge: 'TORRMINATORR', badgeColor: '#64748b', url: 'https://torrminatorr.com/', description: 'GOG & Linux Games Forum Community' },
+      { key: 'zeigames', name: 'ZeiGames', badge: 'ZEIGAMES', badgeColor: '#22c55e', url: 'https://zeigames.com/', description: 'Direct PC Games Catalogue & Downloads' }
+    ];
+
+    var modernSitesInitialized = false;
+    async function initModernPcSites() {
+      if (modernSitesInitialized) return;
+      modernSitesInitialized = true;
+      try {
+        var res = await fetch('/api/modern-pc/sites');
+        if (res.ok) {
+          var data = await res.json();
+          if (data && data.success && Array.isArray(data.sites) && data.sites.length > 0) {
+            modernSitesList = data.sites;
+          }
+        }
+      } catch (_) {}
+      renderModernPcSiteChips();
+      updateModernPcActiveSiteMeta();
+    }
+
+    function renderModernPcSiteChips() {
+      var container = document.getElementById('modernPcSiteChips');
+      if (!container) return;
+      container.innerHTML = '';
+      modernSitesList.forEach(function(site) {
+        var btn = document.createElement('button');
+        btn.className = 'filter-chip modern-site-chip' + (site.key === activeModernPcSite ? ' active' : '');
+        btn.dataset.site = site.key;
+        btn.onclick = function() {
+          selectModernPcSite(site.key);
+        };
+
+        var dot = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:5px;background:' + (site.badgeColor || '#31a8ff') + ';"></span>';
+        btn.innerHTML = dot + '<span class="console-key">' + site.name + '</span>';
+        container.appendChild(btn);
+      });
+    }
+
+    function updateModernPcActiveSiteMeta() {
+      var current = modernSitesList.find(function(s) { return s.key === activeModernPcSite; }) || modernSitesList[0];
+      if (!current) return;
+
+      var label = document.getElementById('modernPcSearchLabel');
+      if (label) label.textContent = '🔍 SEARCH ' + current.name.toUpperCase() + ':';
+
+      var input = document.getElementById('modernPcSearchInput');
+      if (input) input.placeholder = 'Search ' + current.name + ' (e.g. Cyberpunk, Zelda, Elden Ring, GTA, Baldur\'s Gate)...';
+
+      var meta = document.getElementById('modernPcSourceMeta');
+      if (meta) meta.textContent = current.name + ' • ' + (current.type === 'community' ? 'Community/Forum' : 'Direct Downloads');
+
+      var link = document.getElementById('modernPcOfficialLink');
+      if (link) {
+        link.href = current.url;
+        link.title = 'Open ' + current.name + ' in browser';
+        link.textContent = '↗ Visit ' + current.name;
+      }
+
+      var desc = document.getElementById('modernPcDescription');
+      if (desc) desc.textContent = current.description || 'Direct download PC game releases';
+    }
+
+    function selectModernPcSite(siteKey) {
+      if (siteKey === activeModernPcSite && !modernPcSearchQuery) return;
+      activeModernPcSite = siteKey;
+      modernPcSearchQuery = '';
+      var input = document.getElementById('modernPcSearchInput');
+      if (input) input.value = '';
+
+      document.querySelectorAll('.modern-site-chip').forEach(function(chip) {
+        if (chip.dataset.site === siteKey) {
+          chip.classList.add('active');
+        } else {
+          chip.classList.remove('active');
+        }
+      });
+
+      updateModernPcActiveSiteMeta();
+      loadModernPcFeed();
+    }
+
+    async function loadModernPcFeed(force) {
+      if (activeFeedMode !== 'modern-pc') return;
+
+      var grid = document.getElementById('pcRssGrid');
+      if (grid) {
+        grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 40px 20px; color: var(--text-muted);">' +
+                         '<div class="status-dot" style="display:inline-block; margin-right:8px;"></div>' +
+                         'Loading ' + (activeModernPcSite.toUpperCase()) + ' catalog...</div>';
+      }
+
+      try {
+        var params = new URLSearchParams();
+        params.set('site', activeModernPcSite);
+        if (modernPcSearchQuery) params.set('q', modernPcSearchQuery);
+        if (force) params.set('refresh', 'true');
+
+        var res = await fetch('/api/modern-pc/feed?' + params.toString());
+        var data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Failed to fetch modern PC feed');
+
+        modernPcFeedItems = (data.feed && data.feed.items) || [];
+
+        var countLabel = document.getElementById('modernPcItemsCount');
+        if (countLabel) countLabel.textContent = modernPcFeedItems.length + ' Games';
+
+        if (activeFeedMode === 'modern-pc') {
+          renderModernPcGrid(modernPcFeedItems);
+        }
+      } catch (err) {
+        if (activeFeedMode === 'modern-pc' && grid) {
+          grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 40px 20px; color: var(--accent-red);">' +
+                           '⚠️ Failed to load ' + activeModernPcSite + ' feed: ' + err.message +
+                           '<br/><button class="btn btn-secondary btn-sm" onclick="loadModernPcFeed(true)" style="margin-top:10px;">Retry</button></div>';
+        }
+      }
+    }
+
+    function searchModernPc() {
+      var input = document.getElementById('modernPcSearchInput');
+      var q = input ? input.value.trim() : '';
+      if (!q) {
+        showToast('Please enter a game name to search', 'info');
+        return;
+      }
+      modernPcSearchQuery = q;
+      loadModernPcFeed();
+    }
+
+    function clearModernPcSearch() {
+      var input = document.getElementById('modernPcSearchInput');
+      if (input) input.value = '';
+      modernPcSearchQuery = '';
+      loadModernPcFeed();
+    }
+
+    function renderModernPcGrid(items) {
+      if (activeFeedMode !== 'modern-pc') return;
+      var grid = document.getElementById('pcRssGrid');
+      if (!items || items.length === 0) {
+        grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 40px 20px; color: var(--text-muted);">' +
+                         'No releases found on ' + activeModernPcSite + ' matching your criteria.</div>';
+        return;
+      }
+
+      var current = modernSitesList.find(function(s) { return s.key === activeModernPcSite; }) || { name: 'PC Game', badge: 'PC', badgeColor: '#31a8ff' };
+
+      grid.innerHTML = '';
+      items.forEach(function(item) {
+        var card = document.createElement('div');
+        card.className = 'pc-rss-card';
+
+        var badgeText = current.badge || 'PC DDL';
+        var badgeColor = current.badgeColor || '#31a8ff';
+        var badgeStyle = 'background: #182226; color: ' + badgeColor + '; border: 1px solid ' + badgeColor + '55;';
+
+        var mediaHtml = '';
+        if (item.thumbnail) {
+          var safeThumb = String(item.thumbnail).replace(/"/g, '&quot;');
+          var proxySrc = '/api/proxy-image?url=' + encodeURIComponent(item.thumbnail);
+          var safeProxy = proxySrc.replace(/"/g, '&quot;');
+          mediaHtml = '<div class="pc-rss-media-wrap">' +
+                      '  <img src="' + safeThumb + '" alt="" class="pc-rss-img" loading="lazy" referrerpolicy="no-referrer" data-proxy="' + safeProxy + '" onerror="handlePcRssImgError(this)" />' +
+                      '  <span class="pc-rss-console-tag badge-console" style="' + badgeStyle + '">' + badgeText + '</span>' +
+                      (item.size ? '<span class="pc-rss-date-badge" style="background:#261c14;color:#fdba74;border:1px solid #7c2d12;">' + item.size + '</span>' : '') +
+                      '</div>';
+        } else {
+          mediaHtml = '<div class="pc-rss-media-wrap" style="display:flex;align-items:center;justify-content:center;background:#181818;">' +
+                      '  <span style="font-size:36px;color:#555;">🎮</span>' +
+                      '  <span class="pc-rss-console-tag badge-console" style="' + badgeStyle + '">' + badgeText + '</span>' +
+                      (item.size ? '<span class="pc-rss-date-badge" style="background:#261c14;color:#fdba74;border:1px solid #7c2d12;">' + item.size + '</span>' : '') +
+                      '</div>';
+        }
+
+        var content = document.createElement('div');
+        content.className = 'pc-rss-content';
+
+        var metaRow = document.createElement('div');
+        metaRow.className = 'pc-rss-meta-row';
+        var catText = (item.categories && item.categories.length > 0) ? item.categories.slice(0, 2).join(' • ') : 'Modern PC DDL';
+        metaRow.innerHTML = '<span>' + catText + '</span><span>' + (item.author || current.name) + '</span>';
+        content.appendChild(metaRow);
+
+        var titleEl = document.createElement('div');
+        titleEl.className = 'pc-rss-title';
+        titleEl.textContent = item.title || 'Untitled Game';
+        titleEl.title = item.rawTitle || item.title || '';
+        content.appendChild(titleEl);
+
+        var descEl = document.createElement('div');
+        descEl.className = 'pc-rss-desc';
+        descEl.textContent = item.rawTitle || item.excerpt || 'Direct download PC game release.';
+        content.appendChild(descEl);
+
+        var footer = document.createElement('div');
+        footer.className = 'pc-rss-footer';
+
+        var linksBtn = document.createElement('button');
+        linksBtn.className = 'btn btn-primary btn-sm';
+        linksBtn.textContent = '📥 Mirrors';
+        linksBtn.title = 'Scrape direct mirrors and download links from ' + current.name;
+        linksBtn.onclick = function() {
+          openPcScrapeModal(item.link, item.title, []);
         };
         footer.appendChild(linksBtn);
 

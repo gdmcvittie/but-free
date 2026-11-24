@@ -24,6 +24,12 @@ import {
   scrapeSteamripPost,
   isSteamripUrl
 } from './steamrip.js';
+import {
+  MODERN_PC_SITES,
+  fetchModernPcFeed,
+  scrapeModernPcPost,
+  isModernPcUrl
+} from './modern-pc-ddl.js';
 
 const SCRAPE_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
@@ -399,6 +405,44 @@ export function registerPcRssRoutes(app, options = {}) {
     }
   });
 
+  // 1f. Modern PC Games Sites List: /api/modern-pc/sites
+  app.get('/api/modern-pc/sites', (_req, res) => {
+    res.json({
+      success: true,
+      sites: MODERN_PC_SITES
+    });
+  });
+
+  // 1g. Modern PC Feed: /api/modern-pc/feed?site=<siteKey>&q=...&page=...
+  app.get('/api/modern-pc/feed', async (req, res) => {
+    try {
+      const siteKey = (req.query.site || 'ovagames').trim().toLowerCase();
+      const query = (req.query.q || req.query.query || '').trim();
+      const forceRefresh = req.query.refresh === 'true' || req.query.force === 'true';
+      const page = parseInt(req.query.page, 10) || 1;
+      const dataDir = options.dataDir;
+
+      const feed = await fetchModernPcFeed({ siteKey, query, forceRefresh, page, dataDir });
+      res.json({ success: true, feed });
+    } catch (err) {
+      console.error('[Modern PC API] Feed error:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 1h. Modern PC Post Scraper: /api/modern-pc/scrape?url=<postUrl>
+  app.get('/api/modern-pc/scrape', async (req, res) => {
+    try {
+      const pageUrl = (req.query.url || '').trim();
+      if (!pageUrl) return res.status(400).json({ success: false, error: 'URL is required' });
+      const data = await scrapeModernPcPost(pageUrl);
+      res.json({ success: true, ...data });
+    } catch (err) {
+      console.error('[Modern PC API] Scrape error:', err.message);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // FitGirl Availability Cache & Matching
   const fitgirlAvailabilityCache = new Map();
   const FITGIRL_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
@@ -624,6 +668,18 @@ export function registerPcRssRoutes(app, options = {}) {
           gameSize: steamripData.size || null,
           gameSizeBytes: steamripData.size ? parseSizeStringToBytes(steamripData.size) : null,
           links: steamripData.links
+        });
+      }
+
+      if (isModernPcUrl(pageUrl)) {
+        const modernData = await scrapeModernPcPost(pageUrl);
+        return res.json({
+          success: true,
+          url: pageUrl,
+          title: modernData.title,
+          gameSize: modernData.size || null,
+          gameSizeBytes: modernData.size ? parseSizeStringToBytes(modernData.size) : null,
+          links: modernData.links
         });
       }
       async function fetchHtmlWithHeaders(url) {
